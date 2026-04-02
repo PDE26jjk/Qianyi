@@ -2,7 +2,7 @@ from bpy.types import Menu
 
 from ..declarations import Operators
 
-
+# TODO 完善各种右键菜单、快捷键等
 class NODE_MT_CustomMenu(Menu):
     """自定义节点工具菜单"""
     bl_label = "自定义工具"

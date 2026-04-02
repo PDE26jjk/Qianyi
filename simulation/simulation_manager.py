@@ -60,13 +60,20 @@ class SimulationManager:
                 # self.simulator.set_world_matrix(self.world_matrixs[i], i)
                 # TODO
         # self.simulator.update_once()
+        # for i in range(10):
         self.simulator.update(0.01)
+        # self.simulator.update(0.001)
+        # self.simulator.update(0.001)
         time2 = time.time() - start
-        console_print(time2 * 1000)
+        console_print("simulation: ", time2 * 1000)
         self.run_count += 1
 
         if self.run_count % 1 == 0:
+            # start = time.time()
             vertices_data = self.simulator.get_simulation_data().reshape(-1)
+            # debug_colors = self.simulator.get_debug_colors().reshape(-1)
+            # console_print("copy data 1: ", (time.time() - start) * 1000)
+            start = time.time()
             nb_all_v = 0
             for i, data in enumerate(self.simulated_objects):
                 if self.simulated_objects[i]['object_type'] > 0:
@@ -76,11 +83,21 @@ class SimulationManager:
                 shape_key = mesh.shape_keys.key_blocks['QYSim']
                 num_vertices = len(mesh.vertices)
                 vertices_local = vertices_data[nb_all_v * 3: (nb_all_v + num_vertices) * 3]
+                # colors = debug_colors[nb_all_v * 3: (nb_all_v + num_vertices) * 3].reshape(-1, 3)
                 # print(i,vertices_local)
                 nb_all_v += num_vertices
-                shape_key.data.foreach_set("co", vertices_local)
+                shape_key.points.foreach_set("co", vertices_local)
+                # color_attributes = mesh.color_attributes
+                # color_name = 'Color'
+                # if color_name in color_attributes:
+                #     color_attribute = color_attributes[color_name]
+                #     colors_4d = np.zeros((colors.shape[0], 4))
+                #     colors_4d[:, :3] = colors
+                #     colors_4d[:, 3] = 1.0
+                #     color_attribute.data.foreach_set("color", colors_4d.ravel())
                 mesh.update()
-
+            # console_print("copy data 2: ", (time.time() - start) * 1000)
+            # start = time.time()
 
     def setup_data(self):
         self.simulated_objects.clear()
@@ -123,24 +140,30 @@ class SimulationManager:
             return False
 
         mesh: bpy.types.Mesh = obj.data
-        if mesh.shape_keys is None:
-            console_print(f"{obj.name} has not shape keys !")
-            return False
+        is_cloth = obj.qmyi_simulation_props.is_pattern_mesh
         num_vertices = len(mesh.vertices)
-        keys = mesh.shape_keys.key_blocks
-        base_name = "QYBasis"
-        shape_key = keys[base_name]
         vertices_local = np.empty(num_vertices * 3, dtype=np.float32)
-        shape_key.data.foreach_get("co", vertices_local)
+        if is_cloth:
+            if mesh.shape_keys is None:
+                obj.shape_key_add(name='Basis')
+            keys = mesh.shape_keys.key_blocks
+            base_name = "QYBasis"
+            shape_key = keys[base_name]
+            shape_key.data.foreach_get("co", vertices_local)
 
-        sim_name = "QYSim"
-        if sim_name not in keys:
-            obj.shape_key_add(name=sim_name, from_mix=False)
-        keys[sim_name].value = 1.0
-        keys[sim_name].relative_key = keys[base_name]
-        shape_key = keys[sim_name]
-        vertices_sim = np.empty(num_vertices * 3, dtype=np.float32)
-        shape_key.data.foreach_get("co", vertices_sim)
+            sim_name = "QYSim"
+            if sim_name not in keys:
+                obj.shape_key_add(name=sim_name, from_mix=False)
+            keys[sim_name].value = 1.0
+            keys[sim_name].relative_key = keys[base_name]
+            shape_key = keys[sim_name]
+            vertices_sim = np.empty(num_vertices * 3, dtype=np.float32)
+            shape_key.data.foreach_get("co", vertices_sim)
+
+        else:
+            normals = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.float32)
+            mesh.loop_triangles.foreach_get("normal", normals)
+            mesh.vertices.foreach_get("co", vertices_local)
 
         world_matrix = obj.matrix_world
         world_matrix = np.array(world_matrix, dtype=np.float32)
@@ -151,14 +174,14 @@ class SimulationManager:
         tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
         mesh.loop_triangles.foreach_get("vertices", tris)
 
-        # normals = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.float32)
-        # mesh.loop_triangles.foreach_get("normal", normals)
-        # normals = normals.reshape(-1, 3)
-
-        result = {'obj': obj, 'vertices': vertices_local, 'vertices_sim': vertices_sim,
+        result = {'obj': obj, 'vertices': vertices_local,
                   'edges': edges, 'triangles': tris,
-                  'world_matrix': world_matrix, 'mass': 1., #'normals': normals,
-                  'object_type': 0 if obj.qmyi_simulation_props.is_pattern_mesh else 1}
+                  'world_matrix': world_matrix, 'mass': 100.,
+                  'object_type': 0 if is_cloth else 1}
+        if is_cloth:
+            result['vertices_sim'] = vertices_sim
+        else:
+            result['normals'] = normals
         # console_print(obj.simulation_props.mass, result['object_type'])
         self.simulated_objects.append(result)
         self.world_matrixs.append(world_matrix.copy())

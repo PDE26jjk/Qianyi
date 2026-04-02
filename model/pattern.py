@@ -199,11 +199,13 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         start = time.time()
         self.mesh_object = generate_pattern_mesh(self.get_geo_points_unique(), granularity, self.mesh_object)
         console_print("generate_pattern_mesh: ", time.time() - start)
+        console_print("generated: ", self.mesh_object.name)
         start = time.time()
         sim_pros = self.mesh_object.qmyi_simulation_props
+        console_print(sim_pros.id_data)
         sim_pros.participate_in_simulation = True
-        sim_pros.ensure_shape_keys(self.mesh_object)
         sim_pros.pattern = self
+        sim_pros.ensure_attributes()
         if self.mesh_renderer is not None:
             self.mesh_renderer.create_batch(self.mesh_object)
         console_print("mesh_renderer.create_batch: ", time.time() - start)

@@ -1,3 +1,4 @@
+import ctypes
 import time
 
 import numpy as np
@@ -36,12 +37,14 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
     next_point = np.array([((i + 1) % len(edge_points)) for i in range(len(edge_points))], dtype=np.int32)
     # sampling_points = taichi_mgr.execute(sample_points,edge_points, next_point, granularity).result()
     import Qianyi_DP as qydp
-    sampling_points = qydp.sample_points(edge_points, next_point, float(granularity)).reshape(-1, 2)
+    geometry = qydp.geometry
+    all_points, triangles = geometry.sample_points(edge_points, next_point, float(granularity))
     console_print("sample_points: ", time.time() - start_time)
     start_time = time.time()
-    all_points = np.vstack((edge_points, sampling_points))
-    constraint = np.column_stack([np.arange(next_point.size), next_point]).astype(np.int32)
-    triangles = qydp.delaunay2D(all_points, constraint)
+    # all_points = np.vstack((edge_points, sampling_points))
+    # constraint = np.column_stack([np.arange(next_point.size), next_point]).astype(np.int32)
+    # triangles = geometry.delaunay_2d(all_points, constraint)
+    # triangles = geometry.sample_points_dbg(edge_points, edge_points).reshape(-1,3)
 
     # result = delaunay_2d_cdt(
     #     points,  # 位置参数1: 顶点坐标
@@ -65,7 +68,7 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
 
     has_basis = False
     if mesh.shape_keys:
-        # TODO map points position
+        # TODO map points position from old data
         mesh_obj.shape_key_clear()
 
     num_vertices = len(all_points)
@@ -74,55 +77,54 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
     vertices_3d = np.hstack((all_points, zeros))
 
     # 2. 准备面数据 (过滤逻辑优化)
-    # 原代码逻辑：if not (tri[0] >= pointsLen ...)
-    # 注意：原代码中 pointsLen = len(points)，所以 tri index >= len(points) 永远为假。
-    # 也就是原代码实际上没有过滤任何三角形。
-    # 如果你想过滤掉全由采样点（不包含边界点）构成的三角形，应该将阈值设为 len(edge_points)。
-    # 这里为了保持和你原代码输出一致，我直接使用所有 triangles。
-    # 如果需要过滤，可以使用以下 Numpy 掩码方式（极快）：
-    # threshold = len(edge_points)
-    # mask = np.all(triangles >= threshold, axis=1) # 找出所有点都在阈值之后的三角形
-    # final_triangles = triangles[~mask] # 取反，保留其他的
 
-    p_a = all_points[triangles[:, 0]]
-    p_b = all_points[triangles[:, 1]]
-    p_c = all_points[triangles[:, 2]]
-
-    # 计算叉积绝对值
-    cross_product = np.abs((p_b[:, 0] - p_a[:, 0]) * (p_c[:, 1] - p_a[:, 1]) -
-                           (p_b[:, 1] - p_a[:, 1]) * (p_c[:, 0] - p_a[:, 0]))
+    # p_a = all_points[triangles[:, 0]]
+    # p_b = all_points[triangles[:, 1]]
+    # p_c = all_points[triangles[:, 2]]
+    #
+    # # 计算叉积绝对值
+    # cross_product = np.abs((p_b[:, 0] - p_a[:, 0]) * (p_c[:, 1] - p_a[:, 1]) -
+    #                        (p_b[:, 1] - p_a[:, 1]) * (p_c[:, 0] - p_a[:, 0]))
 
     # 过滤
-    mask = cross_product > 1e-8
-    final_triangles = triangles[mask]
-    num_polygons = len(final_triangles)
+    # mask = cross_product > 1e-8
+    # final_triangles = triangles[mask]
+    num_polygons = len(triangles)
 
     # 3. 批量创建几何体 (foreach_set)
     # 这是 Blender Python API 的核武器，比 from_pydata 还快
-
     # 添加空顶点和空多边形/循环
     mesh.vertices.add(num_vertices)
     mesh.polygons.add(num_polygons)
     mesh.loops.add(num_polygons * 3)  # 三角形，所以循环数是面数 * 3
 
+
     # 填充顶点坐标
     # foreach_set 需要平铺的一维数组
     mesh.vertices.foreach_set("co", vertices_3d.ravel())
-
     # 填充拓扑结构
     # loop_start: 0, 3, 6, 9...
     loop_starts = np.arange(0, num_polygons * 3, 3, dtype=np.int32)
     # loop_total: 3, 3, 3, 3...
     loop_totals = np.full(num_polygons, 3, dtype=np.int32)
     # vertex_indices: 直接展平三角形数组
-    loop_indices = final_triangles.ravel().astype(np.int32)
+    loop_indices = triangles.ravel().astype(np.int32)
 
     mesh.polygons.foreach_set("loop_start", loop_starts)
     mesh.polygons.foreach_set("loop_total", loop_totals)
-    mesh.loops.foreach_set("vertex_index", loop_indices)
+    # mesh.loops.foreach_set("vertex_index", loop_indices) # Very slow!!
+    # TODO Not safe!
+    first_loop = mesh.loops[0]
+    loop_ptr = first_loop.as_pointer()
+    int_array = (ctypes.c_int * len(loop_indices))
+    dest = int_array.from_address(loop_ptr)
+    ctypes.memmove(dest, loop_indices.ctypes.data_as(ctypes.c_char_p),
+                   len(loop_indices) * ctypes.sizeof(ctypes.c_int))
+    # console_print("mesh8: ", time.time() - start_time)
+    # start_time = time.time()
+
     # 更新网格
     mesh.update(calc_edges=True)  # 自动计算边
-
     mesh_obj.lock_scale = (True, True, True)
 
     console_print("create_mesh: ", time.time() - start_time)

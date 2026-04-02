@@ -8,7 +8,7 @@ from ..declarations import GizmoGroups, Operators, WorkSpaceTools
 class NODE_T_qmyi_select(WorkSpaceTool):
     bl_space_type = "NODE_EDITOR"
     bl_context_mode = None
-    bl_idname = WorkSpaceTools.Select
+    bl_idname = WorkSpaceTools.Select.value
     bl_label = ""
     bl_description = "Select Entities"
     bl_icon = "ops.generic.select"

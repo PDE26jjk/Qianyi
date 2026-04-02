@@ -14,13 +14,13 @@ from ..utilities.coords_transform import create_2d_matrix
 # 自定义着色器代码
 vertex_shader = '''
 uniform mat4 ModelMatrix;
-uniform mat4 ViewProjectionMatrix;
+uniform mat4 ModelViewProjectionMatrix; // Set by blender
 
 in vec3 pos;
 
 void main()
 {
-    gl_Position = ViewProjectionMatrix * ModelMatrix * vec4(pos, 1.0/1.539);
+    gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos.x,pos.y,0., 1.0);
 }
 '''
 
@@ -41,7 +41,8 @@ class MeshRenderer:
 
     def __init__(self, pattern):
         self.pattern_uuid = pattern.global_uuid
-        self.draw_handle = None
+        if self.shader is None:
+            self.shader = GPUShader(vertex_shader, fragment_shader)
         self.batch_line = None
         self.batch_triangle = None
         self.obj = None
@@ -49,15 +50,6 @@ class MeshRenderer:
     @property
     def pattern(self):
         return global_data.get_obj_by_uuid(self.pattern_uuid)
-
-    def setup_shader(self):
-        """创建自定义着色器"""
-        if self.shader is None:
-            try:
-                self.shader = GPUShader(vertex_shader, fragment_shader)
-            except:
-                # 如果自定义着色器失败，回退到内置着色器
-                self.shader = gpu.shader.from_builtin('UNIFORM_COLOR')
 
     def create_batch(self, obj):
         """创建网格批次（只调用一次）"""
@@ -75,7 +67,7 @@ class MeshRenderer:
         # 使用 foreach_get 直接将 C 内存数据复制到 numpy 数组中
         # .ravel() 将 2D 数组展平为 1D，因为 foreach_get 需要平铺的数据
         mesh.vertices.foreach_get("co", vertices.ravel())
-
+        vertices *= 1000.
         # --- 2. 获取边索引 (Nx2) ---
         edges = np.empty((len(mesh.edges), 2), dtype=np.int32)
         mesh.edges.foreach_get("vertices", edges.ravel())
@@ -105,9 +97,9 @@ class MeshRenderer:
 
     def get_world_matrix(self):
         return create_2d_matrix(rotation=self.pattern.rotation,
-                                offset=self.pattern.anchor * 0.001 * 1.539)
+                                offset=self.pattern.anchor)
 
-    def draw_triangles(self, region_matrix, color=(1.0, 1.0, 1.0, 0.5), draw_id=False):
+    def draw_fill_mesh(self, color=(1.0, 1.0, 1.0, 0.5), draw_id=False):
         if not self.obj or not self.batch_triangle or not self.shader:
             return
         # 设置GPU状态
@@ -119,36 +111,22 @@ class MeshRenderer:
 
         self.shader.bind()
 
-        scale = 1
-        vp_matrix = create_2d_matrix(scale=(scale, scale)) @ region_matrix
-
         self.shader.uniform_float("ModelMatrix", self.get_world_matrix())
-        self.shader.uniform_float("ViewProjectionMatrix", vp_matrix)
         self.shader.uniform_float("color", color)
         self.batch_triangle.draw(self.shader)
 
-    def draw_lines(self, region_matrix, selected=False):
+    def draw_mesh_lines(self, selected=False):
         if not self.obj or not self.batch_line or not self.shader:
             return
-        # 设置GPU状态
+
         gpu.state.blend_set('ALPHA')
         gpu.state.depth_test_set('NONE')
 
         self.shader.bind()
 
-        # 上传变换矩阵
-        # if self.shader.uniform_from_name("ModelMatrix"):
-        # 自定义着色器 - 上传模型矩阵和视图投影矩阵
-        # model_matrix = self.obj.matrix_world
-        # view_matrix = context.region_data.view_matrix
-        # projection_matrix = context.region_data.window_matrix
-        # view_projection_matrix = projection_matrix @ view_matrix
-
-        scale = 1
-        vp_matrix = create_2d_matrix(scale=(scale, scale)) @ region_matrix
-
-        self.shader.uniform_float("ModelMatrix", self.get_world_matrix())
-        self.shader.uniform_float("ViewProjectionMatrix", vp_matrix)
+        transform_matrix = create_2d_matrix(rotation=self.pattern.rotation,
+                                            offset=self.pattern.anchor)
+        self.shader.uniform_float("ModelMatrix", transform_matrix)
         if selected:
             self.shader.uniform_float("color", (0.843, 0.596, 0.153, 1.0))
         else:
@@ -163,7 +141,6 @@ class MeshRenderer:
         if not obj:
             return False
 
-        self.setup_shader()
         self.batch_line, self.batch_triangle = self.create_batch(obj)
 
         if not self.batch_triangle:
@@ -171,6 +148,3 @@ class MeshRenderer:
 
         self.obj = obj
         return True
-
-# 使用示例
-# renderer = MeshRenderer()

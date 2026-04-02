@@ -14,7 +14,7 @@ class SimulationProps(PropertyGroup):
         description="enable simulation",
         default=False,
         options={"SKIP_SAVE"},
-        update=lambda self, context: self._on_global_simulation_toggle(context)
+        update=lambda _self, context: _self._on_global_simulation_toggle(context)
     )
 
     def _on_global_simulation_toggle(self, context):

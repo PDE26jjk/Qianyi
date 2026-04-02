@@ -15,12 +15,13 @@ from utilities.coords_transform import create_2d_matrix
 vertex_shader = '''
 uniform mat4 ModelMatrix;
 uniform mat4 ViewProjectionMatrix;
+uniform mat4 ModelViewProjectionMatrix; // Set by blender
 
 in vec2 pos;
 
 void main()
 {
-    gl_Position = ViewProjectionMatrix * ModelMatrix * vec4(pos, 0.0, 1.0); 
+    gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos, 0.0, 1.0); 
 }
 '''
 
@@ -56,10 +57,8 @@ class SewingRenderer:
             self.shader, 'LINE_STRIP',
             {"pos": render_points2},
         )
-        # console_print(render_points1)
-        # bpy.context.workspace.status_text_set(render_points[0])
 
-    def draw(self, region_matrix, ):
+    def draw(self):
         if not self.shader:
             return
         gpu.state.blend_set('ALPHA')
@@ -71,10 +70,8 @@ class SewingRenderer:
         self.shader.bind()
         p1 = self.sewing.side1.line1.pattern
         p2 = self.sewing.side2.line1.pattern
-        scale = 0.001 * 1.539
         transform_matrix = create_2d_matrix(rotation=p1.rotation, offset=p1.anchor)
         self.shader.uniform_float("ModelMatrix", transform_matrix)
-        self.shader.uniform_float("ViewProjectionMatrix", region_matrix @ create_2d_matrix(scale=(scale, scale)))
         self.shader.uniform_float("color", (*self.sewing.color,1))
         self.batch_edge1.draw(self.shader)
 

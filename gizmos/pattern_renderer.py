@@ -15,14 +15,13 @@ from utilities.coords_transform import create_2d_matrix
 # 自定义着色器代码
 vertex_shader = '''
 uniform mat4 ModelMatrix;
-uniform mat4 ViewProjectionMatrix;
+uniform mat4 ModelViewProjectionMatrix; // Set by blender
 
 in vec2 pos;
 
 void main()
 {
-    gl_Position = ViewProjectionMatrix * ModelMatrix * vec4(pos, 0.0, 1.0); // why?
-    // gl_Position.w /= 2; 
+     gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos, 0., 1.0);
 }
 '''
 
@@ -42,7 +41,7 @@ class PatternRenderer:
     shader = None
 
     def __init__(self, pattern):
-        self.draw_handle = None
+        # self.draw_handle = None
         self.batch_edge = None
         self.batch_vertex = None
         self.pattern_uuid = pattern.global_uuid
@@ -59,7 +58,6 @@ class PatternRenderer:
             self.shader, 'LINE_LOOP',
             {"pos": render_points},
         )
-        # bpy.context.workspace.status_text_set(render_points[0])
 
     def update_batch_vertex(self, vertex_points):
         # 创建批次
@@ -68,7 +66,7 @@ class PatternRenderer:
             {"pos": vertex_points},
         )
 
-    def draw_edges(self, region_matrix, color=(1.0, 1.0, 1.0, 0.5)):
+    def draw_edges(self, color=(1.0, 1.0, 1.0, 0.5)):
         if not self.shader:
             return
         if not self.batch_edge:
@@ -84,11 +82,10 @@ class PatternRenderer:
 
         scale = 0.001 * 1.539
         self.shader.uniform_float("ModelMatrix", transform_matrix)
-        self.shader.uniform_float("ViewProjectionMatrix", region_matrix @ create_2d_matrix(scale=(scale, scale)))
         self.shader.uniform_float("color", color)
         self.batch_edge.draw(self.shader)
 
-    def draw_vertices(self, region_matrix, color=(1.0, 1.0, 1.0, 0.5)):
+    def draw_vertices(self, color=(1.0, 1.0, 1.0, 0.5)):
         if not self.shader:
             return
         if not self.batch_vertex:
@@ -99,8 +96,6 @@ class PatternRenderer:
         self.shader.bind()
         transform_matrix = create_2d_matrix(rotation=self.pattern.rotation,
                                             offset=self.pattern.anchor)
-        scale = 0.001 * 1.539
         self.shader.uniform_float("ModelMatrix", transform_matrix)
-        self.shader.uniform_float("ViewProjectionMatrix", region_matrix @ create_2d_matrix(scale=(scale, scale)))
         self.shader.uniform_float("color", color)
         self.batch_vertex.draw(self.shader)

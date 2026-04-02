@@ -8,7 +8,7 @@ from ..declarations import GizmoGroups, Operators, WorkSpaceTools
 class NODE_T_qmyi_add_poly(WorkSpaceTool):
     bl_space_type = "NODE_EDITOR"
     bl_context_mode = None
-    bl_idname = WorkSpaceTools.AddPoly
+    bl_idname = WorkSpaceTools.AddPoly.value
     bl_label = "Offset Entities"
     bl_operator = Operators.AddPoly
     bl_icon = "ops.gpencil.primitive_arc"

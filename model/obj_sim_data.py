@@ -11,7 +11,7 @@ class ObjectSimulationProperties(PropertyGroup):
         name="participate_in_simulation",
         description="Does this object participate in physical simulation?",
         default=False,
-        update=lambda self, context: self._on_participate_in_simulation_toggle(context)
+        update=lambda self_, context: self_._on_participate_in_simulation_toggle(context)
     )
 
     simulation_index: IntProperty(
@@ -40,12 +40,22 @@ class ObjectSimulationProperties(PropertyGroup):
 
     def _on_participate_in_simulation_toggle(self, context):
         if self.participate_in_simulation:
-            console_print("join simulation")
-            self.init_simulation(context.object)
+            console_print(self.id_data.name, "join simulation")
         else:
             console_print("out simulation")
 
-    def ensure_shape_keys(self, obj):
+    def ensure_attributes(self):
+        obj = self.id_data
+        if not self.is_pattern_mesh:
+            return
+        if self.is_pattern_mesh:
+            if self.pattern.mesh_object != obj:
+                console_print(f"ERROR:{obj.name} != self.pattern.mesh_object ({self.pattern.mesh_object.name})")
+                self.pattern_uuid = -1
+                import traceback
+                console_print(''.join(traceback.format_stack(limit=10)))
+                return
+
         mesh: bpy.types.Mesh = obj.data
         if mesh.shape_keys is None:
             obj.shape_key_add(name='Basis')
@@ -63,21 +73,30 @@ class ObjectSimulationProperties(PropertyGroup):
             keys[sim_name].value = 1.0
             keys[sim_name].relative_key = keys[base_name]
 
+        color_attributes = mesh.color_attributes
+        color_name = 'Color'
+        if color_name not in color_attributes:
+            color_attributes.new(
+                name=color_name,
+                type='FLOAT_COLOR',
+                domain='POINT',
+            )
+
     def init_simulation(self, obj):
         if not obj or obj.type != 'MESH' or not self.is_pattern_mesh:
             return False
 
-        self.ensure_shape_keys(obj)
+        self.ensure_attributes(obj)
 
         return True
 
     fabric_enum: bpy.props.EnumProperty(
         name="Fabric",
         description="Select fabric",
-        items=lambda self, context: self.get_fabric_items(),
-        # update=lambda self, context: console_print(self.fabric_enum),
-        get=lambda self: self.get_fabric_enum_value(),
-        set=lambda self, value: self.set_fabric_enum_value(value),
+        items=lambda self_, context: self_.get_fabric_items(),
+        # update=lambda self_, context: console_print(self.fabric_enum),
+        get=lambda self_: self_.get_fabric_enum_value(),
+        set=lambda self_, value: self_.set_fabric_enum_value(value),
         options={"SKIP_SAVE"}
     )
 

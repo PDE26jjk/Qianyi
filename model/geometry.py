@@ -96,6 +96,10 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             p = self.geo_points.add()
             p.co = self.geo_points_temp[i]
         self.need_update_points = False
+        from ..gizmos.curve_renderer import CurveRenderer
+        if self.renderer is None:
+            self.renderer = CurveRenderer(self)
+        self.renderer.update_batch()
 
     def calc_bbox(self, points):
         bbox_min = points.min(axis=0)
@@ -335,6 +339,7 @@ define_temp_prop(Edge2D, "length", None)
 define_temp_prop(Edge2D, "vertices", lambda: [(0.0, 0.0), (0.0, 0.0)])
 define_temp_prop(Edge2D, "need_update_points", True)
 define_temp_prop(Edge2D, "render_points", None)
+define_temp_prop(Edge2D, "renderer", None)
 define_temp_prop(Edge2D, "geo_points_temp", None)
 define_temp_prop(Edge2D, "section_start", None)
 define_temp_prop(Edge2D, "section_end", None)

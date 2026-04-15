@@ -190,3 +190,4 @@ cython_debug/
 
 # Jupyter notes
 *.ipynb
+/extracted_files/

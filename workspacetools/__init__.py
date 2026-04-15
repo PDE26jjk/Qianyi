@@ -1,6 +1,8 @@
 import bpy
 from bpy.utils import register_tool, unregister_tool
 
+from .add_sewing1 import NODE_T_qmyi_add_sewing1
+from .add_vertex import NODE_T_qmyi_add_vertex
 from ..utilities.console import console
 from ..utilities.node_tree import get_active_node_tree
 from .add_poly import NODE_T_qmyi_add_poly
@@ -13,6 +15,8 @@ from bl_ui.space_toolsystem_common import ToolDef
 tools = (
     (NODE_T_qmyi_select, {"separator": True, "group": False}),
     (NODE_T_qmyi_add_poly, {"separator": True, "group": False}),
+    (NODE_T_qmyi_add_vertex, {}),
+    (NODE_T_qmyi_add_sewing1, {}),
 )
 _original_tools_from_context = None
 @classmethod

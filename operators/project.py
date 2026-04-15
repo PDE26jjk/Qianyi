@@ -2,6 +2,7 @@ import bpy
 from bpy.types import Operator
 from bpy.utils import register_classes_factory
 
+from ..utilities.node_tree import change_node_editors_zoom_limit_unsafe
 from ..declarations import Operators, Panels
 
 
@@ -40,6 +41,7 @@ class QY_OT_AddProject(Operator):
             if group == graph:
                 qmyi.active_project_index = i
                 break
+        change_node_editors_zoom_limit_unsafe(context)
         return {"FINISHED"}
 
 

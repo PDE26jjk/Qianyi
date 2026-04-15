@@ -8,45 +8,18 @@ from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix
 
+from .base_renderer import BaseRenderer
 from .. import global_data
 
 from utilities.coords_transform import create_2d_matrix
 
-# 自定义着色器代码
-vertex_shader = '''
-uniform mat4 ModelMatrix;
-uniform mat4 ModelViewProjectionMatrix; // Set by blender
 
-in vec2 pos;
-
-void main()
-{
-     gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos, 0., 1.0);
-}
-'''
-
-fragment_shader = '''
-uniform vec4 color;
-
-out vec4 fragColor;
-
-void main()
-{
-    fragColor = color;
-}
-'''
-
-
-class PatternRenderer:
-    shader = None
-
+class PatternRenderer(BaseRenderer):
     def __init__(self, pattern):
-        # self.draw_handle = None
+        super().__init__()
         self.batch_edge = None
         self.batch_vertex = None
         self.pattern_uuid = pattern.global_uuid
-        if self.shader is None:
-            self.shader = GPUShader(vertex_shader, fragment_shader)
 
     @property
     def pattern(self):
@@ -80,7 +53,6 @@ class PatternRenderer:
         transform_matrix = create_2d_matrix(rotation=self.pattern.rotation,
                                             offset=self.pattern.anchor)
 
-        scale = 0.001 * 1.539
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.shader.uniform_float("color", color)
         self.batch_edge.draw(self.shader)

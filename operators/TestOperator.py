@@ -63,7 +63,7 @@ class NODE_OT_add_poly(Operator, StateOperator):
     def handle_success(self, context: Context, state):
         node_tree = get_active_node_tree(context)
         if node_tree is not None:
-            p = node_tree.patterns.add()
+            p = node_tree.add_pattern()
             p.add_vertex(self.rect.l1.p1)
             p.add_vertex(self.rect.l1.p2)
             p.add_vertex(self.rect.l3.p1)

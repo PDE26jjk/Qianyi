@@ -33,6 +33,17 @@ class QianyiProps(PropertyGroup, ModelData):
         ],
         default='PATTERN'
     )
+    edit_sub_mode: EnumProperty(
+        name="Edit sub Mode",
+        description="Edit Submode of Qianyi",
+        items=[
+            ('EDGE_VERTEX', "EDGE_VERTEX", "", ),
+            ('ADD_VERTEX', "ADD_VERTEX", "", ),
+            ('ADD_SEWING1', "ADD_SEWING1", "", ),
+            ('INTERNAL_POINT', "INTERNAL_POINT", "", ),
+        ],
+        default='EDGE_VERTEX'
+    )
     simulation_data: bpy.props.CollectionProperty(type=SimulationProps)
 
     @property

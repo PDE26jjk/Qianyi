@@ -110,6 +110,8 @@ class NODE_OT_qmyi_select(Operator):
             elif edit_mode == "EDGE":
                 _clear_selection(project.selected_vertices)
                 _clear_selection(project.selected_edges)
+            elif edit_mode == "SEWING":
+                _clear_selection(project.selected_sewings)
         if hit:
             # 针对 PATTERN 模式
             if edit_mode == "PATTERN":
@@ -129,6 +131,8 @@ class NODE_OT_qmyi_select(Operator):
 
                 elif "Edge" in type_name:
                     update_selection_cache(project.selected_edges, hover_object, mode, is_replace)
+            elif edit_mode == "SEWING":
+                update_selection_cache(project.selected_sewings, hover_object, mode, is_replace)
 
         context.area.tag_redraw()
         return {"FINISHED"}

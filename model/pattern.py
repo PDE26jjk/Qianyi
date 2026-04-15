@@ -5,8 +5,10 @@ from bpy.props import FloatVectorProperty, CollectionProperty, EnumProperty, Int
     FloatProperty, PointerProperty, BoolProperty, IntProperty
 from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
+from mathutils import Vector
 
-from utilities.console import console_print
+from utilities.console import console_print, console
+from utilities.coords_transform import create_2d_matrix, create_2d_matrix_invert
 from .geometry import Vertex2D, Edge2D
 from .section import Section
 from ..utilities.node_tree import get_all_node_tree
@@ -27,7 +29,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     def update_granularity(self, context):
         self.forced_update()
 
-    granularity: FloatProperty(name="granularity", default=100.0, update=update_granularity)
+    granularity: FloatProperty(name="granularity", default=20.0, update=update_granularity)
     bbox: FloatVectorProperty(name="BBox", size=4, default=(0.0, 0.0, 1.0, 1.0))
     mesh_object: PointerProperty(
         name="Mesh Object",
@@ -57,7 +59,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         for vertex in self.vertices:
             vertex.pattern = self
         from ..gizmos.pattern_renderer import PatternRenderer
+        from ..gizmos.GizmosMeshRenderer import MeshRenderer
         self.line_renderer = PatternRenderer(self)
+        self.mesh_renderer = MeshRenderer(self)
         self.calc_bbox()
 
     def calc_area(self):
@@ -79,19 +83,29 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return area
 
     def ensure_edge_ccw(self):
+        self.refresh_collection_uuid(self.edges)
+        ccw = True
         if self.calc_area() < 0:
+            ccw = False
+            console.warning("not ccw")
             for edge in self.edges:
                 edge.reverse()
             count = len(self.edges)
             for i in range(count - 1):
                 self.edges.move(count - 1, i)
-            self.forced_update()
+        else:
+            console.success("ccw")
+
+        self.forced_update()
+        return ccw
 
     def forced_update(self):
+        self.refresh_collection_uuid(self.edges)
         for edge in self.edges:
             edge.need_update_points = True
             edge.update(self)
         self.calc_bbox()
+        self.need_render_update = True
 
     def create_sections(self):
         for edge in self.edges:
@@ -107,8 +121,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     def add_vertex(self, position):
         """添加顶点"""
         vertex = self.vertices.add()
+        vertex.pattern = self
         vertex.co = position
-        return vertex
+        return len(self.vertices) - 1
 
     def add_edge(self, start_idx, end_idx, edge_type="BESSEL", control1=None, control2=None, handle1_type="VECTOR",
                  handle2_type="VECTOR", update=True):
@@ -118,8 +133,8 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         edge.vertex_index[1] = end_idx
         edge.type = edge_type
         if control1 is not None and control2 is not None:
-            edge.handle1_pos = control1
-            edge.handle2_pos = control2
+            edge.handle1.co = control1[:]
+            edge.handle2.co = control2[:]
         edge.handle1_type = handle1_type
         edge.handle2_type = handle2_type
         # bpy.context.workspace.status_text_set(f"{edge.handle_type1} {handle_type1}")
@@ -129,12 +144,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             self.calc_bbox()
         return edge
 
-    def update_render_points(self):
+    def update_render_line(self):
         if not self.initialized:
             self.initialize()
             self.initialized = True
 
-        if len(self.vertices) < 3:
+        if len(self.vertices) < 2:
             return []
         render_points = []
         for i in range(len(self.edges)):
@@ -156,10 +171,15 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         edge_points = []
         start_point = 0
         for i in range(len(self.edges)):
-            self.edges[i].update(self)
-            points = self.edges[i].geo_points_temp[:-1]
+            e = self.edges[i]
+            e.update(self)
+            points = e.geo_points_temp[:-1]
+            if points.shape[0] < 1:
+                console.warning(e.vertex0.co,e.handle1_type,e.vertex1.co,e.handle2_type)
+                raise Exception("points.shape[0] < 1")
+            # console.warning('geo_points_temp', points)
             edge_points.extend(points)
-            self.edges[i].start_point = start_point
+            e.start_point = start_point
             start_point += points.shape[0]
         return edge_points
 
@@ -206,8 +226,10 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         sim_pros.participate_in_simulation = True
         sim_pros.pattern = self
         sim_pros.ensure_attributes()
-        if self.mesh_renderer is not None:
-            self.mesh_renderer.create_batch(self.mesh_object)
+        if self.mesh_renderer is None:
+            from ..gizmos.GizmosMeshRenderer import MeshRenderer
+            self.mesh_renderer = MeshRenderer()
+        self.mesh_renderer.create_batch(self.mesh_object)
         console_print("mesh_renderer.create_batch: ", time.time() - start)
 
     @property
@@ -221,6 +243,21 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         self.line_renderer = None
         self._project = None
 
+    def calc_inv_matrix(self):
+        self.inv_transform_mat_2D = create_2d_matrix_invert(rotation=self.rotation, offset=self.anchor)
+        return self.inv_transform_mat_2D
+
+    def calc_matrix(self):
+        self.transform_mat_2D = create_2d_matrix(rotation=self.rotation, offset=self.anchor)
+        return self.transform_mat_2D
+
+    def view_to_pattern_pos(self, pos):
+        pos = self.calc_inv_matrix() @ Vector((pos[0], pos[1], 0, 1))
+        return pos[0], pos[1]
+
+    def pattern_to_view_pos(self, pos):
+        pos = self.calc_matrix() @ Vector((pos[0], pos[1], 0, 1))
+        return pos[0], pos[1]
 
 define_temp_prop(Pattern, "initialized", False)
 define_temp_prop(Pattern, "need_render_update", True)
@@ -230,5 +267,7 @@ define_temp_prop(Pattern, "render_points", [])
 # define_temp_prop(Pattern, "point2edge", [])
 define_temp_prop(Pattern, "mesh_renderer", None)
 define_temp_prop(Pattern, "line_renderer", None)
+define_temp_prop(Pattern, "transform_mat_2D", None)
+define_temp_prop(Pattern, "inv_transform_mat_2D", None)
 
 register, unregister = register_classes_factory((Pattern,))

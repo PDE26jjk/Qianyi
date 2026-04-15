@@ -1,6 +1,51 @@
 import numpy as np
 
 
+def split_polyline(points, percentage):
+    """
+    按百分比分割二维点链，将点链按分割点分成两部分返回。
+    保留分割点在前一段的末尾，后一段的开头。
+
+    :param points: np.ndarray, shape (N, 2)
+    :param percentage: float, 0.0 ~ 1.0
+    :return: (part1, part2) 二维点链的两个部分
+    """
+    points = np.asarray(points)
+    if len(points) < 2:
+        return points.copy(), points.copy()
+
+    diffs = np.diff(points, axis=0)
+    seg_lengths = np.linalg.norm(diffs, axis=1)
+    cum_lengths = np.cumsum(seg_lengths)
+    total_length = cum_lengths[-1]
+
+    if total_length == 0:
+        return points.copy(), points.copy()
+
+    percentage = np.clip(percentage, 0.0, 1.0)
+    target = total_length * percentage
+    scans = np.r_[0, cum_lengths]
+
+    # 找到目标长度所在线段的右端点索引
+    right_i = np.searchsorted(scans, target, side='right')
+    right_i = min(max(right_i, 1), len(points) - 1)
+    left_i = right_i - 1
+
+    # 计算分割点
+    seg_len = scans[right_i] - scans[left_i]
+    ratio = (target - scans[left_i]) / seg_len if seg_len > 0 else 0.0
+    split_pt = points[left_i] * (1 - ratio) + points[right_i] * ratio
+
+    # 构建两部分点链，处理刚好命中顶点(ratio==0)时避免重复添加同一个点
+    if ratio == 0:
+        part1 = points[:right_i]  # 不包含 split_pt 对应的顶点，因为在 part2 开头
+        part2 = np.vstack([[split_pt], points[right_i:]])
+    else:
+        part1 = np.vstack([points[:right_i], [split_pt]])
+        part2 = np.vstack([[split_pt], points[right_i:]])
+
+    return part1, part2
+
 def resample_polyline(points, segments, endpoint=False):
     """
     对二维点列进行基于距离的多段重采样。
@@ -51,3 +96,40 @@ def resample_polyline(points, segments, endpoint=False):
     y_resampled = np.interp(t_queries, t_orig, points[:, 1])
 
     return np.column_stack((x_resampled, y_resampled))
+
+def forward_diff_bezier(q, n):
+    """
+    计算单条2D贝塞尔曲线的离散点（完全向量化实现）
+
+    参数:
+        q: (4, 2) 形状的数组，包含曲线的控制点
+        n: 迭代次数（分段数）
+
+    返回:
+        points: (n+1, 2) 形状的数组，曲线上的点
+    """
+    assert q.shape == (4, 2), f"Expected control points shape (4,2), got {q.shape}"
+    if n == 0:
+        return np.array([q[0]])
+
+    # 计算差分变量
+    rt0 = q[0]
+    rt1 = 3.0 * (q[1] - q[0]) / n
+    rt2 = 3.0 * (q[0] - 2.0 * q[1] + q[2]) / (n * n)
+    rt3 = (q[3] - q[0] + 3.0 * (q[1] - q[2])) / (n * n * n)
+
+    # 重组迭代变量
+    q0 = rt0
+    q1 = rt1 + rt2 + rt3
+    q2 = 2 * rt2 + 6 * rt3
+    q3 = 6 * rt3
+
+    # 创建索引数组
+    k = np.arange(n + 1)
+
+    # 使用累加和公式计算点位置
+    term1 = k[:, None] * q1
+    term2 = (k * (k - 1) / 2)[:, None] * q2
+    term3 = (k * (k - 1) * (k - 2) / 6)[:, None] * q3
+
+    return q0 + term1 + term2 + term3

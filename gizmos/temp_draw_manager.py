@@ -6,8 +6,13 @@ import gpu
 import numpy as np
 from gpu_extras.batch import batch_for_shader
 
+from ..model.sewing import SewingOneSide
+from ..model.qianyi_project import QianyiProject
+from utilities.console import console
 from .edit_gizmos import Point, Line, Rect
+from .moving_curve import MovingCurve, MovingCurveWhole
 from .pattern_renderer import PatternRenderer
+from .points_renderer import PointsRenderer
 from ..utilities.coords_transform import create_2d_matrix
 from .. import global_data
 from ..model.geometry import Edge2D, Vertex2D
@@ -18,8 +23,10 @@ from .GizmosMeshRenderer import MeshRenderer
 
 class TempDrawManager:
     def __init__(self):
+        self.last_edit_mode = None
         self.points: List[Point] = []
         self.lines: List[Line] = []
+        self.moving_curves: List[MovingCurve] = []
         self.id_texture = None
         self.region_width = 0
         self.region_height = 0
@@ -40,9 +47,18 @@ class TempDrawManager:
     def add_Rect(self):
         return Rect(self)
 
+    def add_moving_curve_whole(self, edge):
+        self.moving_curves.append(MovingCurveWhole(edge))
+        return self.moving_curves[-1]
+
+    def add_moving_curve(self, edge):
+        self.moving_curves.append(MovingCurve(edge))
+        return self.moving_curves[-1]
+
     def clear(self):
-        self.points = []
-        self.lines = []
+        self.points.clear()
+        self.lines.clear()
+        self.moving_curves.clear()
 
     @staticmethod
     def get_v2d_cur(region):
@@ -143,6 +159,8 @@ class TempDrawManager:
         u = ((r << 24) | (g << 16) | (b << 8) | a)
         return ctypes.c_int32(u).value
 
+    uniform_color_shader = None
+
     def draw_id(self, context):
         region = context.region
         # create offscreen
@@ -166,7 +184,7 @@ class TempDrawManager:
                 for p in patterns:
                     p: Pattern
                     if p.need_render_update:
-                        p.update_render_points()
+                        p.update_render_line()
                         p.need_render_update = False
                     if qmyi.edit_mode == "PATTERN":
                         if p.mesh_renderer is not None:
@@ -177,18 +195,9 @@ class TempDrawManager:
                             if e.renderer is None:
                                 e.need_update_points = True
                                 e.update()
-                            e.renderer.draw(self.index_to_rgb(e.global_uuid), 10.)
-                            # gpu.state.line_width_set(10.0)
-                            # shader.bind()
-                            # e.update(p)
-                            # shader.uniform_float("color", self.index_to_rgb(e.global_uuid))
-                            # render_points = []
-                            # render_points.extend(e.render_points + p.anchor)
-                            # line_batch = batch_for_shader(
-                            #     shader, 'LINE_STRIP',
-                            #     {"pos": render_points},
-                            # )
-                            # line_batch.draw(shader)
+                            e.renderer.draw(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
+                            if e.is_selected:
+                                e.renderer.draw_handles(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
 
                         for v in p.vertices:
                             v: Vertex2D
@@ -200,18 +209,83 @@ class TempDrawManager:
                                 {"pos": [v.co + p.anchor, v.co + p.anchor]},
                             )
                             point_batch.draw(shader)
+                    elif qmyi.edit_mode == "SEWING":
+                        if qmyi.edit_sub_mode == "ADD_SEWING1":
+                            for e in p.edges:
+                                e.renderer.draw(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
+                        else:
+                            sewings = node_tree.sewings
+                            gpu.state.line_width_set(10.0)
+                            for s in sewings:
+                                s.renderer.draw_id()
 
+    def draw_hover(self, qmyi):
+        shader = self.uniform_color_shader
+        if qmyi.hover_object is not None and qmyi.hover_object.global_uuid != -1:
+            gpu.matrix.push()
+
+            obj = qmyi.hover_object
+            offset = [0., 0.]
+            if hasattr(obj, 'pattern'):
+                offset = obj.pattern.anchor
+            elif hasattr(obj, 'anchor'):
+                offset = obj.anchor
+            gpu.matrix.translate((offset[0], offset[1], 0.0))
+            if isinstance(obj, Edge2D):
+                gpu.state.point_size_set(5.0)
+                # console.info("edge", obj)
+                # obj.renderer.draw((1, 1, 1, 1), 10)
+                shader.uniform_float("color", (1, 1, 1, 1))
+                render_points = []
+                if obj.render_points is None:
+                    raise Exception(obj.get_temp_data(), global_data.temp_data)
+                if obj.render_points is not None:
+                    # raise Exception(obj.get_temp_data(), global_data.temp_data)
+                    render_points.extend(obj.render_points)
+                    line_batch = batch_for_shader(
+                        shader, 'LINE_STRIP',
+                        {"pos": render_points},
+                    )
+                    line_batch.draw(shader)
+            elif isinstance(obj, Vertex2D):
+                v: Vertex2D = obj
+                shader.uniform_float("color", (1, 1, 1, 1))
+                gpu.state.point_size_set(10.0)
+                point_batch = batch_for_shader(
+                    shader, 'POINTS',
+                    {"pos": [v.co, v.co]},
+                )
+                point_batch.draw(shader)
+            elif isinstance(obj, Pattern):
+                p: Pattern = obj
+                line_batch = batch_for_shader(
+                    shader, 'LINE_LOOP',
+                    {"pos": p.render_points},
+                )
+                gpu.state.blend_set("ALPHA")
+                line_color = (0.8, 0.8, 0.8, 1)
+                gpu.state.line_width_set(3.0)
+                shader.uniform_float("color", line_color)
+                line_batch.draw(shader)
+            gpu.matrix.pop()
+            # console.info("hover",obj)
+            if isinstance(obj, SewingOneSide):  # why false?
+                # if obj.__class__.__name__ == "SewingOneSide":
+                if obj.sewing is not None:
+                    gpu.state.line_width_set(20.)
+                    obj.sewing.renderer.draw(dashed_line=False)
 
     def draw(self, context):
-        node_tree = get_active_node_tree(context)
-        if node_tree is None:
+        project: QianyiProject = get_active_node_tree(context)
+        if project is None:
             return
         start_time = time.time()
         qmyi = context.scene.qmyi
 
         region = context.region
-        #     return
-        shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        if self.uniform_color_shader is None:
+            self.uniform_color_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+        shader = self.uniform_color_shader
         if len(self.lines) > 0:
             coords = []
             for line in self.lines:
@@ -229,29 +303,33 @@ class TempDrawManager:
             gpu.state.line_width_set(3.0)
             rect_batch.draw(shader)
 
-        patterns = node_tree.patterns
+        patterns = project.patterns
         shader.bind()
         gpu.state.line_width_set(1.0)
         for p in patterns:
+            if not p.initialized:
+                p.initialize()
             if p.need_render_update:
-                p.update_render_points()
+                p.update_render_line()
                 p.update_render_vertex()
                 p.need_render_update = False
-                p.line_renderer = PatternRenderer(p)
-                p.mesh_renderer = MeshRenderer(p)
-            if p.line_renderer is None:
-                p.line_renderer = PatternRenderer(p)
-            if p.mesh_renderer is None and p.mesh_object is not None:
-                p.mesh_renderer = MeshRenderer(p)
+                # p.line_renderer = PatternRenderer(p)
+                # p.mesh_renderer = MeshRenderer(p)
+            # if p.line_renderer is None:
+            #     p.line_renderer = PatternRenderer(p)
+            # if p.mesh_renderer is None and p.mesh_object is not None:
+            #     p.mesh_renderer = MeshRenderer(p)
             if p.mesh_renderer is not None:
                 if p.mesh_renderer.obj != p.mesh_object:
                     p.mesh_renderer.start_rendering(p.mesh_object)
-                p.mesh_renderer.draw_mesh_lines(p.is_selected)
+                is_selected = qmyi.edit_mode == "PATTERN" and p.is_selected
+                p.mesh_renderer.draw_mesh_lines(is_selected)
 
             gpu.state.blend_set("ALPHA")
             color = (0.2, 0.2, 0.8, 1)
             line_color = (*color[:3], color[3] * 0.8)  # 降低透明度
             shader.uniform_float("color", line_color)
+            # TODO different pattern rendering mode
             p.line_renderer.draw_edges(color=line_color)
 
             if qmyi.edit_mode == "EDGE":
@@ -265,61 +343,42 @@ class TempDrawManager:
                 #         e.update()
                 #     e.renderer.draw( (1,1,0,1), 10.)
 
-        sewings = node_tree.sewings
-        gpu.state.line_width_set(5.0)
-        for s in sewings:
-            s.update()
-            s.renderer.draw()
+        points_renderer = PointsRenderer()
+        if qmyi.edit_mode == "EDGE":
+            for obj in project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX"):
+                if isinstance(obj, Edge2D):
+                    obj.renderer.draw((1, 1, 0, 1), 3)
+                    obj.renderer.draw_handles((0, 1, 0, 1), 2)
+                elif isinstance(obj, Vertex2D):
+                    points_renderer.add_point(obj.pattern, obj)
+            if qmyi.edit_sub_mode == "ADD_VERTEX":
+                if project.nearest_point is not None:
+                    points_renderer.add_point(project.patterns[project.nearest_pattern], project.nearest_point)
+        elif qmyi.edit_mode == "SEWING":
+            sewings = project.sewings
+            gpu.state.line_width_set(5.0)
+            for s in sewings:
+                if self.last_edit_mode != qmyi.edit_mode:
+                    s.need_render_update = True
+                s.update()
+                is_selected = s.side1.is_selected or s.side2.is_selected
+                s.renderer.draw(dashed_line=is_selected)
+            if qmyi.edit_sub_mode == "ADD_SEWING1":
+                # console.info("edge1",project.selected_sewing_edge1)
+                if project.selected_sewing_edge1 is not None:
+                    project.selected_sewing_edge1.renderer.draw(color=(0.2, 0.8, 0.8, 1), thickness=10.0)
 
+        points_renderer.draw((1, 1, 0, 1), 10)
+        if self.moving_curves:
+            for mc in self.moving_curves:
+                mc.renderer.draw((1, 1, 0, 1), 7)
+        self.draw_hover(qmyi)
         self.draw_id(context)
-        if qmyi.hover_object is not None and qmyi.hover_object.global_uuid != -1:
-            gpu.matrix.push()
-
-            obj = qmyi.hover_object
-            offset = [0., 0.]
-            if hasattr(obj, 'pattern'):
-                offset = obj.pattern.anchor
-            elif hasattr(obj, 'anchor'):
-                offset = obj.anchor
-            gpu.matrix.translate((offset[0], offset[1], 0.0))
-            if isinstance(obj, Edge2D):
-                shader.uniform_float("color", (1, 1, 1, 1))
-                render_points = []
-                if obj.render_points is None:
-                    raise Exception(obj.get_temp_data(), global_data.temp_data)
-                if obj.render_points is not None:
-                    # raise Exception(obj.get_temp_data(), global_data.temp_data)
-                    render_points.extend(obj.render_points)
-                    line_batch = batch_for_shader(
-                        shader, 'LINE_STRIP',
-                        {"pos": render_points},
-                    )
-                    line_batch.draw(shader)
-            elif isinstance(obj, Vertex2D):
-                v: Vertex2D = obj
-                shader.uniform_float("color", (1, 1, 1, 1))
-                point_batch = batch_for_shader(
-                    shader, 'POINTS',
-                    {"pos": [v.co, v.co]},
-                )
-                point_batch.draw(shader)
-            elif isinstance(obj, Pattern):
-                p: Pattern = obj
-                # console_print("hover pattern",p.global_uuid,p.global_idx,p.render_points)
-                line_batch = batch_for_shader(
-                    shader, 'LINE_LOOP',
-                    {"pos": p.render_points},
-                )
-                gpu.state.blend_set("ALPHA")
-                line_color = (0.8, 0.8, 0.8, 1)
-                gpu.state.line_width_set(3.0)
-                shader.uniform_float("color", line_color)
-                line_batch.draw(shader)
-            gpu.matrix.pop()
 
         self.draw_offscreen_thumbnail(self.id_texture, region)
         total_time = time.time() - start_time
         # bpy.context.workspace.status_text_set(f"total time: {total_time * 1000}")
+        self.last_edit_mode = qmyi.edit_mode
 
     def __del__(self):
         if self.id_texture is not None:

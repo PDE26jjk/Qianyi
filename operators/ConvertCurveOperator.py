@@ -3,6 +3,7 @@ from bpy.props import FloatVectorProperty
 from bpy.utils import register_classes_factory, register_class
 from mathutils import Vector
 
+from utilities.console import Console, console
 from ..utilities.node_tree import get_active_node_tree
 from ..utilities.coords_transform import region2view_coord
 from ..gizmos.temp_draw_manager import TempDrawManager
@@ -13,7 +14,6 @@ from ..declarations import Operators, Panels
 from .states.StatefulOperator import StateOperator
 from bpy.types import Operator, Context
 import numpy as np
-
 
 
 class NODE_OT_convert_curve(Operator):
@@ -41,7 +41,7 @@ class NODE_OT_convert_curve(Operator):
             transform_matrix = curve.matrix_world
             for spline in curve.data.splines:
                 if spline.type == 'BEZIER':
-                    p: Pattern = node_tree.patterns.add()
+                    p: Pattern = node_tree.add_pattern()
                     points = []
 
                     # 贝塞尔曲线 - 获取控制点和句柄
@@ -79,9 +79,8 @@ class NODE_OT_convert_curve(Operator):
                         next_i = (i + 1) % len(points)
                         point = points[i]
                         next_point = points[next_i]
-                        p.add_edge(i, next_i, "BESSEL", point["handle_right"], next_point["handle_left"],
-                                   point["handle_right_type"], next_point["handle_left_type"])
-
+                        e = p.add_edge(i, next_i, "BESSEL", point["handle_right"], next_point["handle_left"],
+                                       point["handle_right_type"], next_point["handle_left_type"])
                     p.ensure_edge_ccw()
 
         context.area.tag_redraw()

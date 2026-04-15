@@ -7,7 +7,8 @@ from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
 from rich import segment
 
-from ..utilities.geometric_operation import resample_polyline
+from utilities.console import console
+from ..utilities.geometric_operation import resample_polyline, forward_diff_bezier
 from ..utilities.cubic_spline import cubic_spline_2d_numpy
 from .model_data import ModelData, define_temp_prop, Selectable
 
@@ -39,6 +40,8 @@ class Vertex2D(PropertyGroup, ModelData, Selectable):
 
 
 define_temp_prop(Vertex2D, "pattern", None)
+define_temp_prop(Vertex2D, "impacted", False)
+define_temp_prop(Vertex2D, "proxy", None)
 
 EdgeType = [
     ("BESSEL", "Bessel", "", 1),
@@ -55,8 +58,7 @@ HandleType = [
 class Edge2D(PropertyGroup, ModelData, Selectable):
     type: EnumProperty(name="edgeType", items=EdgeType, default="BESSEL")
     vertex_index: IntVectorProperty(name="vertexIndex", size=2, default=(0, 0))
-    handle1_pos: FloatVectorProperty(name="handle1Pos", size=2, default=(0.0, 0.0))
-    handle2_pos: FloatVectorProperty(name="handle2Pos", size=2, default=(0.0, 0.0))
+    handles: CollectionProperty(name="handles", type=Vertex2D, )
     handle1_type: EnumProperty(name="handle1Type", items=HandleType, default="VECTOR")
     handle2_type: EnumProperty(name="handle2Type", items=HandleType, default="VECTOR")
     geo_points: CollectionProperty(name="geoPoints", type=Vertex2D, )
@@ -72,16 +74,38 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
 
     def reverse(self):
         self.vertex_index[0], self.vertex_index[1] = self.vertex_index[1], self.vertex_index[0]
-        self.handle1_pos, self.handle2_pos = self.handle2_pos[:], self.handle1_pos[:]
+        self.handle1.co[:], self.handle2.co[:] = self.handle2.co[:], self.handle1.co[:]
         self.handle1_type, self.handle2_type = self.handle2_type, self.handle1_type
+
+    @property
+    def handle1(self):
+        if len(self.handles) < 1:
+            self.handles.add()
+        return self.handles[0]
+
+    @property
+    def handle2(self):
+        if len(self.handles) < 2:
+            if len(self.handles) < 1:
+                self.handles.add()
+            self.handles.add()
+        return self.handles[1]
+
+    @property
+    def vertex0(self):
+        return self.pattern.vertices[self.vertex_index[0]]
+
+    @property
+    def vertex1(self):
+        return self.pattern.vertices[self.vertex_index[1]]
 
     def update(self, pattern=None):
         if not self.need_update_points:
             return
         if pattern is not None:
             self.pattern = pattern
-        self.vertices[0] = self.pattern.vertices[self.vertex_index[0]].co[:]
-        self.vertices[1] = self.pattern.vertices[self.vertex_index[1]].co[:]
+        self.vertices[0] = self.vertex0.co[:]
+        self.vertices[1] = self.vertex1.co[:]
         self.render_points = self.generate_render_points()
         self.calc_length()
         # self.sections.clear()
@@ -99,6 +123,8 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         from ..gizmos.curve_renderer import CurveRenderer
         if self.renderer is None:
             self.renderer = CurveRenderer(self)
+        self.handle1.pattern = self.pattern
+        self.handle2.pattern = self.pattern
         self.renderer.update_batch()
 
     def calc_bbox(self, points):
@@ -117,8 +143,8 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
                 self.length = np.linalg.norm(np.asarray(self.vertices[0]) - np.asarray(self.vertices[1]))
                 return
 
-            q = np.array([self.vertices[0], self.handle1_pos, self.handle2_pos, self.vertices[1]])
-            pts = self.forward_diff_bezier(q, 1000)
+            q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
+            pts = forward_diff_bezier(q, 1000)
             self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
         elif self.type == "CUBIC_SPLINE":
             edge_points = [p.co for p in self.spline_points]
@@ -129,44 +155,6 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             pts = cubic_spline_2d_numpy(t, q, sample_count=1000)
             self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
 
-    @staticmethod
-    def forward_diff_bezier(q, n):
-        """
-        计算单条2D贝塞尔曲线的离散点（完全向量化实现）
-
-        参数:
-            q: (4, 2) 形状的数组，包含曲线的控制点
-            n: 迭代次数（分段数）
-
-        返回:
-            points: (n+1, 2) 形状的数组，曲线上的点
-        """
-        assert q.shape == (4, 2), f"Expected control points shape (4,2), got {q.shape}"
-        if n == 0:
-            return np.array([q[0]])
-
-        # 计算差分变量
-        rt0 = q[0]
-        rt1 = 3.0 * (q[1] - q[0]) / n
-        rt2 = 3.0 * (q[0] - 2.0 * q[1] + q[2]) / (n * n)
-        rt3 = (q[3] - q[0] + 3.0 * (q[1] - q[2])) / (n * n * n)
-
-        # 重组迭代变量
-        q0 = rt0
-        q1 = rt1 + rt2 + rt3
-        q2 = 2 * rt2 + 6 * rt3
-        q3 = 6 * rt3
-
-        # 创建索引数组
-        k = np.arange(n + 1)
-
-        # 使用累加和公式计算点位置
-        term1 = k[:, None] * q1
-        term2 = (k * (k - 1) / 2)[:, None] * q2
-        term3 = (k * (k - 1) * (k - 2) / 6)[:, None] * q3
-
-        return q0 + term1 + term2 + term3
-
     def add_edge_point(self, position):
         point = self.spline_points.add()
         point.co = position
@@ -176,19 +164,19 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         if self.type == "BESSEL":
             if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
                 return np.array((self.vertices[0], self.vertices[1]))
-            q = np.array([self.vertices[0], self.handle1_pos, self.handle2_pos, self.vertices[1]])
-            return self.forward_diff_bezier(q, render_point_count)
+            q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
+            return forward_diff_bezier(q, render_point_count).astype(np.float32)
         elif self.type == "CUBIC_SPLINE":
             edge_points = [p.co for p in self.spline_points]
             q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
             # point_count = q.shape[0]
             # t = np.linspace(0, point_count, point_count)
             t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
-            res = cubic_spline_2d_numpy(t, q, sample_count=render_point_count)
+            res = cubic_spline_2d_numpy(t, q, sample_count=render_point_count).astype(np.float32)
             # TODO utilize handles
             return res
 
-        return np.array((self.vertices[0], self.vertices[1]))
+        return np.array((self.vertices[0], self.vertices[1]), dtype=np.float32)
 
     def sections(self):
         max_sec = 10000
@@ -233,11 +221,11 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         #         interpolated = p1 * t + p0 * (1 - t)
         #         arc_points.append(interpolated)
 
-        # q = np.array([self.vertices[0], self.handle1_pos, self.handle2_pos, self.vertices[1]])
-        # self.geo_points_temp = self.forward_diff_bezier(q, resolution)
+        # q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
+        # self.geo_points_temp = forward_diff_bezier(q, resolution)
         # self.geo_points_temp = np.asarray(mathutils.geometry.interpolate_bezier(*q, resolution))
         # self.geo_points_temp = np.asarray(arc_points)
-        segment = max(resolution - 1, 1)
+        segment = max(resolution - 1, 2)
         temp_points = self.generate_render_points(segment * 2)
         self.geo_points_temp = resample_polyline(temp_points, [(0, segment)], True)
 
@@ -259,8 +247,8 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             for sec in self.sections():
                 sec.start_point = points_count
                 points_count += sec.seg
-                segments.append((sec.start_pos,sec.seg))
-            self.geo_points_temp = resample_polyline(self.geo_points_temp, segments,True)
+                segments.append((sec.start_pos, sec.seg))
+            self.geo_points_temp = resample_polyline(self.geo_points_temp, segments, True)
         return
 
     def clear_temp_data(self):
@@ -292,46 +280,10 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         if max_sec == 0:
             raise ValueError("Wrong section link!!")
         return None
-        # self.sections: List[Section]
-        # for i, sec in enumerate(self.sections):  # TODO dichotomy
-        #     if pos >= sec.start_pos:
-        #         eps = 1e-4
-        #         if pos - sec.start_pos < eps:
-        #             return sec
-        #         if i < len(self.sections) - 1:
-        #             if self.sections[i + 1].start_pos - pos < eps:
-        #                 return self.sections[i + 1]
-        #         if i == len(self.sections) - 1 and pos > 1 - eps:
-        #             return None
-        #         new_section = Section(pos, self)
-        #         next_pos = 1. if i == len(self.sections) - 1 else self.sections[i + 1].start_pos
-        #         ratio = (pos - sec.start_pos) / (next_pos - sec.start_pos)
-        #         new_length = sec.length * ratio
-        #         new_section.length = sec.length - new_length
-        #         sec.length = new_length
-        #         self.sections.insert(i + 1, new_section)
-        #         if sec.link_map_id != -1:
-        #             sections_to_insert = []
-        #             sections_to_insert.extend(Section.link_sections[sec.link_map_id])
-        #             sections_to_insert.remove(sec)
-        #             sections_to_link = [new_section]
-        #             link_index = len(Section.link_sections)
-        #             for link_sec in sections_to_insert:
-        #                 index = link_sec.edge.find_section_index(link_sec.start_pos)
-        #                 sections = link_sec.edge.sections
-        #                 next_pos = 1. if index == len(sections) - 1 else sections[index + 1].start_pos
-        #                 new_pos = link_sec.start_pos + (next_pos - link_sec.start_pos) * ratio
-        #                 new_length = link_sec.length * ratio
-        #                 _new_section = Section(new_pos, link_sec.edge)
-        #                 _new_section.length = link_sec.length - new_length
-        #                 _new_section.link_map_id = link_index
-        #                 link_sec.length = new_length
-        #                 sections.insert(index + 1, _new_section)
-        #                 sections_to_link.append(_new_section)
-        #             Section.link_sections.append(sections_to_link)
-        #
-        #         return new_section
-        #
+
+    def try_regain_self(self):
+        if self.pattern is not None and self.pattern.global_uuid != -1:
+            self.pattern.forced_update()
 
 
 define_temp_prop(Edge2D, "pattern", None)
@@ -344,5 +296,6 @@ define_temp_prop(Edge2D, "geo_points_temp", None)
 define_temp_prop(Edge2D, "section_start", None)
 define_temp_prop(Edge2D, "section_end", None)
 define_temp_prop(Edge2D, "start_point", -1)
+define_temp_prop(Edge2D, "proxy", None)
 
 register, unregister = register_classes_factory((Vertex2D, Edge2D,))

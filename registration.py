@@ -5,7 +5,7 @@ core_modules = [
     "operators",
     "gizmos",
     "ui",
-    "draw_test",
+    "draw_editor",
     "workspacetools",
     "vr"
 ]

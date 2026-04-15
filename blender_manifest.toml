@@ -1,0 +1,22 @@
+schema_version = "1.0.0"
+
+id = "Qianyi"
+version = "0.0.1"
+name = "Qianyi"
+tagline = "Fabric simulation, garment design"
+maintainer = "PDE26jjk <26jjk@sina.com>"
+type = "add-on"
+
+permissions = ["files", "network"]
+
+website = "https://github.com/PDE26jjk/Qianyi"
+
+tags = ["3D View", "Modeling", "Mesh", "Object"]
+
+blender_version_min = "4.3.0"
+
+license = [
+  "SPDX:GPL-3.0-or-later",
+]
+
+# https://docs.blender.org/manual/en/latest/advanced/extensions/getting_started.html#manifest

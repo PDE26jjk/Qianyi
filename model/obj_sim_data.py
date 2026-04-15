@@ -31,7 +31,7 @@ class ObjectSimulationProperties(PropertyGroup):
     @property
     def pattern(self):
         if self.is_pattern_mesh:
-            return global_data.get_obj_by_uuid(self.pattern_uuid)
+            return global_data.get_obj_by_uuid(self.pattern_uuid,False)
         return None
 
     @pattern.setter

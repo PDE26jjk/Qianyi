@@ -5,7 +5,6 @@ import numpy as np
 import bpy
 
 from utilities.console import console_print
-from .. import QuadTree
 from mathutils import Vector
 from mathutils.geometry import delaunay_2d_cdt
 
@@ -19,16 +18,16 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
     edges = [(i, (i + 1) % len(edge_points)) for i in range(len(edge_points))]
     boundary = [np.min(edge_points, axis=0) - 0.5, np.max(edge_points, axis=0) + 0.5]
     boundary = ((boundary[0] + boundary[1]) / 2, boundary[1] - boundary[0] + 2)
-    BoundaryTree = QuadTree.BoundaryTree
-    quadtree = BoundaryTree(boundary[0][0], boundary[0][1], boundary[1][0], boundary[1][1], [edge_points],
-                            max_depth=16, min_size=0.5)
+    # BoundaryTree = QuadTree.BoundaryTree
+    # quadtree = BoundaryTree(boundary[0][0], boundary[0][1], boundary[1][0], boundary[1][1], [edge_points],
+    #                         max_depth=16, min_size=0.5)
 
     console_print("quadtree: ", time.time() - start_time)
     start_time = time.time()
-    point_offset = np.array((quadtree.root.xmin, quadtree.root.ymin))
+    # point_offset = np.array((quadtree.root.xmin, quadtree.root.ymin))
 
-    def checker(point):
-        return quadtree.check_inside(point + point_offset) < 0
+    # def checker(point):
+    #     return quadtree.check_inside(point + point_offset) < 0
 
     # sampling_points = poisson_disk_sampling(*boundary[1], granularity, (edge_points - point_offset).tolist(), checker,
     #                                         9) + point_offset

@@ -49,7 +49,7 @@ class MeshRenderer:
 
     @property
     def pattern(self):
-        return global_data.get_obj_by_uuid(self.pattern_uuid)
+        return global_data.get_obj_by_uuid(self.pattern_uuid,False)
 
     def create_batch(self, obj):
         """创建网格批次（只调用一次）"""
@@ -116,7 +116,7 @@ class MeshRenderer:
         self.batch_triangle.draw(self.shader)
 
     def draw_mesh_lines(self, selected=False):
-        if not self.obj or not self.batch_line or not self.shader:
+        if not self.obj or not self.batch_line or not self.shader or not self.pattern:
             return
 
         gpu.state.blend_set('ALPHA')

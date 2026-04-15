@@ -21,17 +21,6 @@ class NODE_T_qmyi_add_poly(WorkSpaceTool):
                  ),
                  )
 
-    # bl_keymap = (
-    #     *tool_generic,
-    #     *operator_access(Operators.Offset),
-    # )
-    # @classmethod
-    # def poll(cls, context):
-    #     space = context.space_data
-    #
-    #     # if space and space.node_tree :
-    #     #     return True
-    #     return False
     def draw_settings(context, layout, tool):
         # 工具设置
         layout.label(text="连接设置:")

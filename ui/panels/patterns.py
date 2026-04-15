@@ -30,7 +30,6 @@ class QY_PT_patterns(NODE_PT_qmyi_base):
         col.template_list(QY_UL_PatternList.__name__, "Patterns", project, "patterns", project, "active_pattern_index", rows=4)
         col = row.column(align=True)
 
-        # col.operator(Operators.AddProject, text="", icon="ADD")
         subrow = col.row(align=True)
         subrow.enabled = pattern is not None
         subrow.operator(Operators.RemovePattern, text="", icon="REMOVE")

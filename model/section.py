@@ -7,7 +7,7 @@ class DirSection:
         self.reverse: bool = reverse
 
 
-# Doubly linked list node, -> next in CCW
+# Doubly linked list node, --> next in CCW
 class Section:
     link_sections: List[List[DirSection]] = []  # [[sec1,sec2,...],[sec3,...],...] sec1 link to sec2 etc.
 
@@ -70,6 +70,8 @@ class Section:
         raise ValueError("Section.is_reverse: Something Wrong!!!")
 
     def link_to(self, other: 'Section', reverse=False):
+        if self is other:
+            raise ValueError("Sewing overlap!!!")
         if self.link_map_id == -1 or other.link_map_id == -1:
             if self.link_map_id == -1 and other.link_map_id == -1:
                 index = len(Section.link_sections)

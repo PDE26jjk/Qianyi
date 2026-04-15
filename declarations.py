@@ -41,6 +41,13 @@ class Operators(str, Enum):
     Import = "node.qmyi_import"
     Export = "node.qmyi_Export"
 
+    AddVertex2D = "qmyi.2d_add_vertex"
+    EdgeElementsMove2D = "qmyi.2d_edge_move"
+    ElementsDelete2D = "qmyi.2d_elements_delete"
+    SewingAdd1to12D = "qmyi.2d_add_sewing_1to1"
+    SewingAddFree2D = "qmyi.2d_add_sewing_free"  # TODO
+    SewingAddMtoN2D = "qmyi.2d_add_sewing_m2n"  # TODO
+
 
 class Macros(str, Enum):
     DuplicateMove = "node.slvs_duplicate_move"
@@ -62,6 +69,7 @@ class Panels(str, Enum):
     Simulation = "NODE_PT_QianyiSimulation"
     SimulationObject = "NODE_PT_QianyiSimulationObject"
 
+
 class VisibilityTypes(str, Enum):
     Hide = "HIDE"
     Show = "SHOW"
@@ -69,6 +77,8 @@ class VisibilityTypes(str, Enum):
 
 class WorkSpaceTools(str, Enum):
     AddPoly = "qmyi.add_poly"
+    AddVertex = "qmyi.add_vertex"
+    AddSewing1 = "qmyi.add_sewing1"
+    AddEdgePoint = "qmyi.add_edge_point"
     Select = "qmyi.select"
     PickMesh = "qmyi.pick_mesh"
-

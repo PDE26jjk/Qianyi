@@ -1,9 +1,17 @@
 import random
+import re
 
 from bpy.props import IntProperty, StringProperty, BoolProperty
 
 from utilities.console import console_print
 from .. import global_data
+
+
+def extract_last_bracket_number(text):
+    match = re.search(r'\[(\d+)\](?!.*\[)', text)
+    if match:
+        return int(match.group(1))
+    return None
 
 
 class ModelData:
@@ -50,6 +58,17 @@ class ModelData:
 
     def clear_temp_data(self):
         pass
+
+    @classmethod
+    def refresh_collection_uuid(cls, coll):
+        for obj in coll:
+            global_data.uuid2obj[obj.global_uuid] = obj
+
+    def try_regain_self(self):
+        pass
+
+    def get_index(self):
+        return extract_last_bracket_number(self.path_from_id())
 
 
 def define_temp_prop(cls, name, default=None):

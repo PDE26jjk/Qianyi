@@ -106,7 +106,7 @@ class VIEW3D_OT_qmyi_pick3d(Operator, StateOperator):
     def poll(cls, context: Context):
         qmyi = context.scene.qmyi
         res = qmyi.simulation.enable_simulation
-        console_print("VIEW3D_OT_pick_mesh poll", res)
+        # console_print("VIEW3D_OT_pick_mesh poll", res)
         return res
         # return True
 

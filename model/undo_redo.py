@@ -7,7 +7,7 @@ from .. import global_data
 
 
 @persistent
-def on_undo_redo(dummy1, dummy2=None):
+def on_undo_redo(dummy1, dummy2=None):  # TODO incremental invalid in depsgraph_update
     """当撤销或重做发生时，之前的内存指针全部失效，必须清空缓存"""
     for model in global_data.uuid2obj.values():
         if model.global_uuid != -1:

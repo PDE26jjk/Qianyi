@@ -23,6 +23,16 @@ tool_base_keymap = (
         {"type": "G", "value": "PRESS"},
         None,
     ),
+    (
+        Operators.EdgeElementsMove2D,
+        {"type": "G", "value": "PRESS"},
+        None,
+    ),
+    (
+        Operators.ElementsDelete2D,
+        {"type": "X", "value": "PRESS"},
+        None,
+    ),
 )
 
 tool_generic = (

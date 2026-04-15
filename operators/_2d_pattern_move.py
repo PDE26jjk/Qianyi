@@ -24,6 +24,8 @@ class NODE_OT_pattern_move(Operator2DBase, StateOperator):
 
     @classmethod
     def poll(cls, context: Context):
+        if not context.scene.qmyi.edit_mode == "PATTERN":
+            return False
         project = get_active_node_tree(context)
         if project is not None:
             if len(project.selected_patterns) > 0:

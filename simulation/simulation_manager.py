@@ -3,8 +3,9 @@ import time
 import bpy
 import numpy as np
 
+from ..model.fabric import Fabric
 from ..model.pattern import Pattern
-from ..utilities.console import console_print
+from ..utilities.console import console_print, console
 from .task_manager import task_mgr
 
 
@@ -44,25 +45,22 @@ class SimulationManager:
         import Qianyi_DP as qydp
         # if self.simulator is None:
         #     return
+        start = time.time()
         self.simulator = qydp.simulator
         if self.need_to_set_data:
             # self.simulator.set_init_data(self.simulated_objects)
             self.simulator.input_data({'mesh_list': self.simulated_objects, 'sewings': self.sewings})
             # self.simulator.initialize_springs()
             self.need_to_set_data = False
-        # if self.need_clear_velocity:
-        #     self.simulator.clear_state()
-        #     self.need_clear_velocity = False
-        start = time.time()
         for i, data in enumerate(self.simulated_objects):
             if data['obj'].matrix_world != self.world_matrixs[i]:
                 self.world_matrixs[i] = data['obj'].matrix_world.copy()
-                # self.simulator.set_world_matrix(self.world_matrixs[i], i)
-                # TODO
+                self.simulator.update_world_matrix(i, self.world_matrixs[i])
+                # console.info('updated',self.world_matrixs[i])
         # self.simulator.update_once()
-        # for i in range(10):
-        self.simulator.update(0.01)
-        # self.simulator.update(0.001)
+        # self.simulator.update(0.01)
+        # for i in range(2):
+        self.simulator.update(0.0008)
         # self.simulator.update(0.001)
         time2 = time.time() - start
         console_print("simulation: ", time2 * 1000)
@@ -71,7 +69,7 @@ class SimulationManager:
         if self.run_count % 1 == 0:
             # start = time.time()
             vertices_data = self.simulator.get_simulation_data().reshape(-1)
-            # debug_colors = self.simulator.get_debug_colors().reshape(-1)
+            debug_colors = self.simulator.get_debug_colors().reshape(-1)
             # console_print("copy data 1: ", (time.time() - start) * 1000)
             start = time.time()
             nb_all_v = 0
@@ -83,18 +81,18 @@ class SimulationManager:
                 shape_key = mesh.shape_keys.key_blocks['QYSim']
                 num_vertices = len(mesh.vertices)
                 vertices_local = vertices_data[nb_all_v * 3: (nb_all_v + num_vertices) * 3]
-                # colors = debug_colors[nb_all_v * 3: (nb_all_v + num_vertices) * 3].reshape(-1, 3)
+                colors = debug_colors[nb_all_v * 3: (nb_all_v + num_vertices) * 3].reshape(-1, 3)
                 # print(i,vertices_local)
                 nb_all_v += num_vertices
-                shape_key.points.foreach_set("co", vertices_local)
-                # color_attributes = mesh.color_attributes
-                # color_name = 'Color'
-                # if color_name in color_attributes:
-                #     color_attribute = color_attributes[color_name]
-                #     colors_4d = np.zeros((colors.shape[0], 4))
-                #     colors_4d[:, :3] = colors
-                #     colors_4d[:, 3] = 1.0
-                #     color_attribute.data.foreach_set("color", colors_4d.ravel())
+                shape_key.points.foreach_set("co", vertices_local)  # TODO update it in main thread, or will crash.
+                color_attributes = mesh.color_attributes
+                color_name = 'Color'
+                if color_name in color_attributes:
+                    color_attribute = color_attributes[color_name]
+                    colors_4d = np.zeros((colors.shape[0], 4))
+                    colors_4d[:, :3] = colors
+                    colors_4d[:, 3] = 1.0
+                    color_attribute.data.foreach_set("color", colors_4d.ravel())
                 mesh.update()
             # console_print("copy data 2: ", (time.time() - start) * 1000)
             # start = time.time()
@@ -176,13 +174,24 @@ class SimulationManager:
 
         result = {'obj': obj, 'vertices': vertices_local,
                   'edges': edges, 'triangles': tris,
-                  'world_matrix': world_matrix, 'mass': 100.,
+                  'world_matrix': world_matrix,
                   'object_type': 0 if is_cloth else 1}
         if is_cloth:
+            pattern:Pattern = obj.qmyi_simulation_props.pattern
+            fabric = pattern.fabric
             result['vertices_sim'] = vertices_sim
+            result['mass'] = fabric.weight
+            result['granularity'] = pattern.granularity
+            result['thickness'] = fabric.thickness
+            result['friction'] = fabric.friction
+            result['stretch'] = np.array(fabric.stretch, dtype=np.float32)
+            result['shear'] = np.array(fabric.shear, dtype=np.float32)
+            result['bending'] = np.array(fabric.bending, dtype=np.float32)
+            # console.info(result)
         else:
             result['normals'] = normals
-        # console_print(obj.simulation_props.mass, result['object_type'])
+            result['mass'] = 1.
+            # console_print(obj.simulation_props.mass, result['object_type'])
         self.simulated_objects.append(result)
         self.world_matrixs.append(world_matrix.copy())
         console_print(f"已初始化 {obj.name} 的模拟数据")

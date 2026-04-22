@@ -45,7 +45,11 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             assert default_fabric.project == self.project
             self.fabric_uuid = default_fabric.global_uuid
         assert self.fabric_uuid != -1
-        return global_data.get_obj_by_uuid(self.fabric_uuid)
+        f = global_data.get_obj_by_uuid(self.fabric_uuid)
+        if f is None:
+            self.project.refresh_collection_uuid(self.project.fabrics)
+        f = global_data.get_obj_by_uuid(self.fabric_uuid)
+        return f
 
     @fabric.setter
     def fabric(self, val):
@@ -218,11 +222,14 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         granularity = self.granularity / 1000
         start = time.time()
         self.mesh_object = generate_pattern_mesh(self.get_geo_points_unique(), granularity, self.mesh_object)
+        if self.name:
+            self.mesh_object.name = self.name
+            self.mesh_object.data.name = self.name
         console_print("generate_pattern_mesh: ", time.time() - start)
         console_print("generated: ", self.mesh_object.name)
         start = time.time()
         sim_pros = self.mesh_object.qmyi_simulation_props
-        console_print(sim_pros.id_data)
+        # console_print(sim_pros.id_data)
         sim_pros.participate_in_simulation = True
         sim_pros.pattern = self
         sim_pros.ensure_attributes()

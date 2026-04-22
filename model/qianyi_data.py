@@ -81,7 +81,8 @@ def register():
     register_class(QianyiProps)
     bpy.types.Scene.qmyi = PointerProperty(type=QianyiProps)
     qmyi = bpy.context.scene.qmyi
-    qmyi.simulation.enable_simulation = False
+    qmyi.simulation.enable_free_simulation = False
+    qmyi.simulation.simulation_with_animation = False
     qmyi.hover_object = None
     # bpy.types.Object.qmyi_index = IntProperty(name="associated qianyi data", default=-1)
 

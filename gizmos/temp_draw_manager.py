@@ -375,7 +375,7 @@ class TempDrawManager:
         self.draw_hover(qmyi)
         self.draw_id(context)
 
-        self.draw_offscreen_thumbnail(self.id_texture, region)
+        # self.draw_offscreen_thumbnail(self.id_texture, region)
         total_time = time.time() - start_time
         # bpy.context.workspace.status_text_set(f"total time: {total_time * 1000}")
         self.last_edit_mode = qmyi.edit_mode

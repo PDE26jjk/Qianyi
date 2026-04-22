@@ -30,6 +30,7 @@ class Operators(str, Enum):
     ContextMenu = "node.qmyi_context_menu"
     ConvertCurve = "node.qmyi_convert_curve"
     GenerateAllMesh = "node.qmyi_generate_all_mesh"
+    RemoveAllSimulationData = "node.qmyi_remove_all_simulation_data"
     AddProject = "qmyi.add_project"
     AddFabric = "qmyi.add_fabric"
     RemoveProject = "qmyi.remove_project"

@@ -4,7 +4,7 @@ import time
 import numpy as np
 import bpy
 
-from utilities.console import console_print
+from utilities.console import console_print, console
 from mathutils import Vector
 from mathutils.geometry import delaunay_2d_cdt
 
@@ -54,20 +54,40 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
     #     False  # 位置参数6: 是否需要原始ID映射
     # )
     # (out_verts, out_edges, out_faces, orig_verts, orig_edges, orig_faces) = result
-    console_print("delaunay: ", time.time() - start_time)
-    start_time = time.time()
+    # console_print("delaunay: ", time.time() - start_time)
+    # start_time = time.time()
+    map_vertices = None
     if mesh_obj is None:
         mesh = bpy.data.meshes.new("DistMesh2D_Mesh")
         mesh_obj = bpy.data.objects.new("DistMesh2D_Object", mesh)
     else:
         mesh = mesh_obj.data
+        if mesh.shape_keys:
+            old_sim_vertices = mesh_obj.qmyi_simulation_props.get_simulation_vertices()
+            if old_sim_vertices is not None:
+                old_pattern_vertices = mesh_obj.qmyi_simulation_props.get_pattern_vertices()
+                tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
+                mesh.loop_triangles.foreach_get("vertices", tris)
+                tris = tris.reshape(-1, 3)
+                res_index, res_weight = geometry.find_map_weight(old_pattern_vertices, tris, all_points)
+                tri_verts_idx = tris[res_index]
+                selected_attrs = old_sim_vertices[tri_verts_idx]
+
+                # 使用 einsum 进行批量乘法求和
+                # 'ij,ijk->ik' 含义：
+                # i: 查询点数量 M
+                # j: 三个顶点 (3)
+                # k: 属性维度 K
+                # 对 j 维度进行相乘并求和，保留 i 和 k
+                map_vertices = np.einsum('ij,ijk->ik', res_weight, selected_attrs, dtype=np.float32)
+
+
         mesh.clear_geometry()
     if mesh_obj.name not in bpy.context.collection.objects:
         bpy.context.collection.objects.link(mesh_obj)
 
     has_basis = False
     if mesh.shape_keys:
-        # TODO map points position from old data
         mesh_obj.shape_key_clear()
 
     num_vertices = len(all_points)
@@ -96,7 +116,6 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
     mesh.vertices.add(num_vertices)
     mesh.polygons.add(num_polygons)
     mesh.loops.add(num_polygons * 3)  # 三角形，所以循环数是面数 * 3
-
 
     # 填充顶点坐标
     # foreach_set 需要平铺的一维数组
@@ -127,6 +146,10 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
     mesh_obj.lock_scale = (True, True, True)
 
     console_print("create_mesh: ", time.time() - start_time)
+
+    if map_vertices is not None:
+        mesh_obj.qmyi_simulation_props.set_simulation_vertices(map_vertices)
+
     return mesh_obj
 
 

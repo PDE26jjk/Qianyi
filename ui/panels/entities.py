@@ -20,3 +20,5 @@ class QY_PT_qmyi_entities(NODE_PT_qmyi_base):
             # emboss=False,
             # icon=("RADIOBUT_ON" if e.selected else "RADIOBUT_OFF"),
         )
+        row = layout.row()
+        row.operator(declarations.Operators.RemoveAllSimulationData,  )

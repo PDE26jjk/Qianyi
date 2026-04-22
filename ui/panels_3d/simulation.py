@@ -14,4 +14,8 @@ class QY_PT_simulation(VIEW_3D_PT_qmyi_base):
         qmyi = context.scene.qmyi
         scene_props = qmyi.simulation
 
-        layout.prop(scene_props, "enable_simulation", toggle=True)
+        layout.prop(scene_props, "enable_free_simulation", toggle=True)
+        layout.label(text="frame cache: ")
+        layout.prop(scene_props, "simulation_with_animation", toggle=True)
+        layout.prop(scene_props, "record_frame_cache")
+        layout.prop(scene_props, "play_frame_cache", toggle=True)

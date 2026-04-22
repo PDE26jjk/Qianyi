@@ -39,6 +39,7 @@ class QY_PT_simulation_object(VIEW_3D_PT_qmyi_base):
             else:
                 layout.label(text=f"As Collider")
                 layout.prop(props, "participate_in_simulation")
+                layout.prop(props, "vertices_updated_every_frame")
 
 
 class SimulationDataRefreshOperator(bpy.types.Operator):
@@ -48,7 +49,7 @@ class SimulationDataRefreshOperator(bpy.types.Operator):
     def execute(self, context):
         qmyi = context.scene.qmyi
         scene_props = qmyi.simulation
-        scene_props.enable_simulation = False
+        scene_props.enable_free_simulation = False
         projects = get_all_node_tree()
         for project in projects:
             project.get_default_fabric()

@@ -1,9 +1,10 @@
 import bpy
+import numpy as np
 from bpy.props import BoolProperty, FloatProperty, IntProperty, FloatVectorProperty, EnumProperty
 from bpy.types import Panel, PropertyGroup
 
 from .. import global_data
-from utilities.console import console_print
+from utilities.console import console_print, console
 
 
 class ObjectSimulationProperties(PropertyGroup):
@@ -14,15 +15,23 @@ class ObjectSimulationProperties(PropertyGroup):
         update=lambda self_, context: self_._on_participate_in_simulation_toggle(context)
     )
 
+    vertices_updated_every_frame: BoolProperty(
+        name="vertices_updated_every_frame",
+        description="Vertices of mesh updated every frame.",
+        default=False,
+    )
+
     simulation_index: IntProperty(
         name="simulationIndex",
         # options={'SKIP_SAVE'},
     )
     pattern_uuid: IntProperty(default=-1)
 
-    # @property
-    # def object_type(self):
-    #     return ""
+    base_key_name = 'QYBasis'
+    simulation_key_name = 'QYSim'
+
+    fix_pin_group_name = 'QYPinFix'
+    attach_pin_group_name = 'QYPinAttach'
 
     @property
     def is_pattern_mesh(self):
@@ -31,7 +40,10 @@ class ObjectSimulationProperties(PropertyGroup):
     @property
     def pattern(self):
         if self.is_pattern_mesh:
-            return global_data.get_obj_by_uuid(self.pattern_uuid,False)
+            p = global_data.get_obj_by_uuid(self.pattern_uuid, False)
+            if p is None:
+                raise ValueError(f"Can not find pattern_uuid: {self.pattern_uuid}")
+            return p
         return None
 
     @pattern.setter
@@ -44,6 +56,54 @@ class ObjectSimulationProperties(PropertyGroup):
         else:
             console_print("out simulation")
 
+    def remove_shape_key(self, key):
+        obj = self.id_data
+        mesh: bpy.types.Mesh = obj.data
+        if mesh.shape_keys is None:
+            return
+        if key not in mesh.shape_keys.key_blocks:
+            return
+        obj.shape_key_remove(mesh.shape_keys.key_blocks[key])
+
+    def get_shape_key_vertices(self, key):
+        obj = self.id_data
+        if not self.is_pattern_mesh:
+            return None
+        mesh: bpy.types.Mesh = obj.data
+        if mesh.shape_keys is None:
+            return None
+        keys = mesh.shape_keys.key_blocks
+        if key not in keys:
+            return None
+        shape_key = mesh.shape_keys.key_blocks[key]
+        num_vertices = len(mesh.vertices)
+        vertices_local = np.empty(num_vertices * 3, dtype=np.float32)
+        shape_key.points.foreach_get("co", vertices_local)
+        return vertices_local.reshape(-1, 3)
+
+    def get_simulation_vertices(self):
+        vertices = self.get_shape_key_vertices(self.simulation_key_name)
+        return vertices
+
+    def set_simulation_vertices(self, vertices):
+        obj = self.id_data
+        mesh: bpy.types.Mesh = obj.data
+        num_vertices = len(mesh.vertices)
+        if vertices.shape[0] != num_vertices:
+            raise ValueError(
+                f"Number of vertices does not match: {vertices.shape[0]} != {num_vertices}")
+        self._ensure_shape_key()
+        shape_key = mesh.shape_keys.key_blocks[self.simulation_key_name]
+        console.info(vertices.shape)
+        vertices = vertices.ravel()
+        shape_key.points.foreach_set("co", vertices)
+
+    def get_pattern_vertices(self):
+        vertices = self.get_shape_key_vertices(self.base_key_name)
+        if vertices is not None:
+            vertices = np.ascontiguousarray(vertices[:, :2])  # (x,y,z) -> (x,y)
+        return vertices
+
     def ensure_attributes(self):
         obj = self.id_data
         if not self.is_pattern_mesh:
@@ -55,19 +115,23 @@ class ObjectSimulationProperties(PropertyGroup):
                 import traceback
                 console_print(''.join(traceback.format_stack(limit=10)))
                 return
+        self._ensure_shape_key()
+        self._ensure_vertex_group()
 
+    def _ensure_shape_key(self):
+        obj = self.id_data
         mesh: bpy.types.Mesh = obj.data
         if mesh.shape_keys is None:
             obj.shape_key_add(name='Basis')
         keys = mesh.shape_keys.key_blocks
-        base_name = 'QYBasis'
+        base_name = self.base_key_name
         if base_name not in keys:
             obj.shape_key_add(name=base_name, from_mix=True)
             keys[base_name].value = 1.0
         keys['Basis'].lock_shape = True
         keys[base_name].lock_shape = True
 
-        sim_name = 'QYSim'
+        sim_name = self.simulation_key_name
         if sim_name not in keys:
             obj.shape_key_add(name=sim_name, from_mix=False)
             keys[sim_name].value = 1.0
@@ -81,6 +145,29 @@ class ObjectSimulationProperties(PropertyGroup):
                 type='FLOAT_COLOR',
                 domain='POINT',
             )
+
+    def _ensure_vertex_group(self):
+        obj = self.id_data
+        if self.fix_pin_group_name not in obj.vertex_groups:
+            obj.vertex_groups.new(name=self.fix_pin_group_name)
+        if self.attach_pin_group_name not in obj.vertex_groups:
+            obj.vertex_groups.new(name=self.attach_pin_group_name)
+
+    def get_vertex_group_weight(self, key):  # TODO make it faster
+        obj = self.id_data
+        weights_np = np.zeros(len(obj.data.vertices), dtype=np.float32)
+        vg_index = -1
+        if key not in obj.vertex_groups:
+            return weights_np
+        else:
+            vg_index = obj.vertex_groups[key].index
+
+        for i, v in enumerate(obj.data.vertices):
+            for g in v.groups:
+                if g.group == vg_index:
+                    weights_np[i] = g.weight
+                    break
+        return weights_np
 
     def init_simulation(self, obj):
         if not obj or obj.type != 'MESH' or not self.is_pattern_mesh:

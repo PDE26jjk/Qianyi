@@ -1,27 +1,43 @@
 # Qianyi
-牵衣。大概会是一个布料模拟的Blender插件
+牵衣。一个布料模拟的Blender插件
 
-
-代码结构，基础操作部分参考了[CAD_Sketcher](https://github.com/hlorus/CAD_Sketcher)
+本项目是Qianyi的Blender端代码，还需要配合[Qianyi_DP](https://github.com/PDE26jjk/Qianyi_DP)数据处理才能使用。
 
 ## 待办
 
-- [ ] 各种单元的UI
-  - [x] 删改
-- [ ] 各种单元的编辑
+
+- [ ] 网格生成
+  - [x] 优化三角剖分
+- [x] 接入物理
+  - [x] 显式积分
+  - [ ] PCG (未完成)
+  - [ ] Chebyshev (未完成)
+- 布料各项异性
+  - [ ] 板片方向
+  - [ ] 算法实现
+- 板片编辑器
+  - [ ] 选择框
+  - [ ] 创建对称
   - [ ] 移动、缩放、旋转
     - [x] 移动
-  - [ ] 边的添加
-  - [ ] 创建缝线
+    - [ ] 缩放
+    - [ ] 旋转
+  - [ ] 复制粘贴
+  - [x] 边的添加
+  - [x] 缝线
     - [x] 分区算法
-    - [ ] UI
-- [ ] 选择框
-- [ ] 接入采样点生成三角形
-  - [x] 搭好流程
-  - [ ] 优化三角剖分
-    - [x] 找到CUDA库
-- [ ] 接入物理
-  - [ ] 显式积分
-- [ ] 创建对称
-- [ ] 鼠标、VR交互
-- [ ] 动画录制、缓存
+    - [ ] UI（未完成）
+  - [ ] 内部线
+
+- [x] 鼠标、VR交互
+- [x] 动画录制、缓存
+- [ ] 动画缓存导出
+
+## 引用和参考
+
+代码结构，操作部分参考了[CAD_Sketcher](https://github.com/hlorus/CAD_Sketcher)
+
+翻译参考了 [MMD_Tools](https://github.com/MMD-Blender/blender_mmd_tools)
+
+
+

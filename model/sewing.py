@@ -1,3 +1,4 @@
+import math
 from typing import List
 
 import numpy as np
@@ -177,11 +178,11 @@ def calc_sewing_geo_point(project):
             sections = [d.section for d in dir_sections]
             max_seg = -1
             for sec in sections:
-                seg = max(round(sec.absolute_length() / sec.edge.pattern.granularity), 1)
+                seg = max(math.ceil(sec.absolute_length() / sec.edge.pattern.granularity), 1)
                 max_seg = max(max_seg, seg)
             for sec in sections:
                 sec.seg = max_seg
-            console.warning(i, sections)
+            console.warning(i, sections, max_seg)
     for p in pattern_set:
         p.forced_update()
 

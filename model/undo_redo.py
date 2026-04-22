@@ -9,9 +9,12 @@ from .. import global_data
 @persistent
 def on_undo_redo(dummy1, dummy2=None):  # TODO incremental invalid in depsgraph_update
     """当撤销或重做发生时，之前的内存指针全部失效，必须清空缓存"""
-    for model in global_data.uuid2obj.values():
-        if model.global_uuid != -1:
-            model.clear_temp_data()
+    try:
+        for model in global_data.uuid2obj.values():  # TODO still easy to crash, try to fix it.
+            if model and model.global_uuid != -1:
+                model.clear_temp_data()
+    except:
+        pass
     global_data.uuid2obj.clear()
     global_data.temp_data.clear()
     # console_print(global_data.temp_data)
@@ -34,8 +37,6 @@ def after_undo_redo(dummy1, dummy2=None):
 
 
 def register():
-    # undo_pre 在撤销前触发，undo_post 在撤销后触发
-    # 建议两个都挂上，或者至少挂 post
     bpy.app.handlers.undo_pre.append(on_undo_redo)
     bpy.app.handlers.redo_pre.append(on_undo_redo)
     bpy.app.handlers.undo_post.append(after_undo_redo)

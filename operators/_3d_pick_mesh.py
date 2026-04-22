@@ -105,7 +105,7 @@ class VIEW3D_OT_qmyi_pick3d(Operator, StateOperator):
     @classmethod
     def poll(cls, context: Context):
         qmyi = context.scene.qmyi
-        res = qmyi.simulation.enable_simulation
+        res = qmyi.simulation.enable_free_simulation
         # console_print("VIEW3D_OT_pick_mesh poll", res)
         return res
         # return True
@@ -161,7 +161,7 @@ class VIEW3D_OT_qmyi_pick3d(Operator, StateOperator):
                 cam_data['view_direction']
             )
             simulator.pick_triangle_update(self.pick_index, np.array(current_world_pos))
-            console_print(current_world_pos)
+            # console_print(current_world_pos)
             # context.area.tag_redraw()
 
         p2state.data_change_cb.append(cb2)

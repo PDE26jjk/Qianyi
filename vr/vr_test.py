@@ -159,7 +159,7 @@ class QYVR_OT_trigger(Operator):
 
     def invoke(self, context, event):
         qmyi = context.scene.qmyi
-        if context.area.type != "VIEW_3D" or not qmyi.simulation.enable_simulation:
+        if context.area.type != "VIEW_3D" or not qmyi.simulation.enable_free_simulation:
             return {"CANCELLED"}
 
         context.window_manager.modal_handler_add(self)

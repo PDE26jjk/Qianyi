@@ -7,7 +7,8 @@ core_modules = [
     "ui",
     "draw_editor",
     "workspacetools",
-    "vr"
+    "vr",
+    "m17n"
 ]
 
 register_full, unregister_full = module_register_factory(__package__, core_modules)

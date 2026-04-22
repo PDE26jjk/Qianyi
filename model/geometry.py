@@ -1,3 +1,4 @@
+import math
 from typing import Any, List
 
 import numpy as np
@@ -226,21 +227,22 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         # self.geo_points_temp = np.asarray(mathutils.geometry.interpolate_bezier(*q, resolution))
         # self.geo_points_temp = np.asarray(arc_points)
         segment = max(resolution - 1, 2)
-        temp_points = self.generate_render_points(segment * 2)
+        temp_points = self.generate_render_points(max(segment * 2, 8))
         self.geo_points_temp = resample_polyline(temp_points, [(0, segment)], True)
 
     def calc_geo_point_for_sections(self):
         min_g = self.pattern.granularity
         for sec in self.sections():
             if sec.seg == -1:
-                sec.seg = max(round(sec.absolute_length() / sec.edge.pattern.granularity), 1)
+                sec.seg = max(math.ceil(sec.absolute_length() / sec.edge.pattern.granularity), 1)
             min_g = min(sec.absolute_length() / sec.seg, min_g)
-        resolution = max(round(self.length / min_g), 1) + 1
         only_one_section = self.section_start.next == self.section_end
         if only_one_section:
+            resolution = self.section_start.seg + 1
             self.calc_temp_geo_point(resolution)
             self.section_start.start_point = 0
         else:
+            resolution = max(math.ceil(self.length / min_g), 1) + 1
             self.calc_temp_geo_point(resolution * 2)
             segments = []
             points_count = 0

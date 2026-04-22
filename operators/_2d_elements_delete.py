@@ -33,30 +33,31 @@ class NODE_OT_elements_delete(Operator2DBase):
 
         if edit_mode == "PATTERN":
             selected_patterns = list(project.selected_patterns)
-            selected_patterns_uuid = [p.uuid for p in selected_patterns]
             if len(selected_patterns) == 0:
                 return {"CANCELLED"}
-            del_idx_list = []
-            for sw in project.sewings:
-                if (sw.side1.line1.pattern.global_uuid in selected_patterns_uuid or
-                        sw.side2.line1.pattern.global_uuid in selected_patterns_uuid):
-                    del_idx_list.append(sw.get_index())
-
-            for i in sorted(del_idx_list, reverse=True):
-                project.sewings.remove(i)
-            project.selected_sewings.clear()
-            project.refresh_collection_uuid(project.sewings)
-
-            del_idx_list = []
-            for p in selected_patterns:
-                if p.uuid != -1:
-                    obj = global_data.get_obj_by_uuid(p.uuid, check_uuid=False)
-                    if obj is not None:
-                        del_idx_list.append(obj.get_index())
-                    else:
-                        console.error('cannot find pattern', p.uuid)
-            for i in sorted(del_idx_list, reverse=True):
-                project.patterns.remove(i)
+            project.remove_patterns(selected_patterns)
+            # selected_patterns_uuid = [p.uuid for p in selected_patterns]
+            # del_idx_list = []
+            # for sw in project.sewings:
+            #     if (sw.side1.line1.pattern.global_uuid in selected_patterns_uuid or
+            #             sw.side2.line1.pattern.global_uuid in selected_patterns_uuid):
+            #         del_idx_list.append(sw.get_index())
+            #
+            # for i in sorted(del_idx_list, reverse=True):
+            #     project.sewings.remove(i)
+            # project.selected_sewings.clear()
+            # project.refresh_collection_uuid(project.sewings)
+            #
+            # del_idx_list = []
+            # for p in selected_patterns:
+            #     if p.uuid != -1:
+            #         obj = global_data.get_obj_by_uuid(p.uuid, check_uuid=False)
+            #         if obj is not None:
+            #             del_idx_list.append(obj.get_index())
+            #         else:
+            #             console.error('cannot find pattern', p.uuid)
+            # for i in sorted(del_idx_list, reverse=True):
+            #     project.patterns.remove(i)
 
             project.refresh_collection_uuid(project.patterns)
         elif edit_mode == "EDGE":

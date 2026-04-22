@@ -141,7 +141,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         return sw
 
     def add_sewing1to1(self, edge1, edge2, side1_reverse=False, side2_revers=True):
-        return self.add_sewing(edge1, 0, edge1, 1, side1_reverse, edge2, 0, edge2, 1, side2_revers)
+        return self.add_sewing(edge1, 0, edge1, 1, side1_reverse, edge2, 1, edge2, 0, side2_revers)
 
     def get_sewings_for_simulation(self):
         self.calc_sewing_geo_point()
@@ -229,6 +229,34 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         name = f"pattern_{len(self.patterns):03d}"
         p.name = get_unique_name(self.patterns, name)
         return p
+
+    def remove_patterns(self, patterns_to_delete):
+        selected_patterns_uuid = [p.uuid for p in patterns_to_delete]
+        del_idx_list = []
+        for sw in self.sewings:
+            if (sw.side1.line1.pattern.global_uuid in selected_patterns_uuid or
+                    sw.side2.line1.pattern.global_uuid in selected_patterns_uuid):
+                del_idx_list.append(sw.get_index())
+
+        for i in sorted(del_idx_list, reverse=True):
+            self.sewings.remove(i)
+        self.selected_sewings.clear()
+        self.refresh_collection_uuid(self.sewings)
+
+        del_idx_list = []
+        for p in patterns_to_delete:
+            if p.uuid != -1:
+                obj = global_data.get_obj_by_uuid(p.uuid, check_uuid=False)
+                if hasattr(obj, 'mesh_object') and obj.mesh_object is not None:
+                    bpy.data.objects.remove(obj.mesh_object)
+                if obj is not None:
+                    del_idx_list.append(obj.get_index())
+                else:
+                    console.error('cannot find pattern', p.uuid)
+        for i in sorted(del_idx_list, reverse=True):
+            self.patterns.remove(i)
+
+        self.refresh_collection_uuid(self.patterns)
 
 
 define_temp_prop(QianyiProject, "initialized", False)

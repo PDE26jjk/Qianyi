@@ -34,7 +34,7 @@ class ModelData:
         temp_data.append({})
         self.global_idx = len(temp_data) - 1
         data = temp_data[self.global_idx]
-        if self.global_uuid == -1 or (
+        if self.global_uuid == -1 or self.global_uuid == 255 or (
                 self.global_uuid in global_data.uuid2obj and global_data.uuid2obj[self.global_uuid] != self):
             self.global_uuid = random.randint(-2_147_483_647, 2_147_483_647)
             # console_print("new global uuid ", self.global_uuid)

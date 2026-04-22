@@ -2,6 +2,7 @@ import bpy
 import gpu
 from bpy.types import Gizmo, GizmoGroup
 
+from utilities.console import console
 from . import TempDrawManager
 from ..utilities.node_tree import get_active_node_tree
 from .. import global_data
@@ -48,11 +49,12 @@ class NODE_GT_qmyi_preselection(Gizmo):
             buffer = fb.read_color(mouse_x, mouse_y, 1, 1, 4, 0, "FLOAT")
         # r, g, b, a = buffer[0][0]
         uuid = draw_manager.rgb_to_index(*buffer[0][0])
-        obj = None
+
         old_hover_obj = qmyi.hover_object
-        if uuid in global_data.uuid2obj:
-            obj = global_data.get_obj_by_uuid(uuid)
-            # console_print("uuid" ,uuid,obj.global_uuid)
+        obj = None
+        if uuid != 255:
+            obj = global_data.get_obj_by_uuid(uuid, False)
+        # console_print("uuid" ,uuid,obj.global_uuid)
         if old_hover_obj != obj:
             qmyi.set_hover_object(obj)
             context.area.tag_redraw()

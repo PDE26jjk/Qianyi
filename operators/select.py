@@ -33,11 +33,6 @@ def update_selection_cache(collection, target_obj, mode, is_replace_mode):
     :param is_replace_mode: 是否是替换模式 (即没有按 Shift/Ctrl)
     """
 
-    # 1. 如果是替换模式，且不仅是追加，理论上外部应该先清空列表
-    # (这一步通常在外部做，因为可能要同时清空点和边)
-
-    # 2. 查找对象是否已在列表中
-    # 优化：通过指针比对，而不是对象比对
     uuid = target_obj.get_temp_data()['uuid']
     found_index = -1
     for i, item in enumerate(collection):
@@ -137,66 +132,9 @@ class NODE_OT_qmyi_select(Operator):
         context.area.tag_redraw()
         return {"FINISHED"}
 
-
-# class NODE_OT_slvs_select_all(Operator):
-#     """Select / Deselect all entities"""
-#
-#     bl_idname = Operators.SelectAll
-#     bl_label = "Select / Deselect Entities"
-#
-#     deselect: BoolProperty(name="Deselect")
-#
-#     def execute(self, context: Context):
-#         if self.deselect:
-#             deselect_all(context)
-#         else:
-#             select_all(context)
-#         context.area.tag_redraw()
-#         return {"FINISHED"}
-#
-#
-# class NODE_OT_slvs_select_invert(Operator):
-#     """Invert entities selection"""
-#
-#     bl_idname = Operators.SelectInvert
-#     bl_label = "Invert entities selection"
-#
-#     def execute(self, context: Context):
-#         select_invert(context)
-#         context.area.tag_redraw()
-#         return {"FINISHED"}
-#
-#
-# class NODE_OT_slvs_select_extend(Operator):
-#     """Select neighbour entities"""
-#
-#     bl_idname = Operators.SelectExtend
-#     bl_label = "Select neighbour entities"
-#
-#     def execute(self, context: Context):
-#         select_extend(context)
-#         context.area.tag_redraw()
-#         return {"FINISHED"}
-#
-#
-# class NODE_OT_slvs_select_extend_all(Operator):
-#     """Select neighbour entities"""
-#
-#     bl_idname = Operators.SelectExtendAll
-#     bl_label = "Select neighbour entities"
-#
-#     def execute(self, context: Context):
-#         while select_extend(context):
-#             pass
-#         context.area.tag_redraw()
-#         return {"FINISHED"}
-#
 register, unregister = register_classes_factory(
     (
         NODE_OT_qmyi_select,
-        # NODE_OT_slvs_select_all,
-        # NODE_OT_slvs_select_invert,
-        # NODE_OT_slvs_select_extend,
-        # NODE_OT_slvs_select_extend_all,
+
     )
 )

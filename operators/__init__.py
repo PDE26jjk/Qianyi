@@ -2,6 +2,7 @@ from ..utilities.register import module_register_factory
 
 modules = [
     "select",
+    "select_box",
     "project",
     "pattern_panel",
     "fabric_panel",

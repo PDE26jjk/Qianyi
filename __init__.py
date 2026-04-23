@@ -1,7 +1,5 @@
 import bpy
-import logging
 
-from bpy.app import background
 from .registration import register_full, unregister_full
 
 bl_info = {

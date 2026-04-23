@@ -59,11 +59,21 @@ tool_select = (
         {"type": "LEFTMOUSE", "value": "CLICK", "shift": True},
         {"properties": [("mode", "TOGGLE")]},
     ),
-    # (
-    #     Operators.Select,
-    #     {"type": "LEFTMOUSE", "value": "CLICK", "ctrl": True},
-    #     {"properties": [("mode", "SUBTRACT")]},
-    # ),
+    (
+        Operators.SelectBox,
+        {"type": "LEFTMOUSE", "value": "CLICK_DRAG"},
+        None,
+    ),
+    (
+        Operators.SelectBox,
+        {"type": "LEFTMOUSE", "value": "CLICK_DRAG", "ctrl": True},
+        {"properties": [("mode", "SUBTRACT")]},
+    ),
+    (
+        Operators.SelectBox,
+        {"type": "LEFTMOUSE", "value": "CLICK_DRAG", "shift": True},
+        {"properties": [("mode", "EXTEND")]},
+    )
 )
 
 addon_keymaps = []

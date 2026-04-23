@@ -1,7 +1,12 @@
 # Qianyi
 牵衣。一个布料模拟的Blender插件
 
+
 本项目是Qianyi的Blender端代码，还需要配合[Qianyi_DP](https://github.com/PDE26jjk/Qianyi_DP)数据处理才能使用。
+
+## 开发进度及演示
+
+请关注bilibili账号 [@PDE26jjk](https://space.bilibili.com/8300902)
 
 ## 待办
 
@@ -40,4 +45,6 @@
 翻译参考了 [MMD_Tools](https://github.com/MMD-Blender/blender_mmd_tools)
 
 
+## 其他
 
+“牵衣” 出自同名填词古风歌曲，也源自 “稚子牵衣” 这一古诗文中常用的意象。

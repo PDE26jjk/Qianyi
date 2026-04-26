@@ -9,7 +9,7 @@ from mathutils import Vector
 from mathutils.geometry import delaunay_2d_cdt
 
 
-def generate_pattern_mesh(points, granularity, mesh_obj):
+def generate_pattern_mesh(pattern, points, granularity, mesh_obj):
     if len(points) < 3:
         return mesh_obj
     start_time = time.time()
@@ -60,6 +60,7 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
     if mesh_obj is None:
         mesh = bpy.data.meshes.new("DistMesh2D_Mesh")
         mesh_obj = bpy.data.objects.new("DistMesh2D_Object", mesh)
+        mesh_obj.rotation_euler.x = 90
     else:
         mesh = mesh_obj.data
         if mesh.shape_keys:
@@ -143,6 +144,10 @@ def generate_pattern_mesh(points, granularity, mesh_obj):
 
     # 更新网格
     mesh.update(calc_edges=True)  # 自动计算边
+    if pattern.is_mirror:
+        mesh_obj.scale.x = -1
+    else:
+        mesh_obj.scale.x = 1
     mesh_obj.lock_scale = (True, True, True)
 
     console_print("create_mesh: ", time.time() - start_time)

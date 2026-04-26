@@ -24,6 +24,16 @@ tool_base_keymap = (
         None,
     ),
     (
+        Operators.PatternRotate2D,
+        {"type": "R", "value": "PRESS"},
+        None,
+    ),
+    (
+        Operators.PatternScale2D,
+        {"type": "S", "value": "PRESS"},
+        None,
+    ),
+    (
         Operators.EdgeElementsMove2D,
         {"type": "G", "value": "PRESS"},
         None,

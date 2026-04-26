@@ -1,6 +1,7 @@
 from typing import List
 
 import bpy
+import re
 import numpy as np
 from mathutils import Matrix, Vector
 
@@ -10,14 +11,20 @@ from utilities.cubic_spline import cubic_spline_2d_numpy
 from utilities.geometric_operation import forward_diff_bezier
 from .. import global_data
 
+
 class TempPoint:
     def __init__(self, co):
         self.co = co
+
 
 class ProxyPoint:
     def __init__(self, vertex):
         self.vertex = vertex
         self.co = vertex.co[:]
+        # path = self.vertex.path_from_id()
+        # instances = self.vertex.pattern.instances
+        # pattern = self.vertex.pattern
+        # console.info(f"instances: {instances},pattern:{pattern.global_uuid}:{pattern.path_from_id()},path:{path}")
         vertex.proxy = self
 
     def update_offset(self, offset):
@@ -26,6 +33,21 @@ class ProxyPoint:
 
     def apply_proxy(self):
         self.vertex.co = self.co[:]
+
+    def apply_proxy_to_instances(self):
+        instances = self.vertex.pattern.instances
+        path = self.vertex.path_from_id()
+        # "patterns[1].edges[7].handles[0]"   -> [("patterns",1), ("edges",7), ("handles",0)]
+        segments = re.findall(r'(\w+)\[(\d+)\]', path)
+        sub_segments = segments[1:]
+        if instances is None:
+            console.error(f"instances is None! pattern:{self.vertex.pattern},path:{path}")
+            return
+        for instance in instances:
+            obj = instance
+            for attr_name, index_str in sub_segments:
+                obj = getattr(obj, attr_name)[int(index_str)]
+            obj.co = self.co[:]
 
 
 def get_proxy_or_not(vertex) -> ProxyPoint | Vertex2D:
@@ -131,4 +153,4 @@ class MovingCurveWhole(MovingCurve):
 
     def apply_moving(self):
         for point in self.whole_points:
-            point.apply_proxy()
+            point.apply_proxy_to_instances()

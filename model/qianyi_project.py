@@ -193,7 +193,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         # console.info('edge_point_sizes', edge_point_sizes)
         edge_point_sizes = np.array(edge_point_sizes, dtype=np.int32)
         matrices = np.concatenate(matrices, dtype=np.float32)
-        console.info('matrices', matrices)
+        # console.info('matrices', matrices)
         from Qianyi_DP import pattern_helper
         pattern_helper.update_edges(edge_points, edge_point_sizes, matrices)
         self.edge_points = edge_points
@@ -223,6 +223,21 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         self.nearest_point = self.edge_points[index] * (1 - weight) + self.edge_points[next_index] * weight
         # console.warning('self.nearest_point', self.nearest_point)
 
+    def get_nearest_point_data(self):
+        pattern: Pattern = self.patterns[self.nearest_pattern]
+        point_offsets = [edge.start_point for edge in pattern.edges]
+        edge_index = np.searchsorted(point_offsets, self.edge_point_offset, side='right') - 1
+        edge = pattern.edges[edge_index]
+        point_index = self.edge_point_offset - edge.start_point
+        if point_index >= len(edge.geo_points_temp) - 1:
+            raise ValueError("Point index out of range!!!", point_index, len(edge.geo_points_temp))
+        point_start = edge.geo_points_temp[point_index]
+        pts = edge.geo_points_temp[:point_index + 1]
+        length = (np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1)) +
+                  np.linalg.norm(self.nearest_point - point_start))
+        t = length / edge.length
+        return pattern, edge, self.nearest_point, t
+
     def add_pattern(self):
         p = self.patterns.add()
         self.refresh_collection_uuid(self.patterns)
@@ -230,8 +245,49 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         p.name = get_unique_name(self.patterns, name)
         return p
 
+    def _unlink_pattern_from_instance_list(self, pattern_to_del):
+        uuid_to_del = pattern_to_del.global_uuid
+        if uuid_to_del == -1:
+            return
+
+        next_uuid = pattern_to_del.instance_next_uuid
+        if next_uuid == -1:
+            return
+
+        prev_node = None
+        current_uuid = next_uuid
+        max_tries = len(self.patterns) + 1
+
+        while max_tries > 0:
+            current_node = global_data.get_obj_by_uuid(current_uuid)
+            if current_node is None:
+                break
+
+            if current_node.instance_next_uuid == uuid_to_del:
+                prev_node = current_node
+                break
+
+            current_uuid = current_node.instance_next_uuid
+            # 如果转了一圈回到起点还没找到，说明逻辑异常，退出防死循环
+            if current_uuid == next_uuid:
+                break
+            max_tries -= 1
+
+        if prev_node:
+            # 核心断开逻辑：前驱节点跨过当前节点，直接指向后继节点
+            prev_node.instance_next_uuid = pattern_to_del.instance_next_uuid
+
+            # 如果链表删到只剩一个节点(即前驱节点的下一个是自己)，恢复初始状态 -1
+            if prev_node.instance_next_uuid == prev_node.global_uuid:
+                prev_node.instance_next_uuid = -1
+
+        pattern_to_del.instance_next_uuid = -1
+
     def remove_patterns(self, patterns_to_delete):
-        selected_patterns_uuid = [p.uuid for p in patterns_to_delete]
+        for p in patterns_to_delete:
+            self._unlink_pattern_from_instance_list(p)
+
+        selected_patterns_uuid = [p.global_uuid for p in patterns_to_delete]
         del_idx_list = []
         for sw in self.sewings:
             if (sw.side1.line1.pattern.global_uuid in selected_patterns_uuid or
@@ -245,18 +301,23 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
 
         del_idx_list = []
         for p in patterns_to_delete:
-            if p.uuid != -1:
-                obj = global_data.get_obj_by_uuid(p.uuid, check_uuid=False)
+            if p.global_uuid != -1:
+                obj = global_data.get_obj_by_uuid(p.global_uuid, check_uuid=False)
                 if hasattr(obj, 'mesh_object') and obj.mesh_object is not None:
                     bpy.data.objects.remove(obj.mesh_object)
                 if obj is not None:
                     del_idx_list.append(obj.get_index())
                 else:
-                    console.error('cannot find pattern', p.uuid)
+                    console.error('cannot find pattern', p.global_uuid)
         for i in sorted(del_idx_list, reverse=True):
             self.patterns.remove(i)
 
+        self.refresh_patterns()
+
+    def refresh_patterns(self):
         self.refresh_collection_uuid(self.patterns)
+        for p in self.patterns:
+            p.clear_temp_data()
 
 
 define_temp_prop(QianyiProject, "initialized", False)

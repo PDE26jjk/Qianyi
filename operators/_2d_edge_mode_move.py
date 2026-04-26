@@ -3,6 +3,7 @@ from bpy.props import FloatVectorProperty, BoolProperty
 from bpy.types import Context
 from bpy.utils import register_classes_factory
 
+from ..model.pattern_instance import collect_unique_instances
 from ..model.geometry import Edge2D, Vertex2D
 from utilities.console import console
 from ._2d_operator_base import Operator2DBase
@@ -54,13 +55,13 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
         self.pattern_set = set()
         self.point_proxys = []
         objs = self.project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
-        console.info(objs)
         for obj in objs:
             self.pattern_set.add(obj.pattern)
+        self.pattern_set = collect_unique_instances(self.pattern_set)
         for p in self.pattern_set:
-            p.calc_inv_matrix()
             for v in p.vertices:
                 v.impacted = False
+        objs = {o for o in objs if o.pattern.impacted}
         for obj in objs:
             if isinstance(obj, Edge2D):
                 move_point_set.add(obj.vertex0)
@@ -71,6 +72,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
             p.impacted = True
 
         for point in move_point_set:
+            console.success(point.path_from_id())
             self.point_proxys.append(ProxyPoint(point))
 
         for p in self.pattern_set:
@@ -89,6 +91,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
         for p in move_point_set:
             p.impacted = False  # reset
         self.updated = False
+
         def cb1(_self, _context):
             co = region2view_coord(context, _self.point_position)
             if not self.initialized:
@@ -120,7 +123,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
             for e in p.edges:
                 checking_points = e.render_points if e.proxy is None else e.proxy.render_points
                 checking_edge_points.append(checking_points[:-1])
-            checking_edge_points = np.concatenate(checking_edge_points,dtype=np.float32)
+            checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
             from Qianyi_DP import pattern_helper
             res = pattern_helper.check_edge_intersection(checking_edge_points)
             # console.warning(res)
@@ -129,17 +132,20 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
         if res['intersected']:
             def draw(self, context):
                 self.layout.label(text="edges intersected!")
+
             context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
             self.return_state = ReturnState.CANCELLED
             return
 
         for p in self.point_proxys:
-            p.apply_proxy()
+            p.apply_proxy_to_instances()
         for mc in self.moving_curves:
             mc.apply_moving()
         for p in self.pattern_set:
-            p.forced_update()
-            p.generate_mesh()
+            for ins in p.instances:
+                ins.create_sections()
+                ins.forced_update()
+                ins.generate_mesh()
 
     def handle_failure(self, context, state: IState):
         self.return_state = ReturnState.CANCELLED

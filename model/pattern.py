@@ -20,7 +20,7 @@ from .pattern_mesh import generate_pattern_mesh
 
 class Pattern(PropertyGroup, ModelData, Selectable):
     anchor: FloatVectorProperty(name="anchor", subtype="XYZ", size=2, default=(0.0, 0.0))
-    rotation: FloatProperty(name="rotation", default=0.0)
+    rotation: FloatProperty(name="rotation", default=0.0, subtype='ANGLE', unit='ROTATION')
     vertices: CollectionProperty(type=Vertex2D, name="vertices")
     edges: CollectionProperty(type=Edge2D, name="edges")
     internal_lines: CollectionProperty(type=Edge2D, name="internalLines")
@@ -37,6 +37,8 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'MESH'
     )
+    instance_next_uuid: IntProperty(name="Instance Next UUID", default=-1)
+    is_mirror: BoolProperty(name="Is Mirror", default=False)
 
     @property
     def fabric(self):
@@ -179,7 +181,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             e.update(self)
             points = e.geo_points_temp[:-1]
             if points.shape[0] < 1:
-                console.warning(e.vertex0.co,e.handle1_type,e.vertex1.co,e.handle2_type)
+                console.warning(e.vertex0.co, e.handle1_type, e.vertex1.co, e.handle2_type)
                 raise Exception("points.shape[0] < 1")
             # console.warning('geo_points_temp', points)
             edge_points.extend(points)
@@ -201,10 +203,6 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             list_vertices.append(vertex.co)
         return list_vertices
 
-    def transform(self, matrix):
-        """应用变换矩阵"""
-        self.anchor = matrix @ self.anchor
-
     def calc_bbox(self):
         points = np.asarray(self.get_edge_geo_points())
         if points.shape[0] > 0:
@@ -216,12 +214,17 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             self.bbox[3] = bbox_max[1]
 
     def get_bbox(self):
-        return (self.bbox[0], self.bbox[1]), (self.bbox[2], self.bbox[3])
+        return np.array(((self.bbox[0], self.bbox[1]), (self.bbox[2], self.bbox[3])),dtype=np.float32)
+
+    @property
+    def center(self):
+        bbox = self.get_bbox()
+        return (bbox[0] + bbox[1]) * 0.5
 
     def generate_mesh(self):
         granularity = self.granularity / 1000
         start = time.time()
-        self.mesh_object = generate_pattern_mesh(self.get_geo_points_unique(), granularity, self.mesh_object)
+        self.mesh_object = generate_pattern_mesh(self, self.get_geo_points_unique(), granularity, self.mesh_object)
         if self.name:
             self.mesh_object.name = self.name
             self.mesh_object.data.name = self.name
@@ -248,14 +251,16 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         self.need_render_update = True
         self.mesh_renderer = None
         self.line_renderer = None
-        self._project = None
+        self.impacted = False
 
     def calc_inv_matrix(self):
-        self.inv_transform_mat_2D = create_2d_matrix_invert(rotation=self.rotation, offset=self.anchor)
+        self.inv_transform_mat_2D = create_2d_matrix_invert(scale=(-1 if self.is_mirror else 1, 1),
+                                                            rotation=self.rotation, offset=self.anchor)
         return self.inv_transform_mat_2D
 
     def calc_matrix(self):
-        self.transform_mat_2D = create_2d_matrix(rotation=self.rotation, offset=self.anchor)
+        self.transform_mat_2D = create_2d_matrix(scale=(-1 if self.is_mirror else 1, 1), rotation=self.rotation,
+                                                 offset=self.anchor)
         return self.transform_mat_2D
 
     def view_to_pattern_pos(self, pos):
@@ -265,6 +270,21 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     def pattern_to_view_pos(self, pos):
         pos = self.calc_matrix() @ Vector((pos[0], pos[1], 0, 1))
         return pos[0], pos[1]
+
+    def copy_pattern(self, as_instance=False, mirror=False, project=None):
+        if project is None:
+            project = self.project
+
+    def other_instances(self):
+        instances = []
+        if self.instance_next_uuid == -1:
+            return instances
+        p = global_data.get_obj_by_uuid(self.instance_next_uuid)
+        while p.global_uuid != self.global_uuid:
+            instances.append(p)
+            p = global_data.get_obj_by_uuid(p.instance_next_uuid)
+        return instances
+
 
 define_temp_prop(Pattern, "initialized", False)
 define_temp_prop(Pattern, "need_render_update", True)
@@ -276,5 +296,7 @@ define_temp_prop(Pattern, "mesh_renderer", None)
 define_temp_prop(Pattern, "line_renderer", None)
 define_temp_prop(Pattern, "transform_mat_2D", None)
 define_temp_prop(Pattern, "inv_transform_mat_2D", None)
+define_temp_prop(Pattern, "instances", None)
+define_temp_prop(Pattern, "impacted", False)
 
 register, unregister = register_classes_factory((Pattern,))

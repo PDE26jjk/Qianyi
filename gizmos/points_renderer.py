@@ -14,8 +14,7 @@ class PointsRenderer(BaseRenderer):
         self.points = []
 
     def add_point(self, pattern, point):
-        transform_matrix = create_2d_matrix(rotation=pattern.rotation,
-                                            offset=pattern.anchor)
+        transform_matrix = pattern.calc_matrix()
         if hasattr(point, 'position'):
             pos = transform_matrix @ Vector((point.position[0], point.position[1], 0, 1))
         else:
@@ -40,3 +39,4 @@ class PointsRenderer(BaseRenderer):
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.shader.uniform_float("color", color)
         self.batch.draw(self.shader)
+

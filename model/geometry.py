@@ -1,4 +1,5 @@
 import math
+import re
 from typing import Any, List
 
 import numpy as np
@@ -37,10 +38,31 @@ class Vertex2D(PropertyGroup, ModelData, Selectable):
         self.co[1] = value[1]
 
     def clear_temp_data(self):
-        self.pattern = None
+        self.pattern_temp = None
+
+    @property
+    def pattern(self):
+        if self.pattern_temp is not None:
+            try:
+                self.pattern_temp.path_from_id()
+            except Exception as e:
+                console.error("can not get pattern!", e)
+                self.pattern_temp = None
+        if self.pattern_temp is None:
+            path = self.path_from_id()
+            # "patterns[1].edges[7].handles[0]"   -> [("patterns",1), ("edges",7), ("handles",0)]
+            segments = re.findall(r'(\w+)\[(\d+)\]', path)
+            pattern_path = segments[0]
+            if pattern_path[0] == "patterns":
+                self.pattern_temp = self.id_data.patterns[int(pattern_path[1])]
+        return self.pattern_temp
+
+    @pattern.setter
+    def pattern(self, value):
+        self.pattern_temp = value
 
 
-define_temp_prop(Vertex2D, "pattern", None)
+define_temp_prop(Vertex2D, "pattern_temp", None)
 define_temp_prop(Vertex2D, "impacted", False)
 define_temp_prop(Vertex2D, "proxy", None)
 

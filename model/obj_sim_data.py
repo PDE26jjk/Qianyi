@@ -94,7 +94,7 @@ class ObjectSimulationProperties(PropertyGroup):
                 f"Number of vertices does not match: {vertices.shape[0]} != {num_vertices}")
         self._ensure_shape_key()
         shape_key = mesh.shape_keys.key_blocks[self.simulation_key_name]
-        console.info(vertices.shape)
+        # console.info(vertices.shape)
         vertices = vertices.ravel()
         shape_key.points.foreach_set("co", vertices)
 

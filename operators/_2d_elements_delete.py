@@ -2,6 +2,7 @@ import numpy as np
 from bpy.types import Context
 from bpy.utils import register_classes_factory
 
+from ..model.pattern_instance import collect_unique_instances
 from ..model.sewing import SewingOneSide
 from ..gizmos.moving_curve import TempPoint
 from ..model.geometry import Edge2D, Vertex2D
@@ -32,34 +33,11 @@ class NODE_OT_elements_delete(Operator2DBase):
         project = get_active_node_tree(context)
 
         if edit_mode == "PATTERN":
-            selected_patterns = list(project.selected_patterns)
+            selected_patterns = project.get_selected_objects_by_mode("PATTERN")
             if len(selected_patterns) == 0:
                 return {"CANCELLED"}
             project.remove_patterns(selected_patterns)
-            # selected_patterns_uuid = [p.uuid for p in selected_patterns]
-            # del_idx_list = []
-            # for sw in project.sewings:
-            #     if (sw.side1.line1.pattern.global_uuid in selected_patterns_uuid or
-            #             sw.side2.line1.pattern.global_uuid in selected_patterns_uuid):
-            #         del_idx_list.append(sw.get_index())
-            #
-            # for i in sorted(del_idx_list, reverse=True):
-            #     project.sewings.remove(i)
-            # project.selected_sewings.clear()
-            # project.refresh_collection_uuid(project.sewings)
-            #
-            # del_idx_list = []
-            # for p in selected_patterns:
-            #     if p.uuid != -1:
-            #         obj = global_data.get_obj_by_uuid(p.uuid, check_uuid=False)
-            #         if obj is not None:
-            #             del_idx_list.append(obj.get_index())
-            #         else:
-            #             console.error('cannot find pattern', p.uuid)
-            # for i in sorted(del_idx_list, reverse=True):
-            #     project.patterns.remove(i)
 
-            project.refresh_collection_uuid(project.patterns)
         elif edit_mode == "EDGE":
             draw_manager: TempDrawManager = global_data.temp_draw_manager
             draw_manager.clear()
@@ -68,10 +46,11 @@ class NODE_OT_elements_delete(Operator2DBase):
             objs = project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
             for obj in objs:
                 pattern_set.add(obj.pattern)
+            pattern_set = collect_unique_instances(pattern_set)
             for p in pattern_set:
-                p.calc_inv_matrix()
                 for v in p.vertices:
                     v.impacted = False
+            objs = {o for o in objs if o.pattern.impacted}
             for obj in objs:
                 if isinstance(obj, Edge2D):
                     point_set.add(obj.vertex0)
@@ -80,10 +59,25 @@ class NODE_OT_elements_delete(Operator2DBase):
                     point_set.add(obj)
             for p in point_set:
                 p.impacted = True
-            res = None
+
+            res = None  # intersect test result
+            sewing_map = dict()
+
+            def insert_sewing_map(idx, sw):
+                if idx not in sewing_map:
+                    sewing_map[idx] = []
+                sewing_map[idx].append(sw)
+
+            for s in project.sewings:
+                s.impacted = False
+                insert_sewing_map(s.side1.line1_uuid, s)
+                insert_sewing_map(s.side1.line2_uuid, s)
+                insert_sewing_map(s.side2.line1_uuid, s)
+                insert_sewing_map(s.side2.line2_uuid, s)
+
             for p in pattern_set:
                 edges_del = []
-                edges_rest = []
+                edges_rest = []  # [(e_uuid,e_v0_uuid,e_new_v1_uuid),...]
                 for e in p.edges:
                     if e.vertex0.impacted:
                         edges_del.append(e.get_index())
@@ -105,28 +99,42 @@ class NODE_OT_elements_delete(Operator2DBase):
                     mc.vertex1 = TempPoint(new_vertex.co)
                     mc.update()
                     checking_edge_points.append(mc.render_points[:-1])
-                    console.info(e,mc.render_points[:-1])
+                    console.info(e, mc.render_points[:-1])
                 checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
                 from Qianyi_DP import pattern_helper
                 res = pattern_helper.check_edge_intersection(checking_edge_points)
-                console.warning(checking_edge_points)
+                # console.warning(checking_edge_points)
                 console.warning(res)
                 if res['intersected']:
                     break
                 for i in sorted(edges_del, reverse=True):
-                    p.edges.remove(i)
-                p.refresh_collection_uuid(p.edges)
+                    for ins in p.instances:
+                        edge_uuid = ins.edges[i].global_uuid
+                        if edge_uuid in sewing_map:
+                            for s in sewing_map[edge_uuid]:
+                                s.impacted = True
+                            del sewing_map[edge_uuid]
+                        ins.edges.remove(i)
+                for ins in p.instances:
+                    ins.refresh_collection_uuid(ins.edges)
                 vertices_del = [v.get_index() for v in p.vertices if v.impacted]
                 for i in sorted(vertices_del, reverse=True):
-                    p.vertices.remove(i)
-                p.refresh_collection_uuid(p.vertices)
+                    for ins in p.instances:
+                        ins.vertices.remove(i)
+                for ins in p.instances:
+                    ins.refresh_collection_uuid(ins.vertices)
                 for e_ in edges_rest:
-                    e = global_data.get_obj_by_uuid(e_[0])
-                    e.vertex_index[0] = global_data.get_obj_by_uuid(e_[1]).get_index()
-                    e.vertex_index[1] = global_data.get_obj_by_uuid(e_[2]).get_index()
-                p.create_sections()
-                p.forced_update()
-                p.generate_mesh()
+                    e_index = global_data.get_obj_by_uuid(e_[0]).get_index()
+                    v0_index = global_data.get_obj_by_uuid(e_[1]).get_index()
+                    v1_index = global_data.get_obj_by_uuid(e_[2]).get_index()
+                    for ins in p.instances:
+                        e = ins.edges[e_index]
+                        e.vertex_index[0] = v0_index
+                        e.vertex_index[1] = v1_index
+                for ins in p.instances:
+                    ins.create_sections()
+                    ins.forced_update()
+                    ins.generate_mesh()
             if res is None or res['intersected']:
                 def draw(self, context):
                     self.layout.label(text="edges intersected!")
@@ -134,6 +142,13 @@ class NODE_OT_elements_delete(Operator2DBase):
                 context.area.tag_redraw()
                 context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
             draw_manager.clear()
+            sewings_del = [s.get_index() for s in project.sewings if s.impacted]
+            for i in sorted(sewings_del, reverse=True):
+                project.sewings.remove(i)
+            if len(sewings_del):
+                project.refresh_collection_uuid(project.sewings)
+                project.selected_sewings.clear()
+
         elif edit_mode == "SEWING":
             objs = project.get_selected_objects_by_mode("SEWING")
             del_idx_list = []

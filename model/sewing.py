@@ -99,6 +99,7 @@ define_temp_prop(Sewing, "need_render_update", True)
 define_temp_prop(Sewing, "renderer", None)
 define_temp_prop(Sewing, "sections1", lambda: [None, None])
 define_temp_prop(Sewing, "sections2", lambda: [None, None])
+define_temp_prop(Sewing, "impacted", False)
 
 
 def calc_sewing_side_sections(ss, sections_start_end, reverse=False):
@@ -198,7 +199,7 @@ def calc_sewing_side_edges_index(ss):
         if e1_index != -1 and e2_index != -1:
             break
     if e1_index == -1 or e2_index == -1:
-        raise ValueError("sewing side in different pattern!!", ss.line1_uuid, ss.line2_uuid)
+        raise ValueError("sewing side in different pattern!!", ss.line1.pattern, ss.line2.pattern)
     return e1_index, e2_index
 
 
@@ -249,41 +250,6 @@ def calc_sewing_side_render_points(ss):
         # render_points = render_points[::-1]
         render_points = np.flip(render_points, axis=0)
     return np.ascontiguousarray(render_points)
-
-    e = edges[0]
-
-    points = e.render_points
-
-    scans = np.r_[0, np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))]
-    length = e.length
-    target = length * ss.pos1
-    start_i = np.searchsorted(scans, target, side='right')
-    start_i = max(start_i, 1)
-    left_i, right_i = start_i - 1, start_i
-    radio = (target - scans[left_i]) / (scans[right_i] - scans[left_i])
-    start_point = points[left_i] * (1 - radio) + points[right_i] * radio
-
-    e = edges[-1]
-    points = e.render_points
-    scans = np.r_[0, np.cumsum(np.linalg.norm(np.diff(points, axis=0), axis=1))]
-    length = e.length
-    target = length * ss.pos2
-    end_i = np.searchsorted(scans, target, side='left')
-    end_i = min(end_i, len(points) - 1)
-    left_i, right_i = end_i - 1, end_i
-    radio = (target - scans[left_i]) / (scans[right_i] - scans[left_i])
-    end_point = points[left_i] * (1 - radio) + points[right_i] * radio
-
-    render_points.append(start_point)
-    if len(edges) == 1:
-        render_points.extend(e.render_points[start_i:end_i])
-    else:
-        render_points.extend(edges[0].render_points[start_i:])
-        for i in range(1, len(edges) - 1):
-            render_points.extend(edges[i].sections)
-        render_points.extend(edges[-1].render_points[:end_i])
-    render_points.append(end_point)
-    return render_points
 
 
 register, unregister = register_classes_factory((SewingOneSide, Sewing))

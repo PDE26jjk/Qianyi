@@ -96,11 +96,10 @@ class MeshRenderer:
         return self.batch_line, self.batch_triangle
 
     def get_world_matrix(self):
-        return create_2d_matrix(rotation=self.pattern.rotation,
-                                offset=self.pattern.anchor)
+        return self.pattern.calc_matrix()
 
     def draw_fill_mesh(self, color=(1.0, 1.0, 1.0, 0.5), draw_id=False):
-        if not self.obj or not self.batch_triangle or not self.shader:
+        if not self.obj or not self.batch_triangle or not self.shader or not self.pattern:
             return
         # 设置GPU状态
         if draw_id:
@@ -124,8 +123,7 @@ class MeshRenderer:
 
         self.shader.bind()
 
-        transform_matrix = create_2d_matrix(rotation=self.pattern.rotation,
-                                            offset=self.pattern.anchor)
+        transform_matrix = self.pattern.calc_matrix()
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         if selected:
             self.shader.uniform_float("color", (0.843, 0.596, 0.153, 1.0))

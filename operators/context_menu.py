@@ -31,12 +31,22 @@ class NODE_OT_qmyi_context_menu(Operator):
     def modal(self, context: Context, event: Event):
         if event.value == "RELEASE":
             return self.execute(context)
+
         return {"RUNNING_MODAL"}
 
     def execute(self, context: Context):
+        qmyi = context.scene.qmyi
         def draw_context_menu(self, context: Context):
             col = self.layout.column()
-            col.label(text="什么鬼", icon="INFO")
+            col.label(text="transform",)
+            row = col.row()
+            row.operator(Operators.PatternMove2D, text="move")
+            col = self.layout.column()
+            col.label(text="instance",)
+            row = col.row()
+            if qmyi.edit_mode == "PATTERN":
+                row.operator(Operators.PatternCopyInstance, text="copy instance")
+                row.operator(Operators.PatternCopyInstance, text="copy instance mirror").mirror = True
 
         # if not element:
         #     bpy.ops.wm.call_menu(name="NODE_MT_selected_menu")

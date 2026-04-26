@@ -83,13 +83,31 @@ class CurveRenderer(BaseRenderer):
         gpu.state.line_width_set(thickness)
         self.shader.bind()
 
-        transform_matrix = create_2d_matrix(rotation=pattern.rotation,
-                                            offset=pattern.anchor)
+        transform_matrix = pattern.calc_matrix()
 
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.shader.uniform_float("color", color)
 
         self.batch.draw(self.shader)
+
+    def draw_instances(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0):
+        if not self.edge:
+            return
+        if not self.batch:
+            self.update_batch()
+        patterns = self.edge.pattern.instances
+        if not patterns:
+            return
+
+        gpu.state.blend_set('ALPHA')
+        gpu.state.line_width_set(thickness)
+        self.shader.bind()
+        self.shader.uniform_float("color", color)
+
+        for pattern in patterns:
+            transform_matrix = pattern.calc_matrix()
+            self.shader.uniform_float("ModelMatrix", transform_matrix)
+            self.batch.draw(self.shader)
 
     def draw_handles(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0, draw_id=False):
         if not self.edge:
@@ -110,8 +128,7 @@ class CurveRenderer(BaseRenderer):
         gpu.state.point_size_set(thickness * 2)
         self.shader.bind()
 
-        transform_matrix = create_2d_matrix(rotation=pattern.rotation,
-                                            offset=pattern.anchor)
+        transform_matrix = pattern.calc_matrix()
 
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.shader.uniform_float("color", color)

@@ -19,6 +19,7 @@ class Operators(str, Enum):
     PatternMove2D = "qmyi.2d_pattern_move"
     PatternScale2D = "qmyi.2d_pattern_scale"
     PatternRotate2D = "qmyi.2d_pattern_rotate"
+    PatternCopyInstance = "qmyi.2d_pattern_copy_instance"
     Pick3D = "view3d.qmyi_pick3d"
     AddPoly = "node.qmyi_add_poly"
     Select = "node.qmyi_select"

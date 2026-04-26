@@ -28,8 +28,9 @@ class QY_OT_RemovePattern(bpy.types.Operator):
         project = get_active_node_tree(context)
         index = project.active_pattern_index
         if index < len(project.patterns):
-            project.patterns.remove(index)
-            update_patterns_global_uuid_map(project)
+            project.remove_patterns([project.patterns[index]])
+            # project.patterns.remove(index)
+            # update_patterns_global_uuid_map(project)
             if index >= len(project.patterns):
                 project.active_pattern_index = len(project.patterns) - 1
         else:
@@ -65,11 +66,12 @@ class QY_OT_MovePattern(bpy.types.Operator):
             next_index = (index + next_step) % len(project.patterns)
             project.patterns.move(index, next_index)
             # move() only swap memory, we must modify global map by hand.
-            if not abs(index - next_index) > 1:
-                p1, p2 = project.patterns[index], project.patterns[next_index]
-                global_data.uuid2obj[p1.global_uuid], global_data.uuid2obj[p2.global_uuid] = p1, p2
-            else:
-                update_patterns_global_uuid_map(project)
+            # if not abs(index - next_index) > 1:
+            #     p1, p2 = project.patterns[index], project.patterns[next_index]
+            #     global_data.uuid2obj[p1.global_uuid], global_data.uuid2obj[p2.global_uuid] = p1, p2
+            # else:
+            #     update_patterns_global_uuid_map(project)
+            project.refresh_patterns()
             project.active_pattern_index = next_index
         else:
             return {"CANCELLED"}

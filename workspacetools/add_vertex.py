@@ -44,5 +44,6 @@ class NODE_T_qmyi_add_vertex(WorkSpaceTool):
 
         co = region2view_coord(context, region_co)
         node_tree.find_nearest_point_on_edge(co)
+        # pattern, edge, add_point_pos, t = node_tree.get_nearest_point_data()
+        # console.warning("t:", t)
         context.area.tag_redraw()
-        # console.warning("query_point  ", co)

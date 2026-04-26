@@ -85,7 +85,7 @@ class QY_PT_patternProperty(NODE_PT_qmyi_base):
     def draw(self, context):
         layout = self.layout
         project = get_active_node_tree(context)
-        row = layout.row(align=False)
+        row = layout.row()
         if project is None:
             return
         # box = layout.box()
@@ -95,7 +95,10 @@ class QY_PT_patternProperty(NODE_PT_qmyi_base):
         else:
             return
 
-        col = row.column(align=True)
+        col = layout.column(align=True)
         col.prop(pattern, "granularity")
         col.prop(pattern, "anchor")
+
+        col = layout.column(align=False)
+        col.prop(pattern, "rotation")
 

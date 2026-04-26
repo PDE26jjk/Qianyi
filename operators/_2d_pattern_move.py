@@ -79,11 +79,12 @@ class NODE_OT_pattern_move(Operator2DBase, StateOperator):
         # self.return_state = ReturnState.CANCELLED
 
     def handle_failure(self, context, state: IState):
-        for item in self.project.selected_patterns:
-            if item.uuid in self.origin_pattern_locations:
-                obj = global_data.get_obj_by_uuid(item.uuid, check_uuid=False)
-                if obj:
-                    obj.anchor = self.origin_pattern_locations[item.uuid]
+        if self.initialized:
+            for item in self.project.selected_patterns:
+                if item.uuid in self.origin_pattern_locations:
+                    obj = global_data.get_obj_by_uuid(item.uuid, check_uuid=False)
+                    if obj:
+                        obj.anchor = self.origin_pattern_locations[item.uuid]
         self.return_state = ReturnState.CANCELLED
 
     def fini(self, context: Context):

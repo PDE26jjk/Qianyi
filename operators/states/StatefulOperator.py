@@ -100,6 +100,15 @@ class StateOperator:
         self._enter_state(context, self.current_state_idx)
         return self._handle_state_trans(context, event)
 
+    def execute(self, context):
+        self._init()
+        self.setup_state_machine(context)
+        if len(self.states) == 0:
+            return {'FINISHED'}
+        self.current_state_idx = 0
+        self._enter_state(context, self.current_state_idx)
+        return {"RUNNING_MODAL"}
+
     def modal(self, context, event):
         # context.workspace.status_text_set(f"{self.current_state_idx}+modal")
         res = self._handle_state_trans(context, event)

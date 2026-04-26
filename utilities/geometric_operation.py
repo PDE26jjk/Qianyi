@@ -46,6 +46,7 @@ def split_polyline(points, percentage):
 
     return part1, part2
 
+
 def resample_polyline(points, segments, endpoint=False):
     """
     对二维点列进行基于距离的多段重采样。
@@ -97,6 +98,7 @@ def resample_polyline(points, segments, endpoint=False):
 
     return np.column_stack((x_resampled, y_resampled))
 
+
 def forward_diff_bezier(q, n):
     """
     计算单条2D贝塞尔曲线的离散点（完全向量化实现）
@@ -133,3 +135,34 @@ def forward_diff_bezier(q, n):
     term3 = (k * (k - 1) * (k - 2) / 6)[:, None] * q3
 
     return q0 + term1 + term2 + term3
+
+
+def split_bezier(q, t):
+    """
+    在参数 t 处分割贝塞尔曲线，返回插入点及左右手柄，以及两条新曲线的控制点
+    参数:
+        q: (4, 2) 形状的数组，包含原曲线的控制点 [P0, P1, P2, P3]
+        t: 分割参数，范围 [0, 1]
+    返回:
+        split_point: 插入点的位置 (2,)
+        left_curve: 左半段曲线的控制点 (4, 2)
+        right_curve: 右半段曲线的控制点 (4, 2)
+    """
+    assert q.shape == (4, 2), f"Expected control points shape (4,2), got {q.shape}"
+    s = 1.0 - t
+    p0, p1, p2, p3 = q[0], q[1], q[2], q[3]
+    # 第一次插值
+    m0 = s * p0 + t * p1
+    m1 = s * p1 + t * p2
+    m2 = s * p2 + t * p3
+    # 第二次插值 (求得左右手柄)
+    m3 = s * m0 + t * m1  # 左手柄 (左曲线的 P2)
+    m4 = s * m1 + t * m2  # 右手柄 (右曲线的 P1)
+    # 第三次插值 (求得分割点)
+    m5 = s * m3 + t * m4  # 分割点 (左曲线的 P3, 右曲线的 P0)
+    # 组合两条新曲线的控制点
+    left_curve = np.array([p0, m0, m3, m5])
+    right_curve = np.array([m5, m4, m2, p3])
+    return m5, left_curve, right_curve
+
+

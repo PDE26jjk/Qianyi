@@ -60,11 +60,11 @@ class SewingRenderer(BaseRenderer):
         self.shader.uniform_float("color", (*self.sewing.color, 1))
         p1 = self.sewing.side1.line1.pattern
         p2 = self.sewing.side2.line1.pattern
-        transform_matrix = create_2d_matrix(rotation=p1.rotation, offset=p1.anchor)
+        transform_matrix = p1.calc_matrix()
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.batch_edge1.draw(self.shader)
 
-        transform_matrix = create_2d_matrix(rotation=p2.rotation, offset=p2.anchor)
+        transform_matrix = p2.calc_matrix()
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.batch_edge2.draw(self.shader)
 
@@ -84,13 +84,13 @@ class SewingRenderer(BaseRenderer):
 
         self.shader.bind()
         p1 = self.sewing.side1.line1.pattern
-        transform_matrix = create_2d_matrix(rotation=p1.rotation, offset=p1.anchor)
+        transform_matrix = p1.calc_matrix()
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.shader.uniform_float("color", global_data.temp_draw_manager.index_to_rgb(sewing.side1.global_uuid))
         self.batch_edge1.draw(self.shader)
 
         p2 = self.sewing.side2.line1.pattern
-        transform_matrix = create_2d_matrix(rotation=p2.rotation, offset=p2.anchor)
+        transform_matrix = p2.calc_matrix()
         self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.shader.uniform_float("color", global_data.temp_draw_manager.index_to_rgb(sewing.side2.global_uuid))
         self.batch_edge2.draw(self.shader)

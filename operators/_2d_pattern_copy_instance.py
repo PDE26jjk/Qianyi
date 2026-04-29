@@ -3,6 +3,7 @@ import numpy as np
 from bpy.props import BoolProperty
 from bpy.utils import register_classes_factory
 
+from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .states.PointSelectionState import PointPickState
 from .states.StatefulOperator import StateOperator, ReturnState
@@ -101,6 +102,9 @@ class NODE_OT_pattern_copy_instance(Operator2DBase, StateOperator):
             new_pat.instance_next_uuid = src.instance_next_uuid
             src.instance_next_uuid = new_pat.global_uuid
 
+            console.info(f"{src.global_uuid}->{src.instance_next_uuid}")
+            console.info(f"{new_pat.global_uuid}->{new_pat.instance_next_uuid}")
+
             self._copy_geometry(src, new_pat)
 
             new_pat.initialize()
@@ -120,7 +124,7 @@ class NODE_OT_pattern_copy_instance(Operator2DBase, StateOperator):
             new_edge = dst.edges.add()
             new_edge.vertex_index[0] = e.vertex_index[0]
             new_edge.vertex_index[1] = e.vertex_index[1]
-            new_edge.type = e.type
+            # new_edge.type = e.type
             new_edge.handle1.co = h1
             new_edge.handle2.co = h2
             new_edge.handle1_type = e.handle1_type

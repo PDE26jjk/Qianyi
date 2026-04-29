@@ -9,7 +9,7 @@ from bpy.utils import register_classes_factory
 from mathutils import Vector
 from gpu_extras.batch import batch_for_shader
 
-from utilities.console import console
+from ..utilities.console import console
 from ..utilities.node_tree import get_active_node_tree
 from .. import global_data
 from ..declarations import Operators

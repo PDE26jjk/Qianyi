@@ -6,7 +6,7 @@ from ..model.pattern_instance import collect_unique_instances
 from ..model.sewing import SewingOneSide
 from ..gizmos.moving_curve import TempPoint
 from ..model.geometry import Edge2D, Vertex2D
-from utilities.console import console_print, console
+from ..utilities.console import console_print, console
 from ._2d_operator_base import Operator2DBase
 from .. import global_data
 from ..declarations import Operators
@@ -50,6 +50,9 @@ class NODE_OT_elements_delete(Operator2DBase):
             for p in pattern_set:
                 for v in p.vertices:
                     v.impacted = False
+                    for e in p.edges:
+                        for sp in e.spline_points:
+                            sp.impacted = False
             objs = {o for o in objs if o.pattern.impacted}
             for obj in objs:
                 if isinstance(obj, Edge2D):
@@ -78,16 +81,22 @@ class NODE_OT_elements_delete(Operator2DBase):
             for p in pattern_set:
                 edges_del = []
                 edges_rest = []  # [(e_uuid,e_v0_uuid,e_new_v1_uuid),...]
+                spline_del = []  # Corresponding to edges_rest
                 for e in p.edges:
                     if e.vertex0.impacted:
                         edges_del.append(e.get_index())
                     else:
                         edges_rest.append([e, e.vertex0.global_uuid])
+                        sps = []
+                        for i, sp in enumerate(e.spline_points):
+                            if sp.impacted:
+                                sps.append(i)
+                        spline_del.append(sps)
                 if len(edges_rest) < 2:
                     console.error('rest edges too few!')
                     break
                 checking_edge_points = []
-                for e in edges_rest:
+                for i, e in enumerate(edges_rest):
                     start_ind = e[0].get_index()
                     ind = (start_ind + 1) % len(p.edges)
                     while ind != start_ind and p.edges[ind].vertex0.impacted:
@@ -97,9 +106,13 @@ class NODE_OT_elements_delete(Operator2DBase):
                     mc = draw_manager.add_moving_curve(e[0])
                     e[0] = e[0].global_uuid
                     mc.vertex1 = TempPoint(new_vertex.co)
+                    sps = spline_del[i]
+                    if len(sps) > 0:
+                        for j in sorted(sps, reverse=True):
+                            del mc.spline_points[j]
                     mc.update()
                     checking_edge_points.append(mc.render_points[:-1])
-                    console.info(e, mc.render_points[:-1])
+                    # console.info(e, mc.render_points[:-1])
                 checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
                 from Qianyi_DP import pattern_helper
                 res = pattern_helper.check_edge_intersection(checking_edge_points)
@@ -123,7 +136,7 @@ class NODE_OT_elements_delete(Operator2DBase):
                         ins.vertices.remove(i)
                 for ins in p.instances:
                     ins.refresh_collection_uuid(ins.vertices)
-                for e_ in edges_rest:
+                for i, e_ in enumerate(edges_rest):
                     e_index = global_data.get_obj_by_uuid(e_[0]).get_index()
                     v0_index = global_data.get_obj_by_uuid(e_[1]).get_index()
                     v1_index = global_data.get_obj_by_uuid(e_[2]).get_index()
@@ -131,6 +144,10 @@ class NODE_OT_elements_delete(Operator2DBase):
                         e = ins.edges[e_index]
                         e.vertex_index[0] = v0_index
                         e.vertex_index[1] = v1_index
+                        sps = spline_del[i]
+                        if len(sps) > 0:
+                            for j in sorted(sps, reverse=True):
+                                e.spline_points.remove(j)
                 for ins in p.instances:
                     ins.create_sections()
                     ins.forced_update()
@@ -148,7 +165,7 @@ class NODE_OT_elements_delete(Operator2DBase):
             if len(sewings_del):
                 project.refresh_collection_uuid(project.sewings)
                 project.selected_sewings.clear()
-
+            project.clear_edge_finder()
         elif edit_mode == "SEWING":
             objs = project.get_selected_objects_by_mode("SEWING")
             del_idx_list = []

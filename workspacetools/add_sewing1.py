@@ -2,7 +2,7 @@ import bpy
 import numpy as np
 from bpy.types import WorkSpaceTool
 
-from utilities.console import console
+from ..utilities.console import console
 from ..utilities.coords_transform import region2view_coord
 from ..utilities.node_tree import get_active_node_tree
 from ..keymaps import tool_generic

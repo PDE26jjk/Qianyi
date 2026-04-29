@@ -2,7 +2,6 @@ import bpy
 from bpy.types import Operator
 from bpy.utils import register_classes_factory
 
-from utilities.console import console_print
 from .. import global_data
 from ..utilities.node_tree import get_active_node_tree
 from ..declarations import Operators, Panels

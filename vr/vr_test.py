@@ -6,7 +6,7 @@ from bpy.types import Panel, Operator, Gizmo, GizmoGroup
 from mathutils import Vector, Quaternion, Matrix
 import gpu
 
-from utilities.console import console_print
+from ..utilities.console import console_print
 
 
 class VRState:

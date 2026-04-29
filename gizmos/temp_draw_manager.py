@@ -3,13 +3,14 @@ import time
 from typing import List
 
 import gpu
+import bpy
 import numpy as np
 from gpu_extras.batch import batch_for_shader
 
 from .color_points_renderer import MultiColorPointsRenderer
 from ..model.sewing import SewingOneSide
 from ..model.qianyi_project import QianyiProject
-from utilities.console import console
+from ..utilities.console import console
 from .edit_gizmos import Point, Line, Rect
 from .moving_curve import MovingCurve, MovingCurveWhole
 from .pattern_renderer import PatternRenderer
@@ -173,7 +174,7 @@ class TempDrawManager:
         with self.id_texture.bind():
             fb = gpu.state.active_framebuffer_get()
             fb.clear(color=(0.0, 0.0, 0.0, 1.0))
-            shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+            shader = gpu.shader.from_builtin('POINT_UNIFORM_COLOR')
 
             shader.bind()
             gpu.state.point_size_set(15.0)
@@ -200,19 +201,14 @@ class TempDrawManager:
                             e.renderer.draw(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
                             if e.is_selected:
                                 e.renderer.draw_handles(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
+                            for sp in e.spline_points:
+                                sp.get_temp_data()
+                                points_renderer.add_point(p, sp, self.index_to_rgb(sp.global_uuid))
+
                         for v in p.vertices:
                             v: Vertex2D
                             v.get_temp_data()
                             points_renderer.add_point(p, v, self.index_to_rgb(v.global_uuid))
-                            # gpu.matrix.push()
-                            # gpu.matrix.load_matrix(p.calc_matrix())
-                            # shader.uniform_float("color", self.index_to_rgb(v.global_uuid))
-                            # point_batch = batch_for_shader(
-                            #     shader, 'POINTS',
-                            #     {"pos": [v.co]},
-                            # )
-                            # point_batch.draw(shader)
-                            # gpu.matrix.pop()
                     elif qmyi.edit_mode == "SEWING":
                         if qmyi.edit_sub_mode == "ADD_SEWING1":
                             for e in p.edges:
@@ -299,6 +295,7 @@ class TempDrawManager:
         if project is None:
             return
         start_time = time.time()
+        draw_start_time = start_time
         qmyi = context.scene.qmyi
 
         if self.uniform_color_shader is None:
@@ -327,6 +324,13 @@ class TempDrawManager:
                 console.warning(f'{p} is invalid, refreshing...')
                 project.refresh_patterns()
                 break
+        # console.info("-------------------")
+        # for p in project.patterns:
+        #     console.info(p.path_from_id(), p.global_uuid, p.instance_next_uuid, p.name)
+
+        # console.info(f"temp lines: {(time.time() - start_time) * 1000}")
+        # start_time = time.time()
+
         shader.bind()
         gpu.state.line_width_set(1.0)
         for p in patterns:
@@ -335,6 +339,7 @@ class TempDrawManager:
             if p.need_render_update:
                 p.update_render_line()
                 p.update_render_vertex()
+                p.update_render_spline_point()
                 p.need_render_update = False
                 # p.line_renderer = PatternRenderer(p)
                 # p.mesh_renderer = MeshRenderer(p)
@@ -366,15 +371,20 @@ class TempDrawManager:
                 #         e.update()
                 #     e.renderer.draw( (1,1,0,1), 10.)
 
+        # console.info(f"main: {(time.time() - start_time) * 1000}")
+        # start_time = time.time()
+
         points_renderer = PointsRenderer()
         if qmyi.edit_mode == "EDGE":
             for obj in project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX"):
                 if isinstance(obj, Edge2D):
+                    pass
                     obj.renderer.draw((1, 1, 0, 1), 3)
                     obj.renderer.draw_handles((0, 1, 0, 1), 2)
                 elif isinstance(obj, Vertex2D):
                     points_renderer.add_point(obj.pattern, obj)
-            if qmyi.edit_sub_mode == "ADD_VERTEX":
+                    pass
+            if qmyi.edit_sub_mode in ("ADD_VERTEX", "ADD_SPLINE_POINT"):
                 if project.nearest_point is not None:
                     points_renderer.add_point(project.patterns[project.nearest_pattern], project.nearest_point)
         elif qmyi.edit_mode == "SEWING":
@@ -390,18 +400,34 @@ class TempDrawManager:
                 # console.info("edge1",project.selected_sewing_edge1)
                 if project.selected_sewing_edge1 is not None:
                     project.selected_sewing_edge1.renderer.draw(color=(0.2, 0.8, 0.8, 1), thickness=10.0)
-
+        # console.info(f"mode_collect_points: {(time.time() - start_time) * 1000}")
+        # start_time = time.time()
         points_renderer.draw((1, 1, 0, 1), 10)
+
         if self.moving_curves:
             for mc in self.moving_curves:
                 mc.renderer.draw_instances((1, 1, 0, 1), 7)
+                mc.renderer.draw_handles((0, 1, 0, 1), 2)
+
+        self.last_edit_mode = qmyi.edit_mode
+
+        # console.info(f"mode: {(time.time() - start_time) * 1000}")
+        # start_time = time.time()
+
         self.draw_hover(qmyi)
+        # console.info(f"hover: {(time.time() - start_time) * 1000}")
+        # start_time = time.time()
+
         self.draw_id(context)
+        # console.info(f"id: {(time.time() - start_time) * 1000}")
+        # start_time = time.time()
+        region = context.region
 
         # self.draw_offscreen_thumbnail(self.id_texture, region)
-        total_time = time.time() - start_time
-        # bpy.context.workspace.status_text_set(f"total time: {total_time * 1000}")
-        self.last_edit_mode = qmyi.edit_mode
+        # console.info(f"thumbnail: {(time.time() - start_time) * 1000}")
+        start_time = time.time()
+        total_time = start_time - draw_start_time
+        bpy.context.workspace.status_text_set(f"total time: {total_time * 1000}")
 
     def __del__(self):
         if self.id_texture is not None:

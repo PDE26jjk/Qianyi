@@ -2,7 +2,6 @@ from bpy.props import FloatVectorProperty, BoolProperty
 from bpy.types import Context
 from bpy.utils import register_classes_factory
 
-from utilities.console import console_print
 from ._2d_operator_base import Operator2DBase
 from .states.IState import IState
 from .states.PointSelectionState import PointPickState

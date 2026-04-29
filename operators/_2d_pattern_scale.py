@@ -151,6 +151,8 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
         s = self.current_scale_factor
         # 确认时，直接获取当前顶点数据乘上缩放系数，并更新所有实例
         pivot_location = Vector(self.pivot_location)
+        mesh_scale_center = Vector((0., 0, 0))
+        mesh_scale_center_count = 0
         for p in self.pattern_set:
             for ins in p.instances:
                 # TODO scale on center or anchor?
@@ -159,6 +161,12 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
                     orig_anchor = Vector(ins.anchor)
                     new_anchor = pivot_location + (orig_anchor - pivot_location) * s
                     ins.anchor = new_anchor
+                    if ins.mesh_object is not None:
+                        obj = ins.mesh_object
+                        bbox_center = sum((obj.matrix_world @ Vector(corner) for corner in obj.bound_box),
+                                          Vector((0, 0, 0))) / 8
+                        mesh_scale_center += bbox_center
+                        mesh_scale_center_count += 1
                 # 应用缩放到本地顶点
                 for v in ins.vertices:
                     v.co = (v.co[0] * s, v.co[1] * s)
@@ -167,9 +175,13 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
                     e.handle2.co = (e.handle2.co[0] * s, e.handle2.co[1] * s)
                     for sp in e.spline_points:
                         sp.co = (sp.co[0] * s, sp.co[1] * s)
+        if mesh_scale_center_count > 0:
+            mesh_scale_center /= mesh_scale_center_count
+        for p in self.pattern_set:
+            for ins in p.instances:
                 ins.create_sections()
                 ins.forced_update()
-                ins.generate_mesh()
+                ins.generate_mesh(scale_data={"center": mesh_scale_center, "factor": s})
         self.return_state = ReturnState.FINISHED
 
     def handle_failure(self, context, state):

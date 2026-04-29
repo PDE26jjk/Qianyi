@@ -6,9 +6,9 @@ import numpy as np
 from mathutils import Matrix, Vector
 
 from ..model.geometry import Vertex2D, Edge2D
-from utilities.console import console
-from utilities.cubic_spline import cubic_spline_2d_numpy
-from utilities.geometric_operation import forward_diff_bezier
+from ..utilities.console import console
+from ..utilities.cubic_spline import cubic_spline_2d_numpy
+from ..utilities.geometric_operation import forward_diff_bezier, generate_curve_points
 from .. import global_data
 
 
@@ -58,7 +58,7 @@ class MovingCurve:
     def __init__(self, edge: Edge2D):
         self.edge_uuid = edge.global_uuid
         self.render_points = np.array([])
-        self.type = edge.type
+        # self.type = edge.type
         self.handle1_type = edge.handle1_type
         self.handle2_type = edge.handle2_type
         self.vertex0 = get_proxy_or_not(edge.vertex0)
@@ -74,20 +74,28 @@ class MovingCurve:
         return global_data.get_obj_by_uuid(self.edge_uuid)
 
     def generate_render_points(self, render_point_count=1024):
+        h1 = None if self.handle1_type == "VECTOR" else self.handle1.co
+        h2 = None if self.handle2_type == "VECTOR" else self.handle2.co
         v0 = self.vertex0.co
         v1 = self.vertex1.co
-        if self.type == "BESSEL":
-            if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
-                return np.array((v0, v1))
-            q = np.array([v0, self.handle1.co, self.handle2.co, v1])
-            return forward_diff_bezier(q, render_point_count).astype(np.float32)
-        elif self.type == "CUBIC_SPLINE":
-            edge_points = [p.co for p in self.spline_points]
-            q = np.array((v0, *edge_points, v1))
-            t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
-            res = cubic_spline_2d_numpy(t, q, sample_count=render_point_count).astype(np.float32)
-            # TODO utilize handles
-            return res
+        edge_points = [p.co for p in self.spline_points]
+        q = np.array((v0, *edge_points, v1))
+        return generate_curve_points(q, h1, h2, render_point_count).astype(np.float32)
+        # v0 = self.vertex0.co
+        # v1 = self.vertex1.co
+        # _type = "BESSEL" if len(self.spline_points) == 0 else "CUBIC_SPLINE"
+        # if _type == "BESSEL":
+        #     if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
+        #         return np.array((v0, v1))
+        #     q = np.array([v0, self.handle1.co, self.handle2.co, v1])
+        #     return forward_diff_bezier(q, render_point_count).astype(np.float32)
+        # elif _type == "CUBIC_SPLINE":
+        #     edge_points = [p.co for p in self.spline_points]
+        #     q = np.array((v0, *edge_points, v1))
+        #     t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
+        #     res = cubic_spline_2d_numpy(t, q, sample_count=render_point_count).astype(np.float32)
+        #     # TODO utilize handles
+        #     return res
 
         return np.array((v0, v1), dtype=np.float32)
 

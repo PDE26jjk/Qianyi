@@ -6,11 +6,11 @@ from gpu.types import GPUShader
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix
 
-from utilities.console import console
+from ..utilities.console import console
 from .base_renderer import BaseRenderer
 from .moving_curve import MovingCurve
 from .. import global_data
-from utilities.coords_transform import create_2d_matrix
+from ..utilities.coords_transform import create_2d_matrix
 
 
 class CurveRenderer(BaseRenderer):
@@ -34,6 +34,7 @@ class CurveRenderer(BaseRenderer):
 
     def update_batch(self):
         if not self.edge or not hasattr(self.edge, 'render_points'):
+            console.warning("???????????????????")
             return
         edge = self.edge
         render_points = edge.render_points
@@ -85,9 +86,8 @@ class CurveRenderer(BaseRenderer):
 
         transform_matrix = pattern.calc_matrix()
 
-        self.shader.uniform_float("ModelMatrix", transform_matrix)
+        self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", color)
-
         self.batch.draw(self.shader)
 
     def draw_instances(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0):
@@ -106,7 +106,7 @@ class CurveRenderer(BaseRenderer):
 
         for pattern in patterns:
             transform_matrix = pattern.calc_matrix()
-            self.shader.uniform_float("ModelMatrix", transform_matrix)
+            self.update_model_matrix(transform_matrix)
             self.batch.draw(self.shader)
 
     def draw_handles(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0, draw_id=False):
@@ -130,7 +130,7 @@ class CurveRenderer(BaseRenderer):
 
         transform_matrix = pattern.calc_matrix()
 
-        self.shader.uniform_float("ModelMatrix", transform_matrix)
+        self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", color)
         if not draw_id:
             self.handles_line_batch.draw(self.shader)
@@ -153,9 +153,29 @@ class MovingCurveRenderer(CurveRenderer):
         super().__init__(moving_edge.edge)
 
     def update_batch(self):
-        # console.warning("update_batch mc")
-        render_points = self.moving_edge.render_points
+        edge = self.moving_edge
+        render_points = edge.render_points
+        # console.warning("update_batch mc", render_points.dtype, render_points)
+
         self.batch = batch_for_shader(
             self.shader, 'LINE_STRIP',
-            {"pos": render_points.astype(dtype=np.float32)},
+            {"pos": np.ascontiguousarray(render_points.astype(dtype=np.float32))},
+        )
+        self.handle1_point_batch = batch_for_shader(
+            self.shader, 'POINTS',
+            {"pos": [edge.handle1.co]},
+        )
+        self.handle2_point_batch = batch_for_shader(
+            self.shader, 'POINTS',
+            {"pos": [edge.handle2.co]},
+        )
+        lines = []
+        if edge.handle1_type != "VECTOR":
+            lines.extend((edge.vertex0.co, edge.handle1.co))
+        if edge.handle2_type != "VECTOR":
+            lines.extend((edge.vertex1.co, edge.handle2.co))
+
+        self.handles_line_batch = batch_for_shader(
+            self.shader, 'LINES',
+            {"pos": lines},
         )

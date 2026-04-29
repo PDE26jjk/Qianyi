@@ -5,7 +5,7 @@ from bpy.utils import register_classes_factory
 
 from ..model.pattern_instance import collect_unique_instances
 from ..model.geometry import Edge2D, Vertex2D
-from utilities.console import console
+from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .states.IState import IState
 from .states.PointSelectionState import PointPickState
@@ -77,7 +77,12 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
 
         for p in self.pattern_set:
             for e in p.edges:
-                if e.vertex0.impacted or e.vertex1.impacted or e.handle1.impacted or e.handle2.impacted:
+                sp_impacted = False
+                for sp in e.spline_points:
+                    if sp.impacted:
+                        sp_impacted = True
+                        break
+                if sp_impacted or e.vertex0.impacted or e.vertex1.impacted or e.handle1.impacted or e.handle2.impacted:
                     if e.vertex0.impacted or e.vertex1.impacted:
                         mc = self.draw_manager.add_moving_curve_whole(e)
                     else:
@@ -146,6 +151,8 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
                 ins.create_sections()
                 ins.forced_update()
                 ins.generate_mesh()
+
+        self.project.clear_edge_finder()
 
     def handle_failure(self, context, state: IState):
         self.return_state = ReturnState.CANCELLED

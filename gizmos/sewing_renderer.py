@@ -10,8 +10,8 @@ from mathutils import Matrix
 
 from .. import global_data
 from .base_renderer import BaseRenderer
-from utilities.console import console_print, console
-from utilities.coords_transform import create_2d_matrix
+from ..utilities.console import console_print, console
+from ..utilities.coords_transform import create_2d_matrix
 
 
 class SewingRenderer(BaseRenderer):
@@ -61,15 +61,15 @@ class SewingRenderer(BaseRenderer):
         p1 = self.sewing.side1.line1.pattern
         p2 = self.sewing.side2.line1.pattern
         transform_matrix = p1.calc_matrix()
-        self.shader.uniform_float("ModelMatrix", transform_matrix)
+        self.update_model_matrix(transform_matrix)
         self.batch_edge1.draw(self.shader)
 
         transform_matrix = p2.calc_matrix()
-        self.shader.uniform_float("ModelMatrix", transform_matrix)
+        self.update_model_matrix(transform_matrix)
         self.batch_edge2.draw(self.shader)
 
         if dashed_line:
-            self.shader.uniform_float("ModelMatrix", Matrix.Identity(4))
+            self.update_model_matrix(Matrix.Identity(4))
             self.batch_dashed_line.draw(self.shader)
 
     def draw_id(self):
@@ -85,12 +85,12 @@ class SewingRenderer(BaseRenderer):
         self.shader.bind()
         p1 = self.sewing.side1.line1.pattern
         transform_matrix = p1.calc_matrix()
-        self.shader.uniform_float("ModelMatrix", transform_matrix)
+        self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", global_data.temp_draw_manager.index_to_rgb(sewing.side1.global_uuid))
         self.batch_edge1.draw(self.shader)
 
         p2 = self.sewing.side2.line1.pattern
         transform_matrix = p2.calc_matrix()
-        self.shader.uniform_float("ModelMatrix", transform_matrix)
+        self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", global_data.temp_draw_manager.index_to_rgb(sewing.side2.global_uuid))
         self.batch_edge2.draw(self.shader)

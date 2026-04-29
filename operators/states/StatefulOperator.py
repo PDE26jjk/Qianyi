@@ -3,7 +3,6 @@ from typing import Any, List
 
 from bpy.types import Context
 
-from utilities.console import console_print
 from .IState import IState, StateResultType
 
 

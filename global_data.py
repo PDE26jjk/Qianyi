@@ -1,6 +1,6 @@
 import traceback
 
-from utilities.console import Console, console
+from .utilities.console import Console, console
 
 temp_draw_manager: 'TempDrawManager' = None
 

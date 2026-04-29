@@ -4,7 +4,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix, Vector
 
 from .base_renderer import BaseRenderer
-from utilities.coords_transform import create_2d_matrix
+from ..utilities.coords_transform import create_2d_matrix
 
 
 class PointsRenderer(BaseRenderer):
@@ -36,7 +36,7 @@ class PointsRenderer(BaseRenderer):
         gpu.state.blend_set('ALPHA')
         gpu.state.point_size_set(point_size)
         transform_matrix = Matrix.Identity(4)
-        self.shader.uniform_float("ModelMatrix", transform_matrix)
+        self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", color)
         self.batch.draw(self.shader)
 

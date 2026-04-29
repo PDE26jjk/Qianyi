@@ -4,36 +4,12 @@ import bpy
 import gpu
 import mathutils
 import numpy as np
-from gpu.types import GPUShader
+from gpu.types import GPUShader, GPUShaderCreateInfo
 from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix
 
 from .. import global_data
 from ..utilities.coords_transform import create_2d_matrix
-
-# 自定义着色器代码
-vertex_shader = '''
-uniform mat4 ModelMatrix;
-uniform mat4 ModelViewProjectionMatrix; // Set by blender
-
-in vec3 pos;
-
-void main()
-{
-    gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos.x,pos.y,0., 1.0);
-}
-'''
-
-fragment_shader = '''
-uniform vec4 color;
-
-out vec4 fragColor;
-
-void main()
-{
-    fragColor = color;
-}
-'''
 
 
 class MeshRenderer:
@@ -42,14 +18,40 @@ class MeshRenderer:
     def __init__(self, pattern):
         self.pattern_uuid = pattern.global_uuid
         if self.shader is None:
-            self.shader = GPUShader(vertex_shader, fragment_shader)
+            # self.shader = GPUShader(vertex_shader, fragment_shader)
+            self.shader = self._create_shader()
         self.batch_line = None
         self.batch_triangle = None
         self.obj = None
 
+    def _create_shader(self):
+        shader_info = GPUShaderCreateInfo()
+
+        shader_info.vertex_in(0, 'VEC3', "pos")
+        shader_info.fragment_out(0, 'VEC4', "fragColor")
+
+        shader_info.push_constant('MAT4', "ModelMatrix")
+        shader_info.push_constant('MAT4', "ModelViewProjectionMatrix")
+        shader_info.push_constant('VEC4', "color")
+
+        shader_info.vertex_source("""
+        void main()
+        {
+            gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos.x,pos.y,0., 1.0);
+        }
+        """)
+        shader_info.fragment_source("""
+        void main()
+        {
+            fragColor = color;
+        }
+        """)
+
+        return gpu.shader.create_from_info(shader_info)
+
     @property
     def pattern(self):
-        return global_data.get_obj_by_uuid(self.pattern_uuid,False)
+        return global_data.get_obj_by_uuid(self.pattern_uuid, False)
 
     def create_batch(self, obj):
         """创建网格批次（只调用一次）"""

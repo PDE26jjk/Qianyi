@@ -6,7 +6,7 @@ from bpy.types import Context, Operator
 from bpy.utils import register_classes_factory
 from mathutils import Vector, geometry
 
-from utilities.console import console_print
+from ..utilities.console import console_print
 from .states.IState import IState
 from .states.PointSelectionState import PointPickState, MouseOperator
 from .states.StatefulOperator import StateOperator, ReturnState

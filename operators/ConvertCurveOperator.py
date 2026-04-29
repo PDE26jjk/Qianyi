@@ -1,19 +1,11 @@
 import bpy
-from bpy.props import FloatVectorProperty
-from bpy.utils import register_classes_factory, register_class
-from mathutils import Vector
-
-from utilities.console import Console, console
-from ..utilities.node_tree import get_active_node_tree
-from ..utilities.coords_transform import region2view_coord
-from ..gizmos.temp_draw_manager import TempDrawManager
-from .. import global_data
-from .states.PointSelectionState import PointPickState
-from ..model.pattern import Pattern
-from ..declarations import Operators, Panels
-from .states.StatefulOperator import StateOperator
-from bpy.types import Operator, Context
 import numpy as np
+from bpy.types import Operator, Context
+from bpy.utils import register_classes_factory
+
+from ..declarations import Operators
+from ..model.pattern import Pattern
+from ..utilities.node_tree import get_active_node_tree
 
 
 class NODE_OT_convert_curve(Operator):
@@ -79,7 +71,7 @@ class NODE_OT_convert_curve(Operator):
                         next_i = (i + 1) % len(points)
                         point = points[i]
                         next_point = points[next_i]
-                        e = p.add_edge(i, next_i, "BESSEL", point["handle_right"], next_point["handle_left"],
+                        e = p.add_edge(i, next_i, point["handle_right"], next_point["handle_left"],
                                        point["handle_right_type"], next_point["handle_left_type"])
                     p.ensure_edge_ccw()
 

@@ -1,7 +1,7 @@
 # This file references mmd_tools.
 
 import bpy
-from utilities.console import console
+from .utilities.console import console
 PACKAGE_NAME = __package__
 # Tuple of tuples:
 # ((msgctxt, msgid), (sources, gen_comments), (lang, translation, (is_fuzzy, comments)), ...)

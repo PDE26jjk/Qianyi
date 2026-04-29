@@ -7,7 +7,7 @@ from bpy.utils import register_classes_factory
 from mathutils import Vector, Matrix
 import gpu
 from gpu_extras.batch import batch_for_shader
-from utilities.console import console
+from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .states.IState import IState
 from .states.PointSelectionState import PointPickState
@@ -77,8 +77,8 @@ class NODE_OT_pattern_rotate(Operator2DBase, StateOperator):
                         if obj:
                             self.origin_pattern_data[item.uuid] = {
                                 'pattern': obj,
-                                'anchor': list(obj.anchor),
-                                'rotation': obj.rotation
+                                'anchor': Vector(obj.anchor),
+                                'rotation': float(obj.rotation)
                             }
                 center = np.array((0, 0), dtype=np.float32)
                 for uuid, orig_data in self.origin_pattern_data.items():
@@ -106,13 +106,24 @@ class NODE_OT_pattern_rotate(Operator2DBase, StateOperator):
                 (0, 0, 1)
             ))
             pivot_vec = Vector((self.pivot_location[0], self.pivot_location[1], 0))
+            # console.warning("..................")
             for uuid, orig_data in self.origin_pattern_data.items():
                 obj = orig_data['pattern']
+                obj.path_from_id()
                 orig_anchor = Vector((orig_data['anchor'][0], orig_data['anchor'][1], 0))
                 # 旋转锚点：先将锚点移到以pivot为原点的坐标系，旋转，再移回
                 new_anchor = rot_mat @ (orig_anchor - pivot_vec) + pivot_vec
-                obj.anchor = (new_anchor.x, new_anchor.y)
-                obj.rotation = orig_data['rotation'] + delta_angle
+                obj.anchor = Vector((new_anchor.x, new_anchor.y))
+                old_instance_next_uuid = obj.instance_next_uuid
+                # console.warning(obj.global_uuid, obj.name, obj.rotation, old_instance_next_uuid, obj.fabric_uuid)
+                obj.rotation = float(orig_data['rotation'] + delta_angle)
+                if old_instance_next_uuid != obj.instance_next_uuid:
+                    # TODO try to fix this blender bug.
+                    console.error("?????????????????????????????????:",
+                                  obj.path_from_id(), "old_instance_next_uuid != obj.instance_next_uuid")
+                    obj.instance_next_uuid = old_instance_next_uuid
+
+                    # raise Exception("old_instance_next_uuid != obj.instance_next_uuid")
             context.area.tag_redraw()
 
         p2state.data_change_cb.append(cb_rotate)

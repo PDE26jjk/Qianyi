@@ -2,7 +2,7 @@ import bpy
 import numpy as np
 from bpy.utils import register_classes_factory
 
-from utilities.console import console
+from ..utilities.console import console
 from .. import global_data
 from .pattern import Pattern
 
@@ -199,6 +199,9 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         self.edge_points = edge_points
         self.edge_point_sizes = np.cumsum(edge_point_sizes)
 
+    def clear_edge_finder(self):
+        self.edge_points = None
+
     def find_nearest_point_on_edge(self, query_point):
         if self.edge_points is None:
             self.update_edge_finder()
@@ -221,6 +224,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         # console.info('n', n, self.edge_point_sizes[n])
         # console.info('next_index', next_index)
         self.nearest_point = self.edge_points[index] * (1 - weight) + self.edge_points[next_index] * weight
+        self.query_point = query_point
         # console.warning('self.nearest_point', self.nearest_point)
 
     def get_nearest_point_data(self):
@@ -324,6 +328,7 @@ define_temp_prop(QianyiProject, "initialized", False)
 define_temp_prop(QianyiProject, "edge_points", None)
 define_temp_prop(QianyiProject, "edge_point_sizes", None)
 define_temp_prop(QianyiProject, "nearest_point", None)
+define_temp_prop(QianyiProject, "query_point", None)
 define_temp_prop(QianyiProject, "nearest_pattern", None)
 define_temp_prop(QianyiProject, "edge_point_offset", None)
 define_temp_prop(QianyiProject, "selected_sewing_edge1", None)

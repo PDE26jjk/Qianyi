@@ -10,7 +10,7 @@ import numpy as np
 from bpy.types import Operator, Context
 from bpy.utils import register_classes_factory
 
-from utilities.console import console
+from ..utilities.console import console
 from ..model.qianyi_project import QianyiProject
 from ..declarations import Operators
 from ..model.pattern import Pattern

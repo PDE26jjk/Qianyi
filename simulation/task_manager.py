@@ -6,7 +6,7 @@ import uuid
 from typing import Callable, Any, Optional, Dict, List
 import sys
 
-from utilities.console import console_print
+from ..utilities.console import console_print
 
 
 class Action:

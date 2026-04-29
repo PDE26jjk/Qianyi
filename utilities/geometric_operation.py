@@ -1,5 +1,35 @@
 import numpy as np
+from mathutils import Vector
 
+from .cubic_spline import cubic_spline_2d_numpy, get_derivatives_from_handles
+
+def sample_polyline(points, percentage):
+    points = np.asarray(points)
+    if len(points) < 2:
+        return points.copy(), points.copy()
+
+    diffs = np.diff(points, axis=0)
+    seg_lengths = np.linalg.norm(diffs, axis=1)
+    cum_lengths = np.cumsum(seg_lengths)
+    total_length = cum_lengths[-1]
+
+    if total_length == 0:
+        return points.copy()
+
+    percentage = np.clip(percentage, 0.0, 1.0)
+    target = total_length * percentage
+    scans = np.r_[0, cum_lengths]
+
+    # 找到目标长度所在线段的右端点索引
+    right_i = np.searchsorted(scans, target, side='right')
+    right_i = min(max(right_i, 1), len(points) - 1)
+    left_i = right_i - 1
+
+    # 计算分割点
+    seg_len = scans[right_i] - scans[left_i]
+    ratio = (target - scans[left_i]) / seg_len if seg_len > 0 else 0.0
+    split_pt = points[left_i] * (1 - ratio) + points[right_i] * ratio
+    return split_pt
 
 def split_polyline(points, percentage):
     """
@@ -165,4 +195,25 @@ def split_bezier(q, t):
     right_curve = np.array([m5, m4, m2, p3])
     return m5, left_curve, right_curve
 
+def generate_curve_points(curve_points, handle1=None, handle2=None,sample_count = 1024):
+    if len(curve_points) < 2:
+        return curve_points
+    start_handle = Vector(handle1) if handle1 is not None else curve_points[0]
+    end_handle = Vector(handle2) if handle2 is not None else curve_points[-1]
+    if len(curve_points) == 2: # bezier
+        if handle1 is None and handle2 is None:
+            return curve_points
+        q = np.array([curve_points[0], start_handle, end_handle, curve_points[1]])
+        return np.ascontiguousarray(forward_diff_bezier(q, sample_count))
+    else: # cubic spline
+        q = curve_points
+        t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
+        bc0_d, bcn_d = get_derivatives_from_handles(t, q, start_handle, end_handle)
 
+        res = cubic_spline_2d_numpy(
+            t, q,
+            bc0_type="constant" if handle1 is not None else "natural", bc0_d=bc0_d,
+            bcn_type="constant" if handle2 is not None else "natural", bcn_d=bcn_d,
+            sample_count=sample_count
+        )
+        return np.ascontiguousarray(res)

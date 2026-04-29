@@ -4,7 +4,7 @@ from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
 import atexit
 
-from utilities.console import console_print, console
+from ..utilities.console import console_print, console
 from ..simulation.simulation_manager import simulation_manager
 
 

@@ -3,7 +3,7 @@ import re
 
 from bpy.props import IntProperty, StringProperty, BoolProperty
 
-from utilities.console import console_print
+from ..utilities.console import console_print
 from .. import global_data
 
 

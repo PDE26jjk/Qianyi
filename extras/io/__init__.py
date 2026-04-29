@@ -2,7 +2,6 @@ import importlib
 import pkgutil
 from pathlib import Path
 
-from utilities.console import console
 
 
 class IOFormatBase:

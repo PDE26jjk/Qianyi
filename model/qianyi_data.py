@@ -5,7 +5,7 @@ from bpy.props import IntProperty, BoolProperty, PointerProperty, IntVectorPrope
 from bpy.types import PropertyGroup
 from bpy.utils import register_class, unregister_class
 
-from utilities.console import console_print
+from ..utilities.console import console_print
 from .model_data import ModelData, define_temp_prop
 from .simulation_data import SimulationProps
 
@@ -39,6 +39,7 @@ class QianyiProps(PropertyGroup, ModelData):
         items=[
             ('EDGE_VERTEX', "EDGE_VERTEX", "", ),
             ('ADD_VERTEX', "ADD_VERTEX", "", ),
+            ('ADD_SPLINE_POINT', "ADD_SPLINE_POINT", "", ),
             ('ADD_SEWING1', "ADD_SEWING1", "", ),
             ('INTERNAL_POINT', "INTERNAL_POINT", "", ),
         ],

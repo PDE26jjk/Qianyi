@@ -1,7 +1,7 @@
 from bpy.app.handlers import persistent
 import bpy
 
-from utilities.console import console_print, console
+from ..utilities.console import console_print, console
 from ..utilities.node_tree import get_active_node_tree, redraw_node_editors
 from .. import global_data
 

@@ -2,7 +2,7 @@ import bpy
 import gpu
 from bpy.types import Gizmo, GizmoGroup
 
-from utilities.console import console
+from ..utilities.console import console
 from . import TempDrawManager
 from ..utilities.node_tree import get_active_node_tree
 from .. import global_data
@@ -58,6 +58,6 @@ class NODE_GT_qmyi_preselection(Gizmo):
         if old_hover_obj != obj:
             qmyi.set_hover_object(obj)
             context.area.tag_redraw()
-        bpy.context.workspace.status_text_set(f"test_select {mouse_x, mouse_y,}, uuid: {uuid},obj:{qmyi.hover_object}")
+        # bpy.context.workspace.status_text_set(f"test_select {mouse_x, mouse_y,}, uuid: {uuid},obj:{qmyi.hover_object}")
 
         return -1

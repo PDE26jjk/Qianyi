@@ -1,4 +1,4 @@
-from utilities.console import console
+from ..utilities.console import console
 from ..simulation.simulation_manager import simulation_manager
 
 # def frame_changed_post(scene):

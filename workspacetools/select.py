@@ -1,7 +1,7 @@
 import bpy
 from bpy.types import WorkSpaceTool
 
-from utilities.console import console
+from ..utilities.console import console
 from ..keymaps import tool_select
 from ..declarations import GizmoGroups, Operators, WorkSpaceTools
 

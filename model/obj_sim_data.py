@@ -4,7 +4,7 @@ from bpy.props import BoolProperty, FloatProperty, IntProperty, FloatVectorPrope
 from bpy.types import Panel, PropertyGroup
 
 from .. import global_data
-from utilities.console import console_print, console
+from ..utilities.console import console_print, console
 
 
 class ObjectSimulationProperties(PropertyGroup):

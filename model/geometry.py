@@ -7,10 +7,9 @@ from bpy.props import FloatVectorProperty, CollectionProperty, EnumProperty, Int
     FloatProperty, PointerProperty, BoolProperty, IntProperty
 from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
-from rich import segment
 
-from utilities.console import console
-from ..utilities.geometric_operation import resample_polyline, forward_diff_bezier
+from ..utilities.console import console
+from ..utilities.geometric_operation import resample_polyline, forward_diff_bezier, generate_curve_points
 from ..utilities.cubic_spline import cubic_spline_2d_numpy
 from .model_data import ModelData, define_temp_prop, Selectable
 
@@ -66,10 +65,10 @@ define_temp_prop(Vertex2D, "pattern_temp", None)
 define_temp_prop(Vertex2D, "impacted", False)
 define_temp_prop(Vertex2D, "proxy", None)
 
-EdgeType = [
-    ("BESSEL", "Bessel", "", 1),
-    ("CUBIC_SPLINE", "points", "", 2),  # cubic spline
-]
+# EdgeType = [
+#     ("BESSEL", "Bessel", "", 1),
+#     ("CUBIC_SPLINE", "points", "", 2),  # cubic spline
+# ]
 
 HandleType = [
     ("ALIGNED", "Aligned", "Aligned handles", 0, 1),
@@ -79,7 +78,7 @@ HandleType = [
 
 
 class Edge2D(PropertyGroup, ModelData, Selectable):
-    type: EnumProperty(name="edgeType", items=EdgeType, default="BESSEL")
+    # type: EnumProperty(name="edgeType", items=EdgeType, default="BESSEL")
     vertex_index: IntVectorProperty(name="vertexIndex", size=2, default=(0, 0))
     handles: CollectionProperty(name="handles", type=Vertex2D, )
     handle1_type: EnumProperty(name="handle1Type", items=HandleType, default="VECTOR")
@@ -94,6 +93,27 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             for point in self.geo_points:
                 pts.append(point.co)
             self.geo_points_temp = np.asarray(pts)
+
+    @property
+    def pattern(self):
+        if self.pattern_temp is not None:
+            try:
+                self.pattern_temp.path_from_id()
+            except Exception as e:
+                console.error("can not get pattern!", e)
+                self.pattern_temp = None
+        if self.pattern_temp is None:
+            path = self.path_from_id()
+            # "patterns[1].edges[7].handles[0]"   -> [("patterns",1), ("edges",7), ("handles",0)]
+            segments = re.findall(r'(\w+)\[(\d+)\]', path)
+            pattern_path = segments[0]
+            if pattern_path[0] == "patterns":
+                self.pattern_temp = self.id_data.patterns[int(pattern_path[1])]
+        return self.pattern_temp
+
+    @pattern.setter
+    def pattern(self, value):
+        self.pattern_temp = value
 
     def reverse(self):
         self.vertex_index[0], self.vertex_index[1] = self.vertex_index[1], self.vertex_index[0]
@@ -129,8 +149,10 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             self.pattern = pattern
         self.vertices[0] = self.vertex0.co[:]
         self.vertices[1] = self.vertex1.co[:]
-        self.render_points = self.generate_render_points()
-        self.calc_length()
+        self.render_points = self.generate_render_points(1024)
+        # self.calc_length()
+        pts = self.render_points
+        self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
         # self.sections.clear()
         # self.sections.append(Section(0., self))
         # self.sections[0].length = self.length
@@ -159,24 +181,28 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         self.bbox[2] = bbox_max[0]
         self.bbox[3] = bbox_max[1]
 
-    def calc_length(self):
-        if self.type == "BESSEL":
-            # bpy.context.workspace.status_text_set(f"{self.handle1_type} {self.handle2_type}")
-            if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
-                self.length = np.linalg.norm(np.asarray(self.vertices[0]) - np.asarray(self.vertices[1]))
-                return
+    @property
+    def type(self):
+        return "BESSEL" if len(self.spline_points) == 0 else "CUBIC_SPLINE"
 
-            q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
-            pts = forward_diff_bezier(q, 1000)
-            self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
-        elif self.type == "CUBIC_SPLINE":
-            edge_points = [p.co for p in self.spline_points]
-            q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
-            # point_count = q.shape[0]
-            # t = np.linspace(0, point_count, point_count)
-            t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
-            pts = cubic_spline_2d_numpy(t, q, sample_count=1000)
-            self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
+    # def calc_length(self):
+    #     if self.type == "BESSEL":
+    #         # bpy.context.workspace.status_text_set(f"{self.handle1_type} {self.handle2_type}")
+    #         if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
+    #             self.length = np.linalg.norm(np.asarray(self.vertices[0]) - np.asarray(self.vertices[1]))
+    #             return
+    #
+    #         q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
+    #         pts = forward_diff_bezier(q, 1000)
+    #         self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
+    #     elif self.type == "CUBIC_SPLINE":
+    #         edge_points = [p.co for p in self.spline_points]
+    #         q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
+    #         # point_count = q.shape[0]
+    #         # t = np.linspace(0, point_count, point_count)
+    #         t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
+    #         pts = cubic_spline_2d_numpy(t, q, sample_count=1000)
+    #         self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
 
     def add_edge_point(self, position):
         point = self.spline_points.add()
@@ -184,22 +210,26 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         return point
 
     def generate_render_points(self, render_point_count=1024):
-        if self.type == "BESSEL":
-            if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
-                return np.array((self.vertices[0], self.vertices[1]))
-            q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
-            return forward_diff_bezier(q, render_point_count).astype(np.float32)
-        elif self.type == "CUBIC_SPLINE":
-            edge_points = [p.co for p in self.spline_points]
-            q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
-            # point_count = q.shape[0]
-            # t = np.linspace(0, point_count, point_count)
-            t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
-            res = cubic_spline_2d_numpy(t, q, sample_count=render_point_count).astype(np.float32)
-            # TODO utilize handles
-            return res
-
-        return np.array((self.vertices[0], self.vertices[1]), dtype=np.float32)
+        h1 = None if self.handle1_type == "VECTOR" else self.handle1.co
+        h2 = None if self.handle2_type == "VECTOR" else self.handle2.co
+        edge_points = [p.co for p in self.spline_points]
+        q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
+        return generate_curve_points(q, h1, h2, render_point_count).astype(np.float32)
+        # if self.type == "BESSEL":
+        #     if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
+        #         return np.array((self.vertices[0], self.vertices[1]))
+        #     q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
+        #     return forward_diff_bezier(q, render_point_count).astype(np.float32)
+        # elif self.type == "CUBIC_SPLINE":
+        #     edge_points = [p.co for p in self.spline_points]
+        #     q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
+        #     # point_count = q.shape[0]
+        #     # t = np.linspace(0, point_count, point_count)
+        #     t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
+        #     res = cubic_spline_2d_numpy(t, q, sample_count=render_point_count).astype(np.float32)
+        #     return res
+        #
+        # return np.array((self.vertices[0], self.vertices[1]), dtype=np.float32)
 
     def sections(self):
         max_sec = 10000
@@ -279,12 +309,12 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         self.pattern = None
         self.need_update_points = True
 
-    def find_section_index(self, pos):
-        for i, sec in enumerate(self.sections):  # TODO dichotomy
-            if pos >= sec.start_pos:
-                eps = 1e-4
-                if pos - sec.start_pos < eps:
-                    return i
+    # def find_section_index(self, pos):
+    #     for i, sec in enumerate(self.sections):
+    #         if pos >= sec.start_pos:
+    #             eps = 1e-4
+    #             if pos - sec.start_pos < eps:
+    #                 return i
 
     def find_or_add_section(self, pos) -> Section | None:
         eps = 1e-5
@@ -310,7 +340,7 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             self.pattern.forced_update()
 
 
-define_temp_prop(Edge2D, "pattern", None)
+define_temp_prop(Edge2D, "pattern_temp", None)
 define_temp_prop(Edge2D, "length", None)
 define_temp_prop(Edge2D, "vertices", lambda: [(0.0, 0.0), (0.0, 0.0)])
 define_temp_prop(Edge2D, "need_update_points", True)

@@ -1,6 +1,6 @@
 import bpy
 
-from utilities.console import console
+from ...utilities.console import console
 from ... import declarations
 from . import VIEW_3D_PT_qmyi_base
 from ...utilities.node_tree import get_active_node_tree, get_all_node_tree

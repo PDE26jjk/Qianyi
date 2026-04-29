@@ -3,10 +3,11 @@ from bpy.props import FloatVectorProperty, BoolProperty
 from bpy.types import Context
 from bpy.utils import register_classes_factory
 
+from ..utilities.cubic_spline import get_handles_after_split, compute_split_handles
 from ..utilities.geometric_operation import split_bezier
 from ..model.pattern_instance import collect_unique_instances
 from ..model.pattern import Pattern
-from utilities.console import console
+from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .. import global_data
 from ..declarations import Operators
@@ -39,13 +40,17 @@ class NODE_OT_add_vertex(Operator2DBase):
 
         project = get_active_node_tree(context)
 
-        # pattern: Pattern = project.patterns[project.nearest_pattern]
-        # point_offsets = [edge.start_point for edge in pattern.edges]
-        # edge_index = np.searchsorted(point_offsets, project.edge_point_offset, side='right') - 1
-        # # console.warning('edge_index', edge_index,point_offsets, project.edge_point_offset)
-        # edge = pattern.edges[edge_index]
         pattern, edge, add_point_pos, t = project.get_nearest_point_data()
         edge_index = edge.get_index()
+        edge_points = [p.co for p in edge.spline_points]
+        q = np.array((edge.vertex0.co, *edge_points, edge.vertex1.co))
+        old_t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
+        old_t /= old_t[-1]
+        insert_at = np.searchsorted(old_t, t, side='right')
+        insert_at_final = max(0, min(len(edge.spline_points), insert_at - 1))
+        # console.info(old_t, t, insert_at)
+        left_idx = max(0, insert_at - 1)
+        right_idx = min(len(q) - 1, insert_at)
 
         def dist_sqr(p1, p2):
             return (p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2
@@ -54,41 +59,57 @@ class NODE_OT_add_vertex(Operator2DBase):
         eps = 1  # mm^2
         # console.info(add_point_pos, edge.vertex0.co, edge.vertex1.co)
         # console.info(dist_sqr(add_point_pos, edge.vertex0.co), dist_sqr(add_point_pos, edge.vertex1.co))
-        if dist_sqr(add_point_pos, edge.vertex0.co) < eps or dist_sqr(add_point_pos, edge.vertex1.co) < eps:
-            # console.info(qmyi.hover_object)
+        points_to_check = [edge.vertex0.co, edge.vertex1.co, q[left_idx], q[right_idx]]
+        for point in points_to_check:
+            if dist_sqr(add_point_pos, point) < eps:
+                def draw(self, context):
+                    self.layout.label(text="points too close together!")
 
-            def draw(self, context):
-                self.layout.label(text="points too close together!")
-
-            context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
-            return {'CANCELLED'}
+                context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
+                return {'CANCELLED'}
 
         draw_manager: TempDrawManager = global_data.temp_draw_manager
         draw_manager.clear()
 
         mc1 = draw_manager.add_moving_curve(edge)
         mc2 = draw_manager.add_moving_curve(edge)
-        # console.warning('add_point_pos', add_point_pos, project.nearest_point)
-        # add_point_pos = split_point
         # Check if intersected when add new point
         temp_point = TempPoint(add_point_pos)
         handle_a = handle_b = handle_c = handle_d = temp_point
+        h1 = edge.vertex0.co if edge.handle1_type == "VECTOR" else edge.handle1.co
+        h2 = edge.vertex1.co if edge.handle2_type == "VECTOR" else edge.handle2.co
 
         is_straight_line = edge.handle1_type == "VECTOR" and edge.handle2_type == "VECTOR"
-        if not is_straight_line:
-            q = np.array([edge.vertex0.co, edge.handle1.co, edge.handle2.co, edge.vertex1.co])
-            split_point, left_curve, right_curve = split_bezier(q, t)
-            p0, m0, m3, m5 = left_curve
-            m5, m4, m2, p3 = right_curve
-            console.info(f"nearst_point:{add_point_pos}, split_point: {split_point},")
-            handle_a, handle_b, handle_c, handle_d = TempPoint(m0), TempPoint(m3), TempPoint(m4), TempPoint(m2)
+        is_bz = len(edge.spline_points) == 0
+        if is_bz:
+            if not is_straight_line:
+                q = np.array([edge.vertex0.co, edge.handle1.co, edge.handle2.co, edge.vertex1.co])
+                split_point, left_curve, right_curve = split_bezier(q, t)
+                p0, m0, m3, m5 = left_curve
+                m5, m4, m2, p3 = right_curve
+                console.info(f"nearst_point:{add_point_pos}, split_point: {split_point},")
+                handle_a, handle_b, handle_c, handle_d = TempPoint(m0), TempPoint(m3), TempPoint(m4), TempPoint(m2)
+        else:
+            handle_a_co, handle_d_co = get_handles_after_split(old_t, q, h1, h2, t)
+            handle_b_co, handle_c_co = compute_split_handles(old_t, q, t,
+                                                             None if edge.handle1_type == "VECTOR" else h1,
+                                                             None if edge.handle2_type == "VECTOR" else h2)
+            handle_a, handle_b, handle_c, handle_d = (TempPoint(handle_a_co), TempPoint(handle_b_co),
+                                                      TempPoint(handle_c_co), TempPoint(handle_d_co))
 
+        if not is_straight_line:
+            mc1.handle2_type = "VECTOR"
+            mc2.handle1_type = "VECTOR"
         mc1.vertex1 = temp_point
         mc1.handle1 = handle_a
         mc1.handle2 = handle_b
         mc2.vertex0 = temp_point
         mc2.handle1 = handle_c
         mc2.handle2 = handle_d
+        console.info("insert_at_final",insert_at_final)
+        if not is_bz:
+            mc2.spline_points = mc1.spline_points[insert_at_final:]
+            mc1.spline_points = mc1.spline_points[:insert_at_final]
 
         mc1.update()
         mc2.update()
@@ -113,25 +134,44 @@ class NODE_OT_add_vertex(Operator2DBase):
 
         draw_manager.clear()
         collect_unique_instances({pattern})
+        spline_points_size = len(edge.spline_points)
+        console.info("old edge:", edge.vertex0.co, edge.vertex1.co, [p.co for p in edge.spline_points])
         for ins in pattern.instances:
             v_index = ins.add_vertex(temp_point.co)
             e = ins.edges[edge_index]
             e.handle1.co = handle_a.co
             e.handle2.co = handle_b.co
             handle_type = "ALIGNED" if not is_straight_line else "VECTOR"
-            new_edge = ins.add_edge(v_index, e.vertex_index[1], edge.type,
+            new_edge = ins.add_edge(v_index, e.vertex_index[1],
                                     control1=handle_c.co, control2=handle_d.co,
                                     handle1_type=handle_type, handle2_type=e.handle2_type,
                                     update=False)
+            if not is_bz:
+                for i in range(insert_at_final, spline_points_size):
+                    sp = new_edge.spline_points.add()
+                    sp.co = e.spline_points[i].co
+                for i in range(insert_at_final, spline_points_size).__reversed__():
+                    e.spline_points.remove(i)
+
+
+            console.info("new edge1:", e.vertex0.co, e.vertex1.co, [p.co for p in e.spline_points])
+            console.info("new edge2:", new_edge.vertex0.co, new_edge.vertex1.co, [p.co for p in new_edge.spline_points])
+
             e.handle2_type = handle_type
             e.vertex_index[1] = v_index
             if edge_index + 2 != len(ins.edges):
                 ins.edges.move(len(ins.edges) - 1, edge_index + 1)
             ins.refresh_collection_uuid(ins.vertices)
             ins.refresh_collection_uuid(ins.edges)
+
             ins.create_sections()
             ins.forced_update()
             ins.generate_mesh()
+        p = pattern.vertices[len(pattern.vertices) - 1]
+        p.get_temp_data()
+        project.selected_vertices.clear()
+        v = project.selected_vertices.add()
+        v.uuid = p.global_uuid
         return {'FINISHED'}
 
 

@@ -44,6 +44,7 @@ class Operators(str, Enum):
     Export = "node.qmyi_Export"
 
     AddVertex2D = "qmyi.2d_add_vertex"
+    AddSplinePoint2D = "qmyi.2d_add_spline_point"
     EdgeElementsMove2D = "qmyi.2d_edge_move"
     ElementsDelete2D = "qmyi.2d_elements_delete"
     SewingAdd1to12D = "qmyi.2d_add_sewing_1to1"
@@ -81,6 +82,6 @@ class WorkSpaceTools(str, Enum):
     AddPoly = "qmyi.add_poly"
     AddVertex = "qmyi.add_vertex"
     AddSewing1 = "qmyi.add_sewing1"
-    AddEdgePoint = "qmyi.add_edge_point"
+    AddSplinePoint = "qmyi.add_spline_point"
     Select = "qmyi.select"
     PickMesh = "qmyi.pick_mesh"

@@ -7,8 +7,8 @@ from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
 from mathutils import Vector
 
-from utilities.console import console_print, console
-from utilities.coords_transform import create_2d_matrix, create_2d_matrix_invert
+from ..utilities.console import console_print, console
+from ..utilities.coords_transform import create_2d_matrix, create_2d_matrix_invert
 from .geometry import Vertex2D, Edge2D
 from .section import Section
 from ..utilities.node_tree import get_all_node_tree
@@ -25,6 +25,8 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     edges: CollectionProperty(type=Edge2D, name="edges")
     internal_lines: CollectionProperty(type=Edge2D, name="internalLines")
     fabric_uuid: IntProperty(name="fabricUUID", default=-1)
+    instance_next_uuid: IntProperty(name="Instance Next UUID", default=-1)
+    is_mirror: BoolProperty(name="Is Mirror", default=False)
 
     def update_granularity(self, context):
         self.forced_update()
@@ -37,8 +39,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         type=bpy.types.Object,
         poll=lambda self, obj: obj.type == 'MESH'
     )
-    instance_next_uuid: IntProperty(name="Instance Next UUID", default=-1)
-    is_mirror: BoolProperty(name="Is Mirror", default=False)
+
 
     @property
     def fabric(self):
@@ -131,13 +132,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         vertex.co = position
         return len(self.vertices) - 1
 
-    def add_edge(self, start_idx, end_idx, edge_type="BESSEL", control1=None, control2=None, handle1_type="VECTOR",
+    def add_edge(self, start_idx, end_idx, control1=None, control2=None, handle1_type="VECTOR",
                  handle2_type="VECTOR", update=True):
         """添加边"""
         edge: Edge2D = self.edges.add()
         edge.vertex_index[0] = start_idx
         edge.vertex_index[1] = end_idx
-        edge.type = edge_type
         if control1 is not None and control2 is not None:
             edge.handle1.co = control1[:]
             edge.handle2.co = control2[:]
@@ -172,6 +172,15 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             self.initialized = True
 
         self.line_renderer.update_batch_vertex(self.get_vertice_list())
+
+    def update_render_spline_point(self):
+        points = []
+        for edge in self.edges:
+            if len(edge.spline_points) > 0:
+                points.append( [p.co for p in edge.spline_points])
+        if len(points) > 0:
+            points = np.concatenate(points, dtype=np.float32)
+        self.line_renderer.update_batch_spline_point(points)
 
     def get_geo_points_unique(self):
         edge_points = []
@@ -221,10 +230,10 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         bbox = self.get_bbox()
         return (bbox[0] + bbox[1]) * 0.5
 
-    def generate_mesh(self):
+    def generate_mesh(self, scale_data=None):
         granularity = self.granularity / 1000
         start = time.time()
-        self.mesh_object = generate_pattern_mesh(self, self.get_geo_points_unique(), granularity, self.mesh_object)
+        self.mesh_object = generate_pattern_mesh(self, self.get_geo_points_unique(), granularity, self.mesh_object, scale_data)
         if self.name:
             self.mesh_object.name = self.name
             self.mesh_object.data.name = self.name
@@ -280,6 +289,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         if self.instance_next_uuid == -1:
             return instances
         p = global_data.get_obj_by_uuid(self.instance_next_uuid)
+        # if p is None:
+        #     self.instance_next_uuid = -1
+        #     return instances
         while p.global_uuid != self.global_uuid:
             instances.append(p)
             p = global_data.get_obj_by_uuid(p.instance_next_uuid)

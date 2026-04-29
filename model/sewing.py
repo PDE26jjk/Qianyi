@@ -7,7 +7,7 @@ from bpy.props import EnumProperty, FloatProperty, PointerProperty, IntProperty,
 from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
 
-from utilities.console import console
+from ..utilities.console import console
 from ..utilities.geometric_operation import split_polyline
 from .. import global_data
 from .model_data import ModelData, define_temp_prop, Selectable

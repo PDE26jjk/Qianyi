@@ -4,12 +4,14 @@ import time
 import numpy as np
 import bpy
 
-from utilities.console import console_print, console
+from ..utilities.console import console_print, console
 from mathutils import Vector
-from mathutils.geometry import delaunay_2d_cdt
 
 
-def generate_pattern_mesh(pattern, points, granularity, mesh_obj):
+# from mathutils.geometry import delaunay_2d_cdt
+
+
+def generate_pattern_mesh(pattern, points, granularity, mesh_obj, scale_data=None):
     if len(points) < 3:
         return mesh_obj
     start_time = time.time()
@@ -70,7 +72,8 @@ def generate_pattern_mesh(pattern, points, granularity, mesh_obj):
                 tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
                 mesh.loop_triangles.foreach_get("vertices", tris)
                 tris = tris.reshape(-1, 3)
-                res_index, res_weight = geometry.find_map_weight(old_pattern_vertices, tris, all_points)
+                res_index, res_weight = geometry.find_map_weight(old_pattern_vertices, tris, all_points,
+                                                                 map_bounds=scale_data is not None)
                 tri_verts_idx = tris[res_index]
                 selected_attrs = old_sim_vertices[tri_verts_idx]
 
@@ -81,7 +84,11 @@ def generate_pattern_mesh(pattern, points, granularity, mesh_obj):
                 # k: 属性维度 K
                 # 对 j 维度进行相乘并求和，保留 i 和 k
                 map_vertices = np.einsum('ij,ijk->ik', res_weight, selected_attrs, dtype=np.float32)
-
+                if scale_data is not None:
+                    scale_center, scale_factor = scale_data["center"], scale_data["factor"]
+                    local_center = mesh_obj.matrix_world.inverted() @ scale_center
+                    cx = np.array(local_center, dtype=np.float32)
+                    map_vertices = cx + (map_vertices - cx) * scale_factor
 
         mesh.clear_geometry()
     if mesh_obj.name not in bpy.context.collection.objects:

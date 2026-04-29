@@ -9,17 +9,16 @@ from ..keymaps import tool_generic
 from ..declarations import GizmoGroups, Operators, WorkSpaceTools
 
 
-class NODE_T_qmyi_add_vertex(WorkSpaceTool):
+class NODE_T_qmyi_add_spline_point(WorkSpaceTool):
     bl_space_type = "NODE_EDITOR"
     bl_context_mode = None
-    bl_idname = WorkSpaceTools.AddVertex.value
-    bl_label = "add_vertex"
-    # bl_operator = Operators.AddVertex2D
-    bl_icon = "ops.paint.eyedropper_add"
+    bl_idname = WorkSpaceTools.AddSplinePoint.value
+    bl_label = "add_spline_point"
+    bl_icon = "brush.particle.add"
     bl_widget = GizmoGroups.Preselection
     bl_keymap = (*tool_generic,
                  (
-                     Operators.AddVertex2D,
+                     Operators.AddSplinePoint2D,
                      {"type": "LEFTMOUSE", "value": "PRESS", "any": True},
                      {"properties": None},
                  ),
@@ -33,9 +32,9 @@ class NODE_T_qmyi_add_vertex(WorkSpaceTool):
         node_tree = get_active_node_tree(context)
         if not node_tree:
             return
-        if context.scene.qmyi.edit_sub_mode != "ADD_VERTEX":
-            context.scene.qmyi.edit_sub_mode = "ADD_VERTEX"
-            console.info('edit_sub_mode = ADD_VERTEX')
+        if context.scene.qmyi.edit_sub_mode != "ADD_SPLINE_POINT":
+            context.scene.qmyi.edit_sub_mode = "ADD_SPLINE_POINT"
+            console.info('edit_sub_mode = ADD_SPLINE_POINT')
             node_tree.update_edge_finder()
         region = context.region
         if not region:

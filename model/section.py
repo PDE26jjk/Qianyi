@@ -1,5 +1,7 @@
 from typing import List, Optional, Tuple
 
+from ..utilities.console import console
+
 
 class DirSection:
     def __init__(self, section, reverse=False):
@@ -20,8 +22,14 @@ class Section:
         self.next: Optional[Section] = None
         self.seg = -1
         self.start_point = -1
+        self.mesh_start_point = -1
+        self.mesh_end_point = -1  # only use in last section of loop
         # self.length = 0.
         self.link_map_id = -1
+        self.pending_split: List[Tuple[float, int]] = []  # (t,state)
+        self.io_state = 0
+        self.outsize = False  # outsize of pattern
+        self.continuous = False
 
     def split(self, radio, reverse=False, check_link=True):
         # sections = self.edge.sections
@@ -32,6 +40,7 @@ class Section:
         # if new_section is None:
         #     raise ValueError("new_section is None")
         # return self, new_section
+        self.seg = -1  # need to be recalculated.
         length = self.end_pos - self.start_pos
         if not reverse:
             split_pos = self.start_pos + length * radio
@@ -58,12 +67,42 @@ class Section:
                     its_new_sec.link_map_id = new_sec.link_map_id
                     new_link_sections.append(its_new_sec)
             Section.link_sections.append(new_link_sections)
-
+        new_sec.outsize = self.outsize
         return self, new_sec
+
+    def split_pending(self):
+        self.seg = -1  # need to be recalculated.
+        length = self.end_pos - self.start_pos
+        abs_l = self.absolute_length()
+        sec = self
+        min_r = self.edge.pattern.granularity * 0.02 / abs_l
+        last_r = 0
+        end_pos = self.end_pos
+        start_pos = self.start_pos
+        for r, state in self.pending_split:
+            # state: 1 out, 2 in
+            # console.info(r, state)
+            if r - last_r < min_r:
+                if state != 0:
+                    sec.io_state = state
+                continue
+
+            split_pos = start_pos + length * r
+            new_sec = Section(self.edge, split_pos, end_pos)
+            new_sec.io_state = state
+            sec.end_pos = split_pos
+            new_sec.next = sec.next
+            new_sec.prev = sec
+            sec.next = new_sec
+            sec = new_sec
+            last_r = r
+
+        self.pending_split.clear()
 
     def is_reverse(self):
         if self.link_map_id == -1:
             return False
+        console.warning("is_reverse", Section.link_sections,self.link_map_id )
         for sec in Section.link_sections[self.link_map_id]:
             if sec.section is self:
                 return sec.reverse
@@ -72,6 +111,7 @@ class Section:
     def link_to(self, other: 'Section', reverse=False):
         if self is other:
             raise ValueError("Sewing overlap!!!")
+        # console.warning("link_to", Section.link_sections, self.link_map_id, other.link_map_id)
         if self.link_map_id == -1 or other.link_map_id == -1:
             if self.link_map_id == -1 and other.link_map_id == -1:
                 index = len(Section.link_sections)

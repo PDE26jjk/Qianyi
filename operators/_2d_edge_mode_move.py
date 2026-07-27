@@ -72,7 +72,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
             p.impacted = True
 
         for point in move_point_set:
-            console.success(point.path_from_id())
+            # console.success(point.path_from_id())
             self.point_proxys.append(ProxyPoint(point))
 
         for p in self.pattern_set:
@@ -148,7 +148,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
             mc.apply_moving()
         for p in self.pattern_set:
             for ins in p.instances:
-                ins.create_sections()
+                ins.recreate_sections()
                 ins.forced_update()
                 ins.generate_mesh()
 

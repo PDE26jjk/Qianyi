@@ -6,20 +6,21 @@ import bpy
 
 from ..utilities.console import console_print, console
 from mathutils import Vector
-
+from math import radians
 
 # from mathutils.geometry import delaunay_2d_cdt
 
 
-def generate_pattern_mesh(pattern, points, granularity, mesh_obj, scale_data=None):
+def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
+    points = pattern.mesh_edge_points
     if len(points) < 3:
         return mesh_obj
     start_time = time.time()
     edge_points = np.array(points, dtype=np.float32)
     edge_points /= 1000
-    edges = [(i, (i + 1) % len(edge_points)) for i in range(len(edge_points))]
-    boundary = [np.min(edge_points, axis=0) - 0.5, np.max(edge_points, axis=0) + 0.5]
-    boundary = ((boundary[0] + boundary[1]) / 2, boundary[1] - boundary[0] + 2)
+    # edges = [(i, (i + 1) % len(edge_points)) for i in range(len(edge_points))]
+    # boundary = [np.min(edge_points, axis=0) - 0.5, np.max(edge_points, axis=0) + 0.5]
+    # boundary = ((boundary[0] + boundary[1]) / 2, boundary[1] - boundary[0] + 2)
     # BoundaryTree = QuadTree.BoundaryTree
     # quadtree = BoundaryTree(boundary[0][0], boundary[0][1], boundary[1][0], boundary[1][1], [edge_points],
     #                         max_depth=16, min_size=0.5)
@@ -35,11 +36,15 @@ def generate_pattern_mesh(pattern, points, granularity, mesh_obj, scale_data=Non
     #                                         9) + point_offset
     #
     # points = np.vstack((edge_points, sampling_points[len(edge_points):]))
-    next_point = np.array([((i + 1) % len(edge_points)) for i in range(len(edge_points))], dtype=np.int32)
+    # next_point = np.array([((i + 1) % len(edge_points)) for i in range(len(edge_points))], dtype=np.int32)
     # sampling_points = taichi_mgr.execute(sample_points,edge_points, next_point, granularity).result()
     import Qianyi_DP as qydp
     geometry = qydp.geometry
-    all_points, triangles = geometry.sample_points(edge_points, next_point, float(granularity))
+    is_holes = np.array((0, *[il.is_hole for il in pattern.internal_lines]), dtype=np.int32)
+    curve_sizes = np.array([pattern.mesh_edge_point_outer_size,
+                            *[il.mesh_edge_inner_point_size for il in pattern.internal_lines]], dtype=np.int32)
+    all_points, triangles = geometry.sample_points(edge_points, pattern.mesh_edge_point_indices,
+                                                   curve_sizes, is_holes, float(granularity))
     console_print("sample_points: ", time.time() - start_time)
     start_time = time.time()
     # all_points = np.vstack((edge_points, sampling_points))
@@ -62,7 +67,7 @@ def generate_pattern_mesh(pattern, points, granularity, mesh_obj, scale_data=Non
     if mesh_obj is None:
         mesh = bpy.data.meshes.new("DistMesh2D_Mesh")
         mesh_obj = bpy.data.objects.new("DistMesh2D_Object", mesh)
-        mesh_obj.rotation_euler.x = 90
+        mesh_obj.rotation_euler.x = radians(90)
     else:
         mesh = mesh_obj.data
         if mesh.shape_keys:

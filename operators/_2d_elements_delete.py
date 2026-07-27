@@ -149,7 +149,7 @@ class NODE_OT_elements_delete(Operator2DBase):
                             for j in sorted(sps, reverse=True):
                                 e.spline_points.remove(j)
                 for ins in p.instances:
-                    ins.create_sections()
+                    ins.recreate_sections()
                     ins.forced_update()
                     ins.generate_mesh()
             if res is None or res['intersected']:

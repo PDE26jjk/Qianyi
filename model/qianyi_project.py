@@ -8,7 +8,7 @@ from .pattern import Pattern
 
 from .fabric import Fabric
 from .model_data import ModelData, define_temp_prop
-from .sewing import Sewing, calc_sewing_geo_point
+from .sewing import Sewing, calc_sewing_sections
 from ..declarations import Panels
 
 
@@ -78,9 +78,14 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     # def update(self):
     #     pass
     #
-    def calc_sewing_geo_point(self):
+    def calc_all_sewings_sections(self):
         self.refresh_collection_uuid(self.sewings)
-        calc_sewing_geo_point(self)
+        calc_sewing_sections(self.sewings)
+        for p in self.patterns:
+            p.need_sewing_update = False
+
+    def calc_sewings_sections(self, sewings):
+        calc_sewing_sections(sewings)
 
     def get_default_fabric(self):
         if len(self.fabrics) < 1:
@@ -131,7 +136,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         sw.side2.update_data(side2_line1, side2_pos1, side2_line2, side2_pos2, side2_reverse)
         if update:
             try:
-                self.calc_sewing_geo_point()
+                self.calc_all_sewings_sections()
                 sw.update()
             except Exception as e:
                 console.warning("Failed to add sewing: ", e)
@@ -143,41 +148,21 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     def add_sewing1to1(self, edge1, edge2, side1_reverse=False, side2_revers=True):
         return self.add_sewing(edge1, 0, edge1, 1, side1_reverse, edge2, 1, edge2, 0, side2_revers)
 
-    def get_sewings_for_simulation(self):
-        self.calc_sewing_geo_point()
-        sewings = []
-        for sewing in self.sewings:
-            start1, end1 = sewing.sections1
-            start2, end2 = sewing.sections2
-            ss1 = sewing.side1
-            ss2 = sewing.side2
-            patterns = (ss1.line1.pattern.mesh_object.qmyi_simulation_props.simulation_index,
-                        ss2.line1.pattern.mesh_object.qmyi_simulation_props.simulation_index)
-            max_sec = 10000
-            sec1 = start1
-            sec2 = start2
-            stitches = []
-            same_order = ss1.reverse ^ ss2.reverse
-            while sec1 is not end1 and max_sec > 0:
-                if sec1.edge.start_point == -1:
-                    sec1.edge.pattern.get_geo_points_unique()
-                if sec2.edge.start_point == -1:
-                    sec2.edge.pattern.get_geo_points_unique()
-                assert sec1.seg == sec2.seg, "sec1.seg != sec2.seg"
-                range1 = np.arange(sec1.seg)
-                stitches1 = (range1 if not ss1.reverse else range1[
-                    ::-1]) + sec1.edge.start_point + sec1.start_point
-                stitches2 = (range1 if not ss2.reverse else range1[
-                    ::-1]) + sec2.edge.start_point + sec2.start_point
-                stitches.append(np.column_stack((stitches1, stitches2)))
+    def setup_sewings_for_simulation(self):
+        # self.calc_all_sewings_sections()
+        # recalculate all sewings if needed.
+        for pattern in self.patterns:
+            if pattern.need_sewing_update:
+                connected_patterns, involved_sewings = pattern.get_connected_patterns_and_sewings()
+                for p in connected_patterns:
+                    p.recreate_sections()
+                    p.forced_update()
+                self.calc_sewings_sections(involved_sewings)
+                for p in connected_patterns:
+                    p.need_sewing_update = False
+                    p.generate_mesh()
 
-                sec1 = sec1.next if not ss1.reverse else sec1.prev
-                sec2 = sec2.next if not ss2.reverse else sec2.prev
-                max_sec -= 1
-            if max_sec == 0:
-                raise ValueError("Sections are in different patterns!!!")
-            stitches = np.concatenate(stitches)
-            sewings.append({'patterns': patterns, 'stitches': stitches, 'angle': 0.})
+        sewings = [sewing.get_stitch_data() for sewing in self.sewings]
         return sewings
 
     def update_edge_finder(self):

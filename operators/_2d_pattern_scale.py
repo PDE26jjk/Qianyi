@@ -179,7 +179,7 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
             mesh_scale_center /= mesh_scale_center_count
         for p in self.pattern_set:
             for ins in p.instances:
-                ins.create_sections()
+                ins.recreate_sections()
                 ins.forced_update()
                 ins.generate_mesh(scale_data={"center": mesh_scale_center, "factor": s})
         self.return_state = ReturnState.FINISHED

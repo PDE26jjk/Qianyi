@@ -1,19 +1,15 @@
 import math
 import re
-from typing import Any, List
 
 import numpy as np
-from bpy.props import FloatVectorProperty, CollectionProperty, EnumProperty, IntVectorProperty, \
-    FloatProperty, PointerProperty, BoolProperty, IntProperty
+from bpy.props import FloatVectorProperty, CollectionProperty, EnumProperty, IntVectorProperty
 from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
 
-from ..utilities.console import console
-from ..utilities.geometric_operation import resample_polyline, forward_diff_bezier, generate_curve_points
-from ..utilities.cubic_spline import cubic_spline_2d_numpy
 from .model_data import ModelData, define_temp_prop, Selectable
-
 from .section import Section
+from ..utilities.console import console
+from ..utilities.geometric_operation import resample_polyline, generate_curve_points
 
 
 class Vertex2D(PropertyGroup, ModelData, Selectable):
@@ -185,25 +181,6 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
     def type(self):
         return "BESSEL" if len(self.spline_points) == 0 else "CUBIC_SPLINE"
 
-    # def calc_length(self):
-    #     if self.type == "BESSEL":
-    #         # bpy.context.workspace.status_text_set(f"{self.handle1_type} {self.handle2_type}")
-    #         if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
-    #             self.length = np.linalg.norm(np.asarray(self.vertices[0]) - np.asarray(self.vertices[1]))
-    #             return
-    #
-    #         q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
-    #         pts = forward_diff_bezier(q, 1000)
-    #         self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
-    #     elif self.type == "CUBIC_SPLINE":
-    #         edge_points = [p.co for p in self.spline_points]
-    #         q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
-    #         # point_count = q.shape[0]
-    #         # t = np.linspace(0, point_count, point_count)
-    #         t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
-    #         pts = cubic_spline_2d_numpy(t, q, sample_count=1000)
-    #         self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
-
     def add_edge_point(self, position):
         point = self.spline_points.add()
         point.co = position
@@ -215,27 +192,12 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         edge_points = [p.co for p in self.spline_points]
         q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
         return generate_curve_points(q, h1, h2, render_point_count).astype(np.float32)
-        # if self.type == "BESSEL":
-        #     if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
-        #         return np.array((self.vertices[0], self.vertices[1]))
-        #     q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
-        #     return forward_diff_bezier(q, render_point_count).astype(np.float32)
-        # elif self.type == "CUBIC_SPLINE":
-        #     edge_points = [p.co for p in self.spline_points]
-        #     q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
-        #     # point_count = q.shape[0]
-        #     # t = np.linspace(0, point_count, point_count)
-        #     t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
-        #     res = cubic_spline_2d_numpy(t, q, sample_count=render_point_count).astype(np.float32)
-        #     return res
-        #
-        # return np.array((self.vertices[0], self.vertices[1]), dtype=np.float32)
 
     def sections(self):
         max_sec = 10000
         sec: Section = self.section_start
         if sec is None:
-            self.pattern.create_sections()
+            self.pattern.recreate_sections()
             sec = self.section_start
         assert sec is not None, "Sections are not created!!!"
         while sec is not self.section_end and max_sec > 0:
@@ -245,76 +207,44 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         if max_sec == 0:
             raise ValueError("Wrong section link!!")
 
-    def calc_temp_geo_point(self, resolution):
-        # if self.type == "BESSEL":
-        #     if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
-        #         self.geo_points_temp = np.linspace(self.vertices[0], self.vertices[1], resolution)
-        #         return
-        # points = np.asarray(self.render_points)
-        # arc_points = []
-        # cumulative_lengths = np.insert(np.cumsum(np.linalg.norm(points[1:] - points[:-1], axis=1)), 0, 0)
-        # target_lengths = np.linspace(0, self.length, resolution)
-        # j = 0  # 当前点索引
-        # for target in target_lengths:
-        #     # 找到包含目标弧长的线段
-        #     while j < len(cumulative_lengths) - 1 and cumulative_lengths[j + 1] < target:
-        #         j += 1
-        #
-        #     if j >= len(cumulative_lengths) - 1:
-        #         arc_points.append(points[-1].copy())
-        #     else:
-        #         # 计算在线段中的位置
-        #         L0 = cumulative_lengths[j]
-        #         L1 = cumulative_lengths[j + 1]
-        #         t = (target - L0) / (L1 - L0) if L1 > L0 else 0.0
-        #
-        #         # 线性插值
-        #         p0 = points[j]
-        #         p1 = points[j + 1]
-        #         interpolated = p1 * t + p0 * (1 - t)
-        #         arc_points.append(interpolated)
-
-        # q = np.array([self.vertices[0], self.handle1.co, self.handle2.co, self.vertices[1]])
-        # self.geo_points_temp = forward_diff_bezier(q, resolution)
-        # self.geo_points_temp = np.asarray(mathutils.geometry.interpolate_bezier(*q, resolution))
-        # self.geo_points_temp = np.asarray(arc_points)
-        segment = max(resolution - 1, 2)
-        temp_points = self.generate_render_points(max(segment * 2, 8))
-        self.geo_points_temp = resample_polyline(temp_points, [(0, segment)], True)
+    def calc_temp_geo_point(self, point_size):
+        point_size = max(point_size, 2)
+        temp_points = self.generate_render_points(max(point_size * 2, 8))
+        self.geo_points_temp = resample_polyline(temp_points, [(0, point_size)], True)
 
     def calc_geo_point_for_sections(self):
         min_g = self.pattern.granularity
-        for sec in self.sections():
+        sections = list(self.sections())
+        for sec in sections:
             if sec.seg == -1:
                 sec.seg = max(math.ceil(sec.absolute_length() / sec.edge.pattern.granularity), 1)
+                # console.info("sec", sec.start_pos, sec.end_pos, sec.seg)
+            # else:
+            #     console.warning("sec", sec.start_pos, sec.end_pos, sec.seg)
             min_g = min(sec.absolute_length() / sec.seg, min_g)
         only_one_section = self.section_start.next == self.section_end
         if only_one_section:
-            resolution = self.section_start.seg + 1
-            self.calc_temp_geo_point(resolution)
+            point_size = self.section_start.seg + 1
+            self.calc_temp_geo_point(point_size)
             self.section_start.start_point = 0
         else:
-            resolution = max(math.ceil(self.length / min_g), 1) + 1
-            self.calc_temp_geo_point(resolution * 2)
+            point_size = max(math.ceil(self.length / min_g), 1) + 1
+            self.calc_temp_geo_point(point_size * 2)
             segments = []
             points_count = 0
-            for sec in self.sections():
+            for i, sec in enumerate(sections):
                 sec.start_point = points_count
                 points_count += sec.seg
-                segments.append((sec.start_pos, sec.seg))
+                segments.append([sec.start_pos, sec.seg])
+            segments[-1][1] += 1
+            # console.info("segments",sections, segments)
             self.geo_points_temp = resample_polyline(self.geo_points_temp, segments, True)
+            # console.success(len(self.geo_points_temp))
         return
 
     def clear_temp_data(self):
         self.pattern = None
         self.need_update_points = True
-
-    # def find_section_index(self, pos):
-    #     for i, sec in enumerate(self.sections):
-    #         if pos >= sec.start_pos:
-    #             eps = 1e-4
-    #             if pos - sec.start_pos < eps:
-    #                 return i
 
     def find_or_add_section(self, pos) -> Section | None:
         eps = 1e-5
@@ -333,11 +263,18 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             max_sec -= 1
         if max_sec == 0:
             raise ValueError("Wrong section link!!")
+        if max_sec == 10000:
+            # a loop with only one section
+            if pos - sec.start_pos < eps:
+                return sec
+            radio = (pos - sec.start_pos) / (sec.end_pos - sec.start_pos)
+            _, new_sec = sec.split(radio)
+            return new_sec
         return None
 
-    def try_regain_self(self):
-        if self.pattern is not None and self.pattern.global_uuid != -1:
-            self.pattern.forced_update()
+    # def try_regain_self(self):
+    #     if self.pattern is not None and self.pattern.global_uuid != -1:
+    #         self.pattern.forced_update()
 
 
 define_temp_prop(Edge2D, "pattern_temp", None)
@@ -347,6 +284,7 @@ define_temp_prop(Edge2D, "need_update_points", True)
 define_temp_prop(Edge2D, "render_points", None)
 define_temp_prop(Edge2D, "renderer", None)
 define_temp_prop(Edge2D, "geo_points_temp", None)
+define_temp_prop(Edge2D, "unique_geo_point_size", 0)
 define_temp_prop(Edge2D, "section_start", None)
 define_temp_prop(Edge2D, "section_end", None)
 define_temp_prop(Edge2D, "start_point", -1)

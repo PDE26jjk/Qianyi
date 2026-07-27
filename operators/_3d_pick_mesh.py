@@ -12,7 +12,6 @@ from .states.PointSelectionState import PointPickState, MouseOperator
 from .states.StatefulOperator import StateOperator, ReturnState
 from .. import global_data
 from ..declarations import Operators
-from ..utilities.coords_transform import region2view_coord, region3view_coord
 
 
 def get_camera_frame_data(context):

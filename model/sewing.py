@@ -7,6 +7,7 @@ from bpy.props import EnumProperty, FloatProperty, PointerProperty, IntProperty,
 from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
 
+from .internal_line import InternalLine
 from ..utilities.console import console
 from ..utilities.geometric_operation import split_polyline
 from .. import global_data
@@ -69,6 +70,14 @@ class Sewing(PropertyGroup, ModelData, Selectable):
         return self.sides[1]
 
     @property
+    def pattern1(self):
+        return self.side1.line1.pattern
+
+    @property
+    def pattern2(self):
+        return self.side2.line1.pattern
+
+    @property
     def side1(self):
         return self.get_side1()
 
@@ -94,12 +103,64 @@ class Sewing(PropertyGroup, ModelData, Selectable):
         self.side2.sewing = self
         self.renderer.update_batch_edge(render_points1, render_points2)
 
+    def get_stitch_data(self):
+        ss1 = self.side1
+        ss2 = self.side2
+        pattern1 = ss1.line1.pattern
+        pattern2 = ss2.line1.pattern
+        if pattern1.need_geo_update:
+            pattern1.calc_mesh_edge_points()
+        if pattern2.need_geo_update:
+            pattern2.calc_mesh_edge_points()
+        patterns = (pattern1.mesh_object.qmyi_simulation_props.simulation_index,
+                    pattern2.mesh_object.qmyi_simulation_props.simulation_index)
+
+        start1, end1 = self.sections1
+        start2, end2 = self.sections2
+        stitches1 = get_stitches_by_sections(start1, end1, ss1.reverse)
+        stitches2 = get_stitches_by_sections(start2, end2, ss2.reverse)
+        stitches = np.column_stack((stitches1, stitches2))
+
+        return {'patterns': patterns, 'stitches': stitches, 'angle': 0.}
+
 
 define_temp_prop(Sewing, "need_render_update", True)
 define_temp_prop(Sewing, "renderer", None)
 define_temp_prop(Sewing, "sections1", lambda: [None, None])
 define_temp_prop(Sewing, "sections2", lambda: [None, None])
 define_temp_prop(Sewing, "impacted", False)
+
+
+def get_stitches_by_sections(start_section, end_section, reverse):
+    sec = start_section
+    pattern = sec.edge.pattern
+    start = False
+    is_loop = sec is end_section
+    stitches_list = []
+    max_sec = 10000
+    while (sec is not end_section or not start) and max_sec > 0:
+        point_size = sec.seg
+        next = sec.prev if reverse else sec.next
+        if next is end_section and not is_loop:
+            point_size += 1
+
+        stitches_index = pattern.mesh_edge_index_map[sec.mesh_start_point: sec.mesh_start_point + point_size]
+        if point_size - len(stitches_index) == 1:
+            stitches_index = np.append(stitches_index, pattern.mesh_edge_index_map[0])
+        if point_size != len(stitches_index):
+            raise IndexError("Something went wrong")
+        if sec.mesh_end_point != -1:
+            stitches_index[-1] = pattern.mesh_edge_index_map[sec.mesh_end_point]
+        stitches_list.append(stitches_index)
+        sec = next
+        max_sec -= 1
+        start = True
+    if reverse:
+        stitches_list.reverse()
+    stitches = np.concatenate(stitches_list)
+    if reverse:
+        stitches = stitches[::-1]
+    return stitches
 
 
 def calc_sewing_side_sections(ss, sections_start_end, reverse=False):
@@ -128,22 +189,14 @@ def calc_sewing_side_sections(ss, sections_start_end, reverse=False):
     return sections, lengths, scans
 
 
-def calc_sewing_geo_point(project):
+# Create sections and calculate intersections before call it.
+def calc_sewing_sections(sewings):
     link_sections = Section.link_sections
     link_sections.clear()
-    pattern_set = set()
-    for sewing in project.sewings:
-        ss1, ss2 = sewing.side1, sewing.side2
-        pattern_set.add(ss1.line1.pattern)
-        pattern_set.add(ss1.line2.pattern)
-        pattern_set.add(ss2.line1.pattern)
-        pattern_set.add(ss2.line2.pattern)
-    for p in pattern_set:
-        p.create_sections()
 
     # Split and link sections by sewings.
     blur_factor = 0.05
-    for sewing in project.sewings:
+    for sewing in sewings:
         ss1, ss2 = sewing.side1, sewing.side2
         sections1, lengths1, scans1 = calc_sewing_side_sections(ss1, sewing.sections1, ss1.reverse)
         sections2, lengths2, scans2 = calc_sewing_side_sections(ss2, sewing.sections2, ss2.reverse)
@@ -182,16 +235,16 @@ def calc_sewing_geo_point(project):
                 seg = max(math.ceil(sec.absolute_length() / sec.edge.pattern.granularity), 1)
                 max_seg = max(max_seg, seg)
             for sec in sections:
-                sec.seg = max_seg
-            console.warning(i, sections, max_seg)
-    for p in pattern_set:
-        p.forced_update()
+                if sec.seg != max_seg:
+                    sec.seg = max_seg
+                    sec.edge.need_update_points = True
+                    sec.edge.pattern.need_geo_update = True
+            # console.warning(i, sections, max_seg)
 
 
-def calc_sewing_side_edges_index(ss):
-    p = ss.line1.pattern
+def calc_sewing_side_edges_index(ss, parent):
     e1_index = e2_index = -1
-    for i, e in enumerate(p.edges):
+    for i, e in enumerate(parent.edges):
         if e.global_uuid == ss.line1_uuid:
             e1_index = i
         if e.global_uuid == ss.line2_uuid:
@@ -204,19 +257,24 @@ def calc_sewing_side_edges_index(ss):
 
 
 def calc_sewing_side_edges(ss):
-    p = ss.line1.pattern
-    e1_i, e2_i = calc_sewing_side_edges_index(ss)
+    # p = ss.line1.pattern
+    parent = ss.line1.get_parent()
+    e1_i, e2_i = calc_sewing_side_edges_index(ss, parent)
     e_i = e1_i
-    edges: List[Edge2D] = [p.edges[e_i]]
+    edges: List[Edge2D] = [parent.edges[e_i]]
     crazy_loop = e1_i == e2_i and (ss.pos1 > ss.pos2) ^ ss.reverse
     # console.info(crazy_loop,(ss.pos1 > ss.pos2) , ss.reverse)
     step = -1 if ss.reverse else 1
+    il = parent if isinstance(parent, InternalLine) else None
+    if il:
+        pass  # ?
+
     if crazy_loop:
-        e_i = (e_i + step) % len(p.edges)
-        edges.append(p.edges[e1_i])
+        e_i = (e_i + step) % len(parent.edges)
+        edges.append(parent.edges[e1_i])
     while e_i != e2_i:
-        e_i = (e_i + step) % len(p.edges)
-        edges.append(p.edges[e_i])
+        e_i = (e_i + step) % len(parent.edges)
+        edges.append(parent.edges[e_i])
     return edges
 
 

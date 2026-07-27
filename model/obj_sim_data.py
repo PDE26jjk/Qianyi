@@ -27,6 +27,11 @@ class ObjectSimulationProperties(PropertyGroup):
     )
     pattern_uuid: IntProperty(default=-1)
 
+    collision_layer: IntProperty(
+        name="CollisionLayer",
+        description="When in contact, the higher level is above the lower level, along the normal direction of the lower level.",
+        default=-10)
+
     base_key_name = 'QYBasis'
     simulation_key_name = 'QYSim'
 
@@ -136,6 +141,8 @@ class ObjectSimulationProperties(PropertyGroup):
             obj.shape_key_add(name=sim_name, from_mix=False)
             keys[sim_name].value = 1.0
             keys[sim_name].relative_key = keys[base_name]
+        console.info("active_shape_key_index",obj.active_shape_key_index)
+        obj.active_shape_key_index = keys.find(sim_name)
 
         color_attributes = mesh.color_attributes
         color_name = 'Color'

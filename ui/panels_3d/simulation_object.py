@@ -21,6 +21,7 @@ class QY_PT_simulation_object(VIEW_3D_PT_qmyi_base):
                 try:
                     pattern = props.pattern
                     layout.label(text=f"pattern: {pattern.name}")
+                    layout.prop(pattern,"collision_layer")
                     fabric = pattern.fabric
                     # assert fabric is not None
                     # console.print( pattern ,pattern.fabric_uuid)
@@ -31,7 +32,7 @@ class QY_PT_simulation_object(VIEW_3D_PT_qmyi_base):
                     box.prop(fabric, "friction")
                     box.prop(fabric, "weight")
                     box.prop(fabric, "stretch")
-                    box.prop(fabric, "shear")
+                    # box.prop(fabric, "shear")
                     box.prop(fabric, "bending")
                 except Exception as e:
                     console.warning(f"{e}")
@@ -40,6 +41,7 @@ class QY_PT_simulation_object(VIEW_3D_PT_qmyi_base):
                 layout.label(text=f"As Collider")
                 layout.prop(props, "participate_in_simulation")
                 layout.prop(props, "vertices_updated_every_frame")
+                layout.prop(props, "collision_layer")
 
 
 class SimulationDataRefreshOperator(bpy.types.Operator):

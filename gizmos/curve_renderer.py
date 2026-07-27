@@ -150,7 +150,10 @@ class CurveRenderer(BaseRenderer):
 class MovingCurveRenderer(CurveRenderer):
     def __init__(self, moving_edge: MovingCurve):
         self.moving_edge = moving_edge
-        super().__init__(moving_edge.edge)
+        if moving_edge.edge_uuid != -1:
+            super().__init__(moving_edge.edge)
+        else:
+            BaseRenderer.__init__(self)
 
     def update_batch(self):
         edge = self.moving_edge
@@ -179,3 +182,24 @@ class MovingCurveRenderer(CurveRenderer):
             self.shader, 'LINES',
             {"pos": lines},
         )
+
+    def draw_preview(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0, offset=(0, 0)):
+        if not self.batch:
+            self.update_batch()
+
+        gpu.state.blend_set('ALPHA')
+        gpu.state.line_width_set(thickness)
+        self.shader.bind()
+        self.shader.uniform_float("color", color)
+
+        transform_matrix = create_2d_matrix(offset=offset)
+        self.update_model_matrix(transform_matrix)
+        self.batch.draw(self.shader)
+        gpu.state.point_size_set(thickness * 2)
+        self.shader.uniform_float("color", (0, 1, 0, 1))
+        self.handles_line_batch.draw(self.shader)
+        self.shader.uniform_float("color", (1, 1, 1, 1))
+        if self.moving_edge.handle1_type != "VECTOR":
+            self.handle1_point_batch.draw(self.shader)
+        if self.moving_edge.handle2_type != "VECTOR":
+            self.handle2_point_batch.draw(self.shader)

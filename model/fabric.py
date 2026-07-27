@@ -10,8 +10,8 @@ class Fabric(PropertyGroup, ModelData):
     friction: FloatProperty(name="friction", default=0.03)
     weight: FloatProperty(name="weight", default=100., min=1.)
     # cloth dynamic
-    stretch: FloatVectorProperty(name="stretch", size=3, default=(1, 1, 1.),min=0.01,max=1.)
-    shear: FloatVectorProperty(name="shear", size=3, default=(1, 1, 1.),min=0.01,max=1.)
+    stretch: FloatVectorProperty(name="stretch", size=3, default=(1, 1, 1.),min=0.0,max=1.)
+    # shear: FloatVectorProperty(name="shear", size=3, default=(1, 1, 1.),min=0.01,max=1.)
     bending: FloatVectorProperty(name="bending", size=3, default=(1, 1, 1.),min=0.01,max=1.)
 
     @property

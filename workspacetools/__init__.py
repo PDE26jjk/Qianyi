@@ -4,6 +4,8 @@ from bpy.utils import register_tool, unregister_tool
 from .add_sewing1 import NODE_T_qmyi_add_sewing1
 from .add_spline_point import NODE_T_qmyi_add_spline_point
 from .add_vertex import NODE_T_qmyi_add_vertex
+from .internal_line_pen import NODE_T_qmyi_internal_line_pen
+from .pattern_pen import NODE_T_qmyi_pattern_pen
 from ..utilities.console import console
 from ..utilities.node_tree import get_active_node_tree
 from .add_poly import NODE_T_qmyi_add_poly
@@ -19,6 +21,8 @@ tools = (
     (NODE_T_qmyi_add_vertex, {}),
     (NODE_T_qmyi_add_spline_point, {}),
     (NODE_T_qmyi_add_sewing1, {}),
+    (NODE_T_qmyi_pattern_pen, {}),
+    (NODE_T_qmyi_internal_line_pen, {}),
 )
 _original_tools_from_context = None
 @classmethod

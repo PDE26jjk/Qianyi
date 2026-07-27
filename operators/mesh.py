@@ -20,8 +20,12 @@ class NODE_OT_qmyi_generate_all_mesh(Operator):
 
     def invoke(self, context, event):
         project = get_active_node_tree(context)
-        project.calc_sewing_geo_point()
         for p in project.patterns:
+            p.recreate_sections()
+            p.forced_update()
+        project.calc_all_sewings_sections()
+        for p in project.patterns:
+            p.calc_mesh_edge_points()
             p.generate_mesh()
         context.area.tag_redraw()
         return {"FINISHED"}

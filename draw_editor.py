@@ -10,8 +10,7 @@ from .declarations import Operators, Panels
 draw_handle = None
 
 
-def draw_callback():
-    """绘制回调函数"""
+def node_draw_callback():
 
     if not global_data.temp_draw_manager:
         return
@@ -29,14 +28,14 @@ def draw_callback():
 
 
 
-class DrawPointsOperator(Operator):
-    bl_idname = "view3d.register_draw_cb"
+class DrawNodeEditorOperator(Operator):
+    bl_idname = "view3d.qmyi_register_draw_cb"
     bl_label = "Register Draw Callback"
 
     def execute(self, context: Context):
         global draw_handle
         draw_handle = bpy.types.SpaceNodeEditor.draw_handler_add(
-            draw_callback, (), "WINDOW", "POST_VIEW"
+            node_draw_callback, (), "WINDOW", "POST_VIEW"
         )
 
         return {"FINISHED"}
@@ -49,15 +48,15 @@ def end():
         draw_handle = None
 
 def startup_cb(*args):
-    bpy.ops.view3d.register_draw_cb()
+    bpy.ops.view3d.qmyi_register_draw_cb()
     return None
 
 
 def register():
-    register_class(DrawPointsOperator)
+    register_class(DrawNodeEditorOperator)
     bpy.app.timers.register(startup_cb, first_interval=1, persistent=True)
 
 
 def unregister():
     end()
-    unregister_class(DrawPointsOperator)
+    unregister_class(DrawNodeEditorOperator)

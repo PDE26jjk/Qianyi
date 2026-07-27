@@ -7,7 +7,7 @@ from .panels.fabrics import QY_UL_FabricList, QY_PT_fabricProperty, QY_PT_fabric
 from .panels.in_out import NODE_PT_qmyi_in_out
 from .panels.patterns import QY_PT_patterns, QY_UL_PatternList, QY_PT_patternProperty
 from .panels.projects import QY_PT_qmyi_projects, QY_UL_ProjectList
-from .panels_3d.simulation import QY_PT_simulation
+from .panels_3d.simulation import QY_PT_simulation, SimulationNextNframesOperator, SimulationToNframesOperator
 from .panels_3d.simulation_object import QY_PT_simulation_object, SimulationDataRefreshOperator
 
 classes = [
@@ -24,6 +24,8 @@ classes = [
     NODE_PT_qmyi_in_out,
     QY_PT_simulation,
     SimulationDataRefreshOperator,
+    SimulationNextNframesOperator,
+    SimulationToNframesOperator,
     QY_PT_simulation_object,
 ]
 

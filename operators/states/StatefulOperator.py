@@ -1,14 +1,20 @@
-from datetime import datetime
 from typing import Any, List
 
+from bpy.props import BoolProperty
 from bpy.types import Context
 
+from ...utilities.console import console
 from .IState import IState, StateResultType
 
 
 class ReturnState:
     FINISHED = {"FINISHED"}
     CANCELLED = {"CANCELLED"}
+
+
+all_done = True  # global
+
+
 class StateOperator:
     def setup_state_machine(self, context):
         raise NotImplementedError
@@ -19,6 +25,8 @@ class StateOperator:
         self.current_state_idx = -1
         self.current_state: IState = None
         self.return_state = ReturnState.FINISHED
+        global all_done
+        all_done = False
 
     def register_state(self, state: IState) -> IState:
         """注册状态并返回状态实例"""
@@ -75,42 +83,60 @@ class StateOperator:
                 self.handle_success(context, self.current_state)
             elif result == StateResultType.FAILURE:
                 self.handle_failure(context, self.current_state)
-            self.done = True
+            global all_done
+            all_done = True
 
     def _handle_state_trans(self, context, event):
-        self.done = False
         result = self.current_state.handle_event(context, event, self)
         if result == StateResultType.CONTINUE:
-            return {"RUNNING_MODAL"}
+            return {"PASS_THROUGH"} if self.current_state.no_blocking else {"RUNNING_MODAL"}
         elif result == StateResultType.SUCCESS:
             self.current_state.on_succeed(context)
         self._handle_state_result(context, result)
-        if self.done:
+        if all_done:
             self._end(context)
             return self.return_state
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
+        global all_done
+        if not all_done:
+            console.warning("invoke:", "task is not yet completed")
+            return {"CANCELLED"}
         self._init()
         self.setup_state_machine(context)
         if len(self.states) == 0:
-            return {'FINISHED'}
+            all_done = True
+            # console.info(self.return_state)
+            # return self.return_state # it will crash too, why?
+            return {"RUNNING_MODAL"}
         self.current_state_idx = 0
         self._enter_state(context, self.current_state_idx)
-        return self._handle_state_trans(context, event)
+        res = self._handle_state_trans(context, event)
+        if res == {"PASS_THROUGH"}:  # do not pass through in invoke or blender will crash...
+            res = {"RUNNING_MODAL"}
+        return res
 
     def execute(self, context):
         self._init()
         self.setup_state_machine(context)
         if len(self.states) == 0:
-            return {'FINISHED'}
+            return self.return_state
         self.current_state_idx = 0
         self._enter_state(context, self.current_state_idx)
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
-        # context.workspace.status_text_set(f"{self.current_state_idx}+modal")
-        res = self._handle_state_trans(context, event)
+        global all_done
+        if all_done:
+            return self.return_state
+        try:
+            res = self._handle_state_trans(context, event)
+        except Exception as e:
+            self._end(context)
+            all_done = True
+            raise e
+
         # context.workspace.status_text_set(f"{res}")
         return res
 

@@ -24,6 +24,7 @@ class IState(ABC):
         self.state_index = -1,
         self.succeed_cb = []
         self.data_change_cb = []
+        self.no_blocking = False
 
     @property
     @abstractmethod

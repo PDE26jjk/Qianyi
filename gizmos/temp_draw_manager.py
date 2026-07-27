@@ -193,7 +193,8 @@ class TempDrawManager:
                         if p.mesh_renderer is not None:
                             p.mesh_renderer.draw_fill_mesh(self.index_to_rgb(p.global_uuid), True)
                     elif qmyi.edit_mode == "EDGE":
-                        for e in p.edges:
+                        edges = [*p.edges, *(e for il in p.internal_lines for e in il.edges)]
+                        for e in edges:
                             e: Edge2D
                             if e.renderer is None:
                                 e.need_update_points = True
@@ -211,7 +212,8 @@ class TempDrawManager:
                             points_renderer.add_point(p, v, self.index_to_rgb(v.global_uuid))
                     elif qmyi.edit_mode == "SEWING":
                         if qmyi.edit_sub_mode == "ADD_SEWING1":
-                            for e in p.edges:
+                            edges = [*p.edges, *(e for il in p.internal_lines for e in il.edges)]
+                            for e in edges:
                                 e.renderer.draw(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
                         else:
                             sewings = node_tree.sewings
@@ -359,6 +361,8 @@ class TempDrawManager:
             shader.uniform_float("color", line_color)
             # TODO different pattern rendering mode
             p.line_renderer.draw_edges(color=line_color)
+            for il in p.internal_lines:
+                il.renderer.draw_edges(color=line_color)
 
             if qmyi.edit_mode == "EDGE":
                 gpu.state.point_size_set(8.0)

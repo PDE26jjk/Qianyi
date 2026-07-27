@@ -14,6 +14,8 @@ modules = [
     '_2d_pattern_move',
     '_2d_pattern_rotate',
     '_2d_pattern_scale',
+    '_2d_pattern_create_by_pen',
+    '_2d_internal_line_create_by_pen',
     '_2d_pattern_copy_instance',
     '_2d_elements_delete',
     '_2d_edge_mode_move',

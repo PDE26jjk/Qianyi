@@ -6,6 +6,7 @@ core_modules = [
     "gizmos",
     "ui",
     "draw_editor",
+    "debug_draw_3d",
     "workspacetools",
     "vr",
     "m17n"

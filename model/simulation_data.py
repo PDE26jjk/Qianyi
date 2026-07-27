@@ -28,6 +28,19 @@ class SimulationProps(PropertyGroup):
         else:
             simulation_manager.stop_simulation()
 
+    next_n_frames: IntProperty(
+        name="next_n_frames",
+        description="next_n_frames debug",
+        default=1,
+        options={"SKIP_SAVE"},
+    )
+    to_n_frames: IntProperty(
+        name="to_n_frames",
+        description="to_n_frames debug",
+        default=1,
+        options={"SKIP_SAVE"},
+    )
+
     simulation_with_animation: BoolProperty(
         name="simulation with animation",
         description="simulation_with_animation",

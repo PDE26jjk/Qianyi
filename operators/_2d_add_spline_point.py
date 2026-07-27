@@ -115,7 +115,7 @@ class NODE_OT_add_spline_point(Operator2DBase):
             e.handle2.co = handle_b
 
             ins.refresh_collection_uuid(e.spline_points)
-            ins.create_sections()
+            ins.recreate_sections()
             ins.forced_update()
             ins.generate_mesh()
         sp = pattern.edges[edge_index].spline_points[insert_at_final]

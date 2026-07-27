@@ -51,15 +51,7 @@ class SimulationManager:
         self.need_to_set_data = False
         task_mgr.add_scheduled_task(self.simulation_task_name, 0.001, self._run)
 
-    def _run(self):
-        if not self.running:
-            return
-        import Qianyi_DP as qydp
-        start = time.time()
-        self.simulator = qydp.simulator
-        if self.need_to_set_data:
-            self.simulator.input_data({'mesh_list': self.simulated_objects, 'sewings': self.sewings})
-            self.need_to_set_data = False
+    def _update_one_frame(self):
         for i, data in enumerate(self.simulated_objects):
             if data['obj'].matrix_world != self.world_matrixs[i]:
                 self.world_matrixs[i] = data['obj'].matrix_world.copy()
@@ -75,10 +67,11 @@ class SimulationManager:
         # self.simulator.update_once()
         # self.simulator.update(0.01)
         # for i in range(2):
-        self.simulator.update(0.001)
+        try:
+            self.simulator.update(0.01)
+        except:
+            self.running = False
         # self.simulator.update(0.001)
-        time2 = time.time() - start
-        console_print("simulation: ", time2 * 1000)
         self.run_count += 1
 
         # start = time.time()
@@ -86,6 +79,54 @@ class SimulationManager:
             self.pending_cloth_vertices = self.simulator.get_simulation_data().reshape(-1).copy()
             self.pending_colors = self.simulator.get_debug_colors().reshape(-1).copy()
             self.new_cloth_data_available = True
+
+    def update_N_frames_debug(self, n):
+        if self.running:
+            return
+        for i in range(n):
+            self._update_one_frame()
+
+        vertices_data = None
+        with self.data_lock:
+            if self.new_cloth_data_available:
+                vertices_data = self.pending_cloth_vertices
+                debug_colors = self.pending_colors
+                self.new_cloth_data_available = False
+        if vertices_data is not None:
+            self.apply_simulation_data(vertices_data, debug_colors)
+        console_print("frame: ", self.run_count)
+
+    def update_to_frames_debug(self, n):
+        if self.running:
+            return
+        if n < self.run_count:
+            return
+        times = n - self.run_count
+        for i in range(times):
+            self._update_one_frame()
+
+        vertices_data = None
+        with self.data_lock:
+            if self.new_cloth_data_available:
+                vertices_data = self.pending_cloth_vertices
+                debug_colors = self.pending_colors
+                self.new_cloth_data_available = False
+        if vertices_data is not None:
+            self.apply_simulation_data(vertices_data, debug_colors)
+        console_print("frame: ", self.run_count)
+
+    def _run(self):
+        if not self.running:
+            return
+        start = time.time()
+        import Qianyi_DP as qydp
+        self.simulator = qydp.simulator
+        if self.need_to_set_data:
+            self.simulator.input_data({'mesh_list': self.simulated_objects, 'sewings': self.sewings})
+            self.need_to_set_data = False
+        self._update_one_frame()
+        time2 = time.time() - start
+        console_print("simulation", self.run_count, ": ", time2 * 1000)
 
     def apply_simulation_data(self, vertices_data, debug_colors=None):
         nb_all_v = 0
@@ -157,18 +198,32 @@ class SimulationManager:
         self.simulated_objects.clear()
         self.world_matrixs.clear()
         projects = set()
+        objs = []
         for obj in bpy.data.objects:
             if obj.type == 'MESH' and (obj.qmyi_simulation_props.is_pattern_mesh or
                                        obj.qmyi_simulation_props.participate_in_simulation):
-                self._initialize_object_simulation(obj)
                 if obj.qmyi_simulation_props.pattern:
                     projects.add(obj.qmyi_simulation_props.pattern.project)
+                objs.append(obj)
+        # setup sewings, it could regen mesh of patterns.
+        self.sewings.clear()
+        for project in projects:
+            self.sewings.extend(project.setup_sewings_for_simulation())
+
+        for obj in objs:
+            self._initialize_object_simulation(obj)
         self.simulated_objects.sort(key=lambda x: x['object_type'])
+        vertices_offset = 0
+        faces_offset = 0
+        edges_offset = 0
         for i, item in enumerate(self.simulated_objects):
             item["obj"].qmyi_simulation_props.simulation_index = i
-        self.sewings.clear()
-        for p in projects:
-            self.sewings.extend(p.get_sewings_for_simulation())
+            item["vertices_offset"] = vertices_offset
+            item["faces_offset"] = faces_offset
+            item["edges_offset"] = edges_offset
+            vertices_offset += len(item['vertices']) // 3
+            faces_offset += len(item['triangles']) // 3
+            edges_offset += len(item['edges']) // 2
 
     def start_simulation(self):
         """开始物理模拟"""
@@ -244,11 +299,23 @@ class SimulationManager:
 
         world_matrix = np.array(world_matrix, dtype=np.float32)
         # world_matrix_inv = np.linalg.inv(world_matrix)
-        edges = np.empty(len(mesh.edges) * 2, dtype=np.int32)
-        mesh.edges.foreach_get("vertices", edges)
-
         tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
         mesh.loop_triangles.foreach_get("vertices", tris)
+        if is_cloth or len(mesh.polygons) == len(mesh.loop_triangles):
+            edges = np.empty(len(mesh.edges) * 2, dtype=np.int32)
+            mesh.edges.foreach_get("vertices", edges)
+        else:
+            console.warning("Not all faces are triangles! ", len(mesh.polygons), len(mesh.loop_triangles))
+            tris_ = tris.reshape(-1, 3)
+            edges_per_tri = np.stack([
+                tris_[:, [0, 1]],
+                tris_[:, [1, 2]],
+                tris_[:, [2, 0]]
+            ], axis=1)
+
+            all_edges = edges_per_tri.reshape(-1, 2)
+            all_edges.sort(axis=1)
+            edges = np.unique(all_edges, axis=0).ravel()
 
         result = {'obj': obj, 'vertices': vertices_local,
                   'edges': edges, 'triangles': tris,
@@ -257,19 +324,22 @@ class SimulationManager:
         if is_cloth:
             pattern: Pattern = sim_props.pattern
             fabric = pattern.fabric
+            result['collision_layer'] = pattern.collision_layer
             result['vertices_sim'] = vertices_sim
             result['mass'] = fabric.weight
             result['granularity'] = pattern.granularity
             result['thickness'] = fabric.thickness
             result['friction'] = fabric.friction
             result['stretch'] = np.array(fabric.stretch, dtype=np.float32)
-            result['shear'] = np.array(fabric.shear, dtype=np.float32)
+            # result['shear'] = np.array(fabric.shear, dtype=np.float32)
             result['bending'] = np.array(fabric.bending, dtype=np.float32)
 
             result['fixed_vertices'] = sim_props.get_vertex_group_weight(sim_props.fix_pin_group_name)
             result['attached_vertices'] = sim_props.get_vertex_group_weight(sim_props.attach_pin_group_name)
+
             # console.info(result)
         else:
+            result['collision_layer'] = sim_props.collision_layer
             result['normals'] = normals
             result['mass'] = 1.
             # console_print(obj.simulation_props.mass, result['object_type'])

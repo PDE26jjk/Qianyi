@@ -164,7 +164,7 @@ class NODE_OT_add_vertex(Operator2DBase):
             ins.refresh_collection_uuid(ins.vertices)
             ins.refresh_collection_uuid(ins.edges)
 
-            ins.create_sections()
+            ins.recreate_sections()
             ins.forced_update()
             ins.generate_mesh()
         p = pattern.vertices[len(pattern.vertices) - 1]

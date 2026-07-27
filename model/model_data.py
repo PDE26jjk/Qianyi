@@ -70,6 +70,8 @@ class ModelData:
     def get_index(self):
         return extract_last_bracket_number(self.path_from_id())
 
+    def get_parent(self):
+        return self.id_data.path_resolve(self.path_from_id().rsplit('.', 1)[0])
 
 def define_temp_prop(cls, name, default=None):
     @property

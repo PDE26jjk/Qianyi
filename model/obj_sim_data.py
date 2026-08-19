@@ -141,7 +141,7 @@ class ObjectSimulationProperties(PropertyGroup):
             obj.shape_key_add(name=sim_name, from_mix=False)
             keys[sim_name].value = 1.0
             keys[sim_name].relative_key = keys[base_name]
-        console.info("active_shape_key_index",obj.active_shape_key_index)
+        console.info("active_shape_key_index", obj.active_shape_key_index)
         obj.active_shape_key_index = keys.find(sim_name)
 
         color_attributes = mesh.color_attributes
@@ -175,6 +175,18 @@ class ObjectSimulationProperties(PropertyGroup):
                     weights_np[i] = g.weight
                     break
         return weights_np
+
+    def set_vertex_group_weight(self, group_name, weights_np):
+        obj = self.id_data
+        if group_name not in obj.vertex_groups:
+            vg = obj.vertex_groups.new(name=group_name)
+        else:
+            vg = obj.vertex_groups[group_name]
+
+        vg.remove(range(len(obj.data.vertices)))
+        for i, w in enumerate(weights_np):
+            if w != 0.0:
+                vg.add([i], w, 'REPLACE')
 
     def init_simulation(self, obj):
         if not obj or obj.type != 'MESH' or not self.is_pattern_mesh:

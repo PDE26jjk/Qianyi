@@ -1,4 +1,7 @@
 import bpy
+import blf
+from bpy_extras import view3d_utils
+
 import gpu
 import math
 from mathutils import Vector, Matrix
@@ -47,12 +50,31 @@ class DebugDrawManager3D:
             Tuple[List[Vector], List[Tuple[int, int]], Tuple[float, float, float, float], float, bool]] = []
         self._meshes_shaded: List[
             Tuple[List[Vector], List[Vector], List[Tuple[int, int, int]], Tuple[float, float, float, float], bool]] = []
+        self._texts: List[Tuple[Vector, str, Tuple[float, float, float, float], int, bool]] = []
 
         # Light direction for shaded meshes (world space)
         self._light_dir = Vector((0.4, -0.5, 0.8)).normalized()
 
         # Shader cache
         self._shaders = {}
+
+        # X-ray / global transparency support
+        self._global_alpha = 1.0  # 1.0 = opaque, <1.0 = transparent
+        self._xray_depth_test = True  # Keep depth test when transparent
+
+    # ------------------------------------------------------------------ config
+    def set_global_alpha(self, alpha, xray_depth_test=True):
+        """Set transparency for all drawn primitives (0=fully transparent, 1=opaque)."""
+        self._global_alpha = max(0.0, min(1.0, alpha))
+        self._xray_depth_test = xray_depth_test
+        return self
+
+    def _apply_alpha(self, color):
+        """Multiply alpha by the global transparency factor."""
+        if self._global_alpha >= 1.0:
+            return color
+        r, g, b, a = color
+        return (r, g, b, a * self._global_alpha)
 
     # ------------------------------------------------------------------ shaders
     def _shader(self, name: str):
@@ -101,6 +123,32 @@ class DebugDrawManager3D:
         self._segments.append((Vector(p1), Vector(p2), tuple(color), float(width), bool(depth)))
         return self
 
+    def add_dashed_line(self, p1, p2, color=(1, 0, 0, 1), width=2.0,
+                        dash_length=1.0, gap_length=0., depth=True):
+        """
+        Draw a dashed line with clearly separated segments.
+        Each dash is dash_length long, followed by a gap of gap_length.
+        Both values are in world units.
+        """
+        start = Vector(p1)
+        end = Vector(p2)
+        direction = end - start
+        total_length = direction.length
+        if total_length < 1e-6:
+            return self
+        if gap_length < 1e-6:
+            gap_length = dash_length
+        dir_n = direction / total_length
+        pos = 0.0
+
+        while pos + dash_length <= total_length:
+            seg_start = start + dir_n * pos
+            seg_end = seg_start + dir_n * dash_length
+            self._segments.append((seg_start, seg_end, tuple(color), float(width), bool(depth)))
+            pos += dash_length + gap_length
+
+        return self
+
     def add_polyline(self, points, color=(1, 1, 1, 1), closed=False, width=1.0, depth=True):
         pts = [Vector(p) for p in points]
         n = len(pts)
@@ -123,6 +171,7 @@ class DebugDrawManager3D:
                              float(head_length), math.radians(head_angle_deg),
                              float(width), bool(depth)))
         return self
+
     def add_sphere(self, center, radius, color=(0, 1, 1, 1), segments=24, width=1.0, depth=True):
         """A sphere is a capsule with zero length."""
         self._capsules.append((Vector(center), Vector(center), float(radius),
@@ -187,6 +236,11 @@ class DebugDrawManager3D:
             self._light_dir = d.normalized()
         return self
 
+    def add_text(self, position, text, color=(1, 1, 1, 1), size=12, depth=True):
+        """Queue a 2D text label at the given 3D world position."""
+        self._texts.append((Vector(position), str(text), tuple(color), int(size), bool(depth)))
+        return self
+
     def clear(self):
         self._segments.clear()
         self._circles.clear()
@@ -195,6 +249,7 @@ class DebugDrawManager3D:
         self._points.clear()
         self._meshes_wire.clear()
         self._meshes_shaded.clear()
+        self._texts.clear()
 
     # ------------------------------------------------------------------ geom
     @staticmethod
@@ -334,11 +389,16 @@ class DebugDrawManager3D:
                 coords.append(tuple(p2))
             batch = batch_for_shader(shader, 'LINES', {"pos": coords})
             shader.bind()
-            shader.uniform_float("color", color)
+            shader.uniform_float("color", self._apply_alpha(color))
             shader.uniform_float("lineWidth", width)
             shader.uniform_float("viewportSize", (region.width, region.height))
-            gpu.state.depth_test_set('LESS_EQUAL' if depth else 'NONE')
-            gpu.state.depth_mask_set(depth)
+            # Adjust depth state for transparency
+            if self._global_alpha < 1.0:
+                gpu.state.depth_mask_set(False)
+                gpu.state.depth_test_set('LESS_EQUAL' if self._xray_depth_test else 'NONE')
+            else:
+                gpu.state.depth_mask_set(depth)
+                gpu.state.depth_test_set('LESS_EQUAL' if depth else 'NONE')
             batch.draw(shader)
 
     def _draw_points(self):
@@ -352,10 +412,14 @@ class DebugDrawManager3D:
             coords = [tuple(p) for p in pts]
             batch = batch_for_shader(shader, 'POINTS', {"pos": coords})
             shader.bind()
-            shader.uniform_float("color", color)
+            shader.uniform_float("color", self._apply_alpha(color))
             gpu.state.point_size_set(size)
-            gpu.state.depth_test_set('LESS_EQUAL' if depth else 'NONE')
-            gpu.state.depth_mask_set(depth)
+            if self._global_alpha < 1.0:
+                gpu.state.depth_mask_set(False)
+                gpu.state.depth_test_set('LESS_EQUAL' if self._xray_depth_test else 'NONE')
+            else:
+                gpu.state.depth_mask_set(depth)
+                gpu.state.depth_test_set('LESS_EQUAL' if depth else 'NONE')
             batch.draw(shader)
 
     def _draw_meshes_wire(self):
@@ -372,11 +436,15 @@ class DebugDrawManager3D:
                 flat.append(tuple(verts[b]))
             batch = batch_for_shader(shader, 'LINES', {"pos": flat})
             shader.bind()
-            shader.uniform_float("color", color)
+            shader.uniform_float("color", self._apply_alpha(color))
             shader.uniform_float("lineWidth", width)
             shader.uniform_float("viewportSize", (region.width, region.height))
-            gpu.state.depth_test_set('LESS_EQUAL' if depth else 'NONE')
-            gpu.state.depth_mask_set(depth)
+            if self._global_alpha < 1.0:
+                gpu.state.depth_mask_set(False)
+                gpu.state.depth_test_set('LESS_EQUAL' if self._xray_depth_test else 'NONE')
+            else:
+                gpu.state.depth_mask_set(depth)
+                gpu.state.depth_test_set('LESS_EQUAL' if depth else 'NONE')
             batch.draw(shader)
 
     def _draw_meshes_shaded(self):
@@ -394,18 +462,66 @@ class DebugDrawManager3D:
                                      {"pos": pos, "nor": nor},
                                      indices=tris)
             shader.bind()
-            shader.uniform_float("color", color)
+            shader.uniform_float("color", self._apply_alpha(color))
             shader.uniform_float("light_dir", tuple(self._light_dir))
-            gpu.state.depth_test_set('LESS_EQUAL' if depth else 'NONE')
-            gpu.state.depth_mask_set(depth)
+            if self._global_alpha < 1.0:
+                gpu.state.depth_mask_set(False)
+                gpu.state.depth_test_set('LESS_EQUAL' if self._xray_depth_test else 'NONE')
+            else:
+                gpu.state.depth_mask_set(depth)
+                gpu.state.depth_test_set('LESS_EQUAL' if depth else 'NONE')
             batch.draw(shader)
         gpu.state.cull_face_set(prev_cull)
 
+    def _draw_texts(self, context):
+        if not self._texts:
+            return
+        region = context.region
+        rv3d = context.space_data.region_3d
+        if not region or not rv3d:
+            return
+
+        font_id = 0  # built-in font
+
+        # Enable shadow with level=5, color=black (shadow function now takes all 6 args)
+        blf.enable(font_id, blf.SHADOW)
+        blf.shadow(font_id, 5, 0.0, 0.0, 0.0, 1.0)
+        blf.shadow_offset(font_id, 1, -1)
+
+        for pos, text, color, size, depth in self._texts:
+            coords_2d = view3d_utils.location_3d_to_region_2d(region, rv3d, pos)
+            if coords_2d is None:  # outside view or behind camera
+                continue
+
+            x, y = coords_2d
+            r, g, b, a = self._apply_alpha(color)
+
+            blf.position(font_id, x, y, 0)
+            blf.size(font_id, size)
+            blf.color(font_id, r, g, b, a)
+            blf.draw(font_id, text)
+
+        # Reset to sensible defaults to avoid leaking state
+        blf.size(font_id, 11)
+        blf.color(font_id, 1.0, 1.0, 1.0, 1.0)
+        blf.disable(font_id, blf.SHADOW)
+
+
     def draw(self, context):
+        # Automatically follow viewport X-ray mode
         space_data = context.space_data
         if space_data and space_data.type == 'VIEW_3D':
             shading = space_data.shading
-            console.warning("show_xray", shading.show_xray )
+            if shading.show_xray:
+                # Full transparency with depth test off to mimic object X-ray
+                self.set_global_alpha(0.6, xray_depth_test=False)
+            else:
+                self.set_global_alpha(1.0)
+        else:
+            self.set_global_alpha(1.0)  # fallback
+
+        gpu.state.blend_set('ALPHA')  # Enable alpha blending for transparency
+
         # Tessellate higher-level primitives into line segments
         all_segments = list(self._segments)
 
@@ -433,17 +549,26 @@ class DebugDrawManager3D:
         gpu.state.depth_mask_set(True)
         gpu.state.blend_set('NONE')
 
+    def draw_texts(self, context):
+        self._draw_texts(context)
 
 # ----------------------------------------------------------------------------
 # Registration: mirrors the reference NodeEditor overlay registration pattern
 # ----------------------------------------------------------------------------
-_draw_handle = None
+_draw_handle_3d = None
+_draw_handle_text = None
 
 
-def _draw_callback():
+def _draw_callback_3d():
     if _manager is None:
         return
     _manager.draw(bpy.context)
+
+
+def _draw_callback_text():
+    if _manager is None:
+        return
+    _manager.draw_texts(bpy.context)
 
 
 class DEBUG_OT_register_draw_3d(bpy.types.Operator):
@@ -451,21 +576,29 @@ class DEBUG_OT_register_draw_3d(bpy.types.Operator):
     bl_label = "Register 3D Debug Draw Callback"
 
     def execute(self, context):
-        global _draw_handle
-        if _draw_handle is None:
-            _draw_handle = bpy.types.SpaceView3D.draw_handler_add(
-                _draw_callback, (), 'WINDOW', 'POST_VIEW'
+        global _draw_handle_3d, _draw_handle_text
+        if _draw_handle_3d is None:
+            _draw_handle_3d = bpy.types.SpaceView3D.draw_handler_add(
+                _draw_callback_3d, (), 'WINDOW', 'POST_VIEW'
+            )
+        if _draw_handle_text is None:
+            _draw_handle_text = bpy.types.SpaceView3D.draw_handler_add(
+                _draw_callback_text, (), 'WINDOW', 'POST_PIXEL'
             )
         # Make sure the manager singleton exists
         get_manager()
         return {'FINISHED'}
 
 
+
 def _end():
-    global _draw_handle
-    if _draw_handle is not None:
-        bpy.types.SpaceView3D.draw_handler_remove(_draw_handle, 'WINDOW')
-        _draw_handle = None
+    global _draw_handle_3d, _draw_handle_text
+    if _draw_handle_3d is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_draw_handle_3d, 'WINDOW')
+        _draw_handle_3d = None
+    if _draw_handle_text is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(_draw_handle_text, 'WINDOW')
+        _draw_handle_text = None
 
 
 def _startup_cb(*args):
@@ -484,3 +617,314 @@ def unregister():
     bpy.utils.unregister_class(DEBUG_OT_register_draw_3d)
     global _manager
     _manager = None
+
+
+import Qianyi_DP as qydp
+
+simulator = qydp.simulator
+from .simulation.simulation_manager import simulation_manager as sm
+
+dt2 = 0.001 ** 2
+
+
+def draw_vertex_trajectory_capsules(
+        vertex_data: list,
+        thickness: float,
+        color=(1, 0, 0, 1),
+        depth=True,
+        force_color=(1.0, 0.5, 0.0, 1.0),
+        force_elastic_color=(0.0, 1.0, 1.0, 1.0),
+):
+    """
+    Draw for each vertex:
+      - capsule from pos_prev to pos_pred (radius = thickness)
+      - arrow from pos_prev to pos_world (shows final displacement)
+    """
+    global dt2
+    dd = get_manager()
+    for v in vertex_data:
+        pos_prev = Vector(v['pos_prev'])
+        pos_pred = Vector(v['pos_pred'])
+        pos_world = Vector(v['pos_world'])
+
+        # Trajectory capsule: prev -> pred
+        dd.add_capsule(pos_prev, pos_pred, thickness, color=color, depth=depth)
+
+        # Displacement arrow: prev -> world
+        disp = pos_world - pos_prev
+        dist = disp.length
+        if dist > 1e-6:
+            head_len = min(0.2 * dist, 0.1)
+            dd.add_arrow(pos_prev, pos_world,
+                         color=color,
+                         head_length=head_len,
+                         head_angle_deg=25,
+                         width=1.5,
+                         depth=depth)
+        mass = v.get('mass', None)
+        if mass is not None and mass > 0.0:
+            force = v.get('force', None)
+            if force is not None:
+                force_vec = Vector(force)
+                if force_vec.length_squared > 1e-12:
+                    displacement = force_vec * (dt2 / mass)
+                    end_point = pos_prev + displacement
+                    disp_len = displacement.length
+                    if disp_len > 1e-6:
+                        head_len = min(0.2 * disp_len, 0.1)
+                        dd.add_arrow(pos_prev, end_point,
+                                     color=force_color,
+                                     head_length=head_len,
+                                     head_angle_deg=25,
+                                     width=1.2,
+                                     depth=depth)
+
+            force_elastic = v.get('force_elastic', None)
+            if force_elastic is not None:
+                fe_vec = Vector(force_elastic)
+                if fe_vec.length_squared > 1e-12:
+                    displacement = fe_vec * (dt2 / mass)
+                    end_point = pos_prev + displacement
+                    disp_len = displacement.length
+                    if disp_len > 1e-6:
+                        head_len = min(0.2 * disp_len, 0.1)
+                        dd.add_arrow(pos_prev, end_point,
+                                     color=force_elastic_color,
+                                     head_length=head_len,
+                                     head_angle_deg=25,
+                                     width=1.2,
+                                     depth=depth)
+
+
+def draw_edge_trajectory_capsules(
+        global_eids: list,
+        thickness: float,
+        color=(0, 1, 0, 1),
+        depth=True
+):
+    dd = get_manager()
+    """
+    Draws an edge trajectory capsule (midpoint axis from prev to pred)
+    and delegates to vertex drawing for endpoint capsules and arrows.
+    """
+    edge_data = [get_edge_endpoints(global_eid) for global_eid in global_eids]
+    for v0, v1 in edge_data:
+        A0 = Vector(v0['pos_prev'])
+        A_pred = Vector(v0['pos_pred'])
+        B0 = Vector(v1['pos_prev'])
+        B_pred = Vector(v1['pos_pred'])
+
+        # Edge capsule: axis = midpoints at prev and pred
+        mid0 = (A0 + B0) * 0.5
+        mid_pred = (A_pred + B_pred) * 0.5
+        r0_sq = max((A0 - mid0).length_squared,
+                    (B0 - mid0).length_squared)
+        r_pred_sq = max((A_pred - mid_pred).length_squared,
+                        (B_pred - mid_pred).length_squared)
+        radius = math.sqrt(max(r0_sq, r_pred_sq)) + thickness
+
+        dd.add_capsule(mid0, mid_pred, radius, color=color, depth=depth)
+
+        # Endpoint capsules and arrows (prev->pred capsule, prev->world arrow)
+        draw_vertex_trajectory_capsules([v0], thickness, color, depth)
+        draw_vertex_trajectory_capsules([v1], thickness, color, depth)
+
+
+def draw_triangle_trajectory_capsules(
+        global_fids: list,
+        thickness: float,
+        color=(0, 0, 1, 1),
+        depth=True
+):
+    """
+
+    Draws a triangle trajectory capsule (centroid axis from prev to pred)
+    and delegates to vertex drawing for the three vertices.
+    """
+    dd = get_manager()
+    inv3 = 1.0 / 3.0
+    tri_data = [get_tri_endpoints(global_fid) for global_fid in global_fids]
+
+    for v0, v1, v2 in tri_data:
+        A0 = Vector(v0['pos_prev'])
+        A_pred = Vector(v0['pos_pred'])
+        B0 = Vector(v1['pos_prev'])
+        B_pred = Vector(v1['pos_pred'])
+        C0 = Vector(v2['pos_prev'])
+        C_pred = Vector(v2['pos_pred'])
+
+        # Triangle capsule: centroid axis
+        cent0 = (A0 + B0 + C0) * inv3
+        cent_pred = (A_pred + B_pred + C_pred) * inv3
+        r0_sq = max((A0 - cent0).length_squared,
+                    (B0 - cent0).length_squared,
+                    (C0 - cent0).length_squared)
+        r_pred_sq = max((A_pred - cent_pred).length_squared,
+                        (B_pred - cent_pred).length_squared,
+                        (C_pred - cent_pred).length_squared)
+        radius = math.sqrt(max(r0_sq, r_pred_sq)) + thickness
+
+        dd.add_capsule(cent0, cent_pred, radius, color=color, depth=depth)
+
+        # Vertex capsules and arrows
+        for v in [v0, v1, v2]:
+            draw_vertex_trajectory_capsules(dd, [v], thickness, color, depth)
+
+
+def get_global_vertex_index(obj, local_vertex_idx):
+    sim_idx = obj.qmyi_simulation_props.simulation_index
+    sim_data = sm.simulated_objects[sim_idx]
+    offset = sim_data['vertices_offset']
+    return local_vertex_idx + offset
+
+
+def get_global_edge_index(obj, local_edge_idx):
+    sim_idx = obj.qmyi_simulation_props.simulation_index
+    sim_data = sm.simulated_objects[sim_idx]
+    offset = sim_data['edges_offset']
+    return local_edge_idx + offset
+
+
+def get_global_face_index(obj, local_face_idx):
+    sim_idx = obj.qmyi_simulation_props.simulation_index
+    sim_data = sm.simulated_objects[sim_idx]
+    offset = sim_data['faces_offset']
+    return local_face_idx + offset
+
+
+def get_edge_endpoints(global_edge_idx):
+    for sim_data in sm.simulated_objects:
+        edges = sim_data['edges']
+        edges_offset = sim_data['edges_offset']
+        num_edges = len(edges) // 2
+
+        if edges_offset <= global_edge_idx < edges_offset + num_edges:
+            local_eid = global_edge_idx - edges_offset
+            base = local_eid * 2
+            local_v0 = int(edges[base])
+            local_v1 = int(edges[base + 1])
+            if local_v0 > local_v1:
+                local_v0, local_v1 = local_v1, local_v0
+
+            global_v0 = local_v0 + sim_data['vertices_offset']
+            global_v1 = local_v1 + sim_data['vertices_offset']
+
+            v0_data = simulator.check_point_attributes(global_v0)
+            v1_data = simulator.check_point_attributes(global_v1)
+            v0_data['global_vid'] = global_v0
+            v1_data['global_vid'] = global_v1
+            return v0_data, v1_data
+
+    raise ValueError(f"Global edge index {global_edge_idx} not found in simulated objects.")
+
+
+def get_tri_endpoints(global_tri_idx):
+    for sim_data in sm.simulated_objects.values():
+        triangles = sim_data['triangles']  # flat array: [v0, v1, v2, ...]
+        faces_offset = sim_data['faces_offset']
+        num_tris = len(triangles) // 3
+
+        if faces_offset <= global_tri_idx < faces_offset + num_tris:
+            local_tri = global_tri_idx - faces_offset
+            base = local_tri * 3
+            local_v0 = int(triangles[base])
+            local_v1 = int(triangles[base + 1])
+            local_v2 = int(triangles[base + 2])
+
+            voff = sim_data['vertices_offset']
+            gv0 = local_v0 + voff
+            gv1 = local_v1 + voff
+            gv2 = local_v2 + voff
+
+            v0 = simulator.check_point_attributes(gv0)
+            v1 = simulator.check_point_attributes(gv1)
+            v2 = simulator.check_point_attributes(gv2)
+            return v0, v1, v2
+
+    raise ValueError(f"Global triangle index {global_tri_idx} not found in simulated objects.")
+
+
+def draw_edge_collision_visualization(
+        e_idx: int,  # vertex data for the second endpoint of the query edge
+        invalid_color=(1, 0, 0, 1),  # red for invalid (valid=0)
+        valid_color=(0.5, 0, 1, 1),  # purple for valid (valid=1)
+        force_color=(1, 0.5, 0, 1),  # orange for force arrow
+        dash_color=(0.8, 0.8, 0.8, 1),  # light gray for connection dashed line
+        id_color=(1, 0.8, 0, 1),
+        depth=True
+):
+    """
+    Visualize edge-edge collision detection results.
+
+    For each nearby edge:
+      - draws the edge line in red (invalid) or purple (valid)
+      - if valid: draws a dashed line from the hit point on the original edge
+        to the hit point on the colliding edge, and a force arrow starting
+        at the original hit point.
+    """
+    p0_data, p1_data = get_edge_endpoints(e_idx)
+    collision_res = simulator.check_edge_collision_data(p0_data['global_vid'], p1_data['global_vid'])
+    console_print(collision_res)
+    A0 = Vector(p0_data['pos_world'])
+    B0 = Vector(p1_data['pos_world'])
+    mass = p0_data['mass']  # mass of the first vertex of the query edge (per request)
+
+    nearby_edges = collision_res['nearby_edges']
+    valid_flags = collision_res['valid']
+    forces = collision_res['forces']
+    st_list = collision_res['st']
+    dd = get_manager()
+
+    TARGET_SEGMENTS = 10
+    for idx, edge_idx_signed in enumerate(nearby_edges):
+        edge_idx = abs(edge_idx_signed)
+
+        # Get colliding edge endpoints (use pos_prev for consistency)
+        vA_data, vB_data = get_edge_endpoints(edge_idx)
+        C0 = Vector(vA_data['pos_world'])
+        D0 = Vector(vB_data['pos_world'])
+
+        is_valid = valid_flags[idx] == 1
+        color = valid_color if is_valid else invalid_color
+
+        # Draw the nearby edge as a line
+        dd.add_line(C0, D0, color=color, width=2.0, depth=depth)
+        dd.add_text((C0 + D0) * 0.5, str(edge_idx_signed), color=id_color, size=20)
+
+        if is_valid:
+            s, t = st_list[idx]
+            # Hit point on the original edge
+            P_s = A0 + (B0 - A0) * s
+            # Hit point on the colliding edge
+            P_t = C0 + (D0 - C0) * t
+
+            # Dashed connection line
+            line_vec = P_t - P_s
+            total_len = line_vec.length
+            if total_len > 1e-6:
+                # one dash segment + one gap = 2 * seg_len,
+                # total_len / (2 * TARGET_SEGMENTS) gives seg_len
+                seg_len = total_len / (2.0 * TARGET_SEGMENTS)
+            else:
+                seg_len = 0.05  # fallback for degenerate line
+
+            dd.add_dashed_line(
+                P_s, P_t,
+                color=dash_color,
+                width=1.5,
+                dash_length=seg_len,
+                gap_length=seg_len,
+                depth=depth
+            )
+
+            # Force arrow (force / mass * dt2)
+            force_vec = Vector(forces[idx])
+            force_disp = force_vec / mass * dt2
+            if force_disp.length > 1e-6:
+                head_len = min(0.2 * force_disp.length, 0.05)
+                dd.add_arrow(P_s, P_s + force_disp,
+                             color=force_color,
+                             head_length=head_len,
+                             head_angle_deg=20,
+                             width=1.0,
+                             depth=depth)

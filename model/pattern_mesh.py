@@ -64,16 +64,22 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
     # console_print("delaunay: ", time.time() - start_time)
     # start_time = time.time()
     map_vertices = None
+    topo_nochanged = False
+    old_vertex_group = None
     if mesh_obj is None:
         mesh = bpy.data.meshes.new("DistMesh2D_Mesh")
         mesh_obj = bpy.data.objects.new("DistMesh2D_Object", mesh)
         mesh_obj.rotation_euler.x = radians(90)
     else:
         mesh = mesh_obj.data
+        sim_props = mesh_obj.qmyi_simulation_props
+        if len(all_points) == len(mesh.vertices):
+            topo_nochanged = True
+            old_vertex_group = sim_props.get_vertex_group_weight(sim_props.fix_pin_group_name)
         if mesh.shape_keys:
-            old_sim_vertices = mesh_obj.qmyi_simulation_props.get_simulation_vertices()
+            old_sim_vertices = sim_props.get_simulation_vertices()
             if old_sim_vertices is not None:
-                old_pattern_vertices = mesh_obj.qmyi_simulation_props.get_pattern_vertices()
+                old_pattern_vertices = sim_props.get_pattern_vertices()
                 tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
                 mesh.loop_triangles.foreach_get("vertices", tris)
                 tris = tris.reshape(-1, 3)
@@ -124,7 +130,6 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
     num_polygons = len(triangles)
 
     # 3. 批量创建几何体 (foreach_set)
-    # 这是 Blender Python API 的核武器，比 from_pydata 还快
     # 添加空顶点和空多边形/循环
     mesh.vertices.add(num_vertices)
     mesh.polygons.add(num_polygons)
@@ -155,7 +160,7 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
     # start_time = time.time()
 
     # 更新网格
-    mesh.update(calc_edges=True)  # 自动计算边
+    mesh.update(calc_edges=True)
     if pattern.is_mirror:
         mesh_obj.scale.x = -1
     else:
@@ -164,8 +169,11 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
 
     console_print("create_mesh: ", time.time() - start_time)
 
+    sim_props = mesh_obj.qmyi_simulation_props
     if map_vertices is not None:
-        mesh_obj.qmyi_simulation_props.set_simulation_vertices(map_vertices)
+        sim_props.set_simulation_vertices(map_vertices)
+    if topo_nochanged and old_vertex_group is not None: # todo map it
+        sim_props.set_vertex_group_weight(sim_props.fix_pin_group_name, old_vertex_group)
 
     return mesh_obj
 

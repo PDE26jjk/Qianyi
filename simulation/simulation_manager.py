@@ -295,6 +295,7 @@ class SimulationManager:
             world_matrix = obj_eval.matrix_world
             normals = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.float32)
             mesh.loop_triangles.foreach_get("normal", normals)
+            # console.warning(normals.reshape(-1,3))
             mesh.vertices.foreach_get("co", vertices_local)
 
         world_matrix = np.array(world_matrix, dtype=np.float32)

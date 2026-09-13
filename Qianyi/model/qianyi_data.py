@@ -45,6 +45,11 @@ class QianyiProps(PropertyGroup, ModelData):
         ],
         default='EDGE_VERTEX'
     )
+    show_grain_dir: BoolProperty(
+        name="Show Grain Direction",
+        description="Display the grain direction arrow in the pattern editor",
+        default=False,
+    )
     simulation_data: bpy.props.CollectionProperty(type=SimulationProps)
 
     @property

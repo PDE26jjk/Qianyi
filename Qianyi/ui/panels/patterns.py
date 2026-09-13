@@ -101,4 +101,6 @@ class QY_PT_patternProperty(NODE_PT_qmyi_base):
 
         col = layout.column(align=False)
         col.prop(pattern, "rotation")
+        col.prop(pattern, "grain_dir")
+        col.prop(context.scene.qmyi, "show_grain_dir")
 

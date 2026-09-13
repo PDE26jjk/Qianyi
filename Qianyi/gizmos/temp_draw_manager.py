@@ -363,6 +363,8 @@ class TempDrawManager:
             p.line_renderer.draw_edges(color=line_color)
             for il in p.internal_lines:
                 il.renderer.draw_edges(color=line_color)
+            if qmyi.show_grain_dir:
+                p.line_renderer.draw_grain_dir()
 
             if qmyi.edit_mode == "EDGE":
                 gpu.state.point_size_set(8.0)

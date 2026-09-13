@@ -20,6 +20,7 @@ class PatternRenderer(BaseRenderer):
         self.batch_edge = None
         self.batch_vertex = None
         self.batch_spline_point = None
+        self.batch_grain_dir = None
         self.pattern_uuid = pattern.global_uuid
 
     @property
@@ -45,6 +46,42 @@ class PatternRenderer(BaseRenderer):
             self.shader, 'POINTS',
             {"pos": spline_points},
         )
+
+    def update_batch_grain_dir(self):
+        pattern = self.pattern
+        if not pattern:
+            return
+
+        center = pattern.center
+        bbox = pattern.get_bbox()
+        size = min(bbox[1] - bbox[0])
+        length = max(float(size) * 0.25, 1.0)
+        direction = np.array((math.cos(pattern.grain_dir), math.sin(pattern.grain_dir)), dtype=np.float32)
+        normal = np.array((-direction[1], direction[0]), dtype=np.float32)
+        tip = center + direction * length
+        head_length = length * 0.25
+        head_width = length * 0.12
+        arrow_points = np.array((
+            center,
+            tip,
+            tip - direction * head_length + normal * head_width,
+            tip,
+            tip - direction * head_length - normal * head_width,
+        ), dtype=np.float32)
+        self.batch_grain_dir = batch_for_shader(
+            self.shader, 'LINES', {"pos": arrow_points},
+        )
+
+    def draw_grain_dir(self, color=(0.5, 0.5, 0.5, 1.0), thickness=2.0):
+        if not self.pattern:
+            return
+        self.update_batch_grain_dir()
+        gpu.state.blend_set('ALPHA')
+        gpu.state.line_width_set(thickness)
+        self.shader.bind()
+        self.update_model_matrix(self.pattern.calc_matrix())
+        self.shader.uniform_float("color", color)
+        self.batch_grain_dir.draw(self.shader)
 
     def draw_edges(self, color=(1.0, 1.0, 1.0, 0.5)):
         if not self.batch_edge:

@@ -24,6 +24,7 @@ from .pattern_mesh import generate_pattern_mesh
 class Pattern(PropertyGroup, ModelData, Selectable):
     anchor: FloatVectorProperty(name="anchor", subtype="XYZ", size=2, default=(0.0, 0.0))
     rotation: FloatProperty(name="rotation", default=0.0, subtype='ANGLE', unit='ROTATION')
+    grain_dir: FloatProperty(name="Grain Direction", default=0.0, subtype='ANGLE', unit='ROTATION')
     vertices: CollectionProperty(type=Vertex2D, name="vertices")
     edges: CollectionProperty(type=Edge2D, name="edges")
     internal_lines: CollectionProperty(type=InternalLine, name="internalLines")

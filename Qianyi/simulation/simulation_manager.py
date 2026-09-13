@@ -68,7 +68,7 @@ class SimulationManager:
         # self.simulator.update(0.01)
         # for i in range(2):
         try:
-            self.simulator.update(0.01)
+            self.simulator.update(0.0045)
         except:
             self.running = False
         # self.simulator.update(0.001)
@@ -326,6 +326,7 @@ class SimulationManager:
             pattern: Pattern = sim_props.pattern
             fabric = pattern.fabric
             result['collision_layer'] = pattern.collision_layer
+            result['grain_dir'] = pattern.grain_dir
             result['vertices_sim'] = vertices_sim
             result['mass'] = fabric.weight
             result['granularity'] = pattern.granularity

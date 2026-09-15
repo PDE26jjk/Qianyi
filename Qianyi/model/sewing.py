@@ -92,7 +92,7 @@ class Sewing(PropertyGroup, ModelData, Selectable):
         if not self.need_render_update:
             return
         self.need_render_update = False
-        if self.renderer is None:
+        if global_data.renderers_enabled and self.renderer is None:
             from ..gizmos.sewing_renderer import SewingRenderer
             self.renderer = SewingRenderer(self)
 
@@ -101,7 +101,8 @@ class Sewing(PropertyGroup, ModelData, Selectable):
 
         self.side1.sewing = self
         self.side2.sewing = self
-        self.renderer.update_batch_edge(render_points1, render_points2)
+        if global_data.renderers_enabled:
+            self.renderer.update_batch_edge(render_points1, render_points2)
 
     def get_stitch_data(self):
         ss1 = self.side1

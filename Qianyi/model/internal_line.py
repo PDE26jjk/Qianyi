@@ -8,6 +8,7 @@ from bpy.utils import register_classes_factory
 from .section import Section
 from .geometry import Edge2D
 from .model_data import ModelData, define_temp_prop, Selectable
+from .. import global_data
 from ..utilities.console import console
 
 
@@ -21,15 +22,16 @@ class InternalLine(PropertyGroup, ModelData, Selectable):
         for edge in self.edges:
             edge.pattern = pattern
             edge.initialize()
-        from ..gizmos.internal_line_renderer import InternalLineRenderer
-        self.renderer = InternalLineRenderer(self)
+        if global_data.renderers_enabled:
+            from ..gizmos.internal_line_renderer import InternalLineRenderer
+            self.renderer = InternalLineRenderer(self)
 
     def update(self, pattern):  # only call in pattern.forced_update
         self.pattern = pattern
         for edge in self.edges:
             edge.need_update_points = True
             edge.update(pattern)
-        if self.renderer is None:
+        if global_data.renderers_enabled and self.renderer is None:
             from ..gizmos.internal_line_renderer import InternalLineRenderer
             self.renderer = InternalLineRenderer(self)
 

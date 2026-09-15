@@ -39,7 +39,13 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     def update_granularity(self, context):
         self.forced_update()
 
-    granularity: FloatProperty(name="granularity", default=20.0, update=update_granularity)
+    granularity: FloatProperty(
+        name="granularity",
+        description="Sampling radius in millimetres. It is a ceiling on the "
+                    "vertex spacing, not the resulting edge length: the median "
+                    "edge is about 0.7x this value (5 mm gives a 3.6 mm mesh, "
+                    "7 mm gives a 5.1 mm mesh)",
+        default=20.0, update=update_granularity)
     bbox: FloatVectorProperty(name="BBox", size=4, default=(0.0, 0.0, 1.0, 1.0))
     mesh_object: PointerProperty(
         name="Mesh Object",
@@ -72,10 +78,11 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             edge.initialize()
         for vertex in self.vertices:
             vertex.pattern = self
-        from ..gizmos.pattern_renderer import PatternRenderer
-        from ..gizmos.GizmosMeshRenderer import MeshRenderer
-        self.line_renderer = PatternRenderer(self)
-        self.mesh_renderer = MeshRenderer(self)
+        if global_data.renderers_enabled:
+            from ..gizmos.pattern_renderer import PatternRenderer
+            from ..gizmos.GizmosMeshRenderer import MeshRenderer
+            self.line_renderer = PatternRenderer(self)
+            self.mesh_renderer = MeshRenderer(self)
         for il in self.internal_lines:
             il.initialize()
         self.calc_bbox()
@@ -519,10 +526,11 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         sim_pros.participate_in_simulation = True
         sim_pros.pattern = self
         sim_pros.ensure_attributes()
-        if self.mesh_renderer is None:
-            from ..gizmos.GizmosMeshRenderer import MeshRenderer
-            self.mesh_renderer = MeshRenderer(self)
-        self.mesh_renderer.create_batch(self.mesh_object)
+        if global_data.renderers_enabled:
+            if self.mesh_renderer is None:
+                from ..gizmos.GizmosMeshRenderer import MeshRenderer
+                self.mesh_renderer = MeshRenderer(self)
+            self.mesh_renderer.create_batch(self.mesh_object)
         console_print("mesh_renderer.create_batch: ", time.time() - start)
 
     @property

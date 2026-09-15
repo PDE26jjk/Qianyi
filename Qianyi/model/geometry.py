@@ -8,6 +8,7 @@ from bpy.utils import register_classes_factory
 
 from .model_data import ModelData, define_temp_prop, Selectable
 from .section import Section
+from .. import global_data
 from ..utilities.console import console
 from ..utilities.geometric_operation import resample_polyline, generate_curve_points
 
@@ -161,12 +162,13 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             p = self.geo_points.add()
             p.co = self.geo_points_temp[i]
         self.need_update_points = False
-        from ..gizmos.curve_renderer import CurveRenderer
-        if self.renderer is None:
-            self.renderer = CurveRenderer(self)
         self.handle1.pattern = self.pattern
         self.handle2.pattern = self.pattern
-        self.renderer.update_batch()
+        if global_data.renderers_enabled:
+            from ..gizmos.curve_renderer import CurveRenderer
+            if self.renderer is None:
+                self.renderer = CurveRenderer(self)
+            self.renderer.update_batch()
 
     def calc_bbox(self, points):
         bbox_min = points.min(axis=0)

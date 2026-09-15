@@ -7,6 +7,13 @@ temp_draw_manager: 'TempDrawManager' = None
 temp_data = []
 uuid2obj = {}
 
+# Renderers (gizmos, viewport batches) need a GPU context. The data path - the
+# payload the simulation engine receives, the scene capture package - must also
+# work in a background Blender session, where creating a shader is not allowed.
+# A caller that only needs data sets this to False; every renderer construction
+# and batch update on the data path is guarded by it.
+renderers_enabled = True
+
 
 def get_obj_by_uuid(uuid, check_uuid=True, check_valid=False):
     if uuid in uuid2obj:

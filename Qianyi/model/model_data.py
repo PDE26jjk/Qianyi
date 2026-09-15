@@ -73,6 +73,64 @@ class ModelData:
     def get_parent(self):
         return self.id_data.path_resolve(self.path_from_id().rsplit('.', 1)[0])
 
+
+def register_uuid(obj):
+    """Map one model object, skipping the ones that never got an identity.
+
+    Returns 1 when the object went into the map, 0 otherwise.
+    """
+    if obj.global_uuid == -1:
+        return 0
+    global_data.uuid2obj[obj.global_uuid] = obj
+    return 1
+
+
+def _register_edge(edge):
+    """An edge owns the control handles and the sampled geometry points."""
+    count = register_uuid(edge)
+    for vertex in edge.handles:
+        count += register_uuid(vertex)
+    for vertex in edge.geo_points:
+        count += register_uuid(vertex)
+    for vertex in edge.spline_points:
+        count += register_uuid(vertex)
+    return count
+
+
+def refresh_all_uuids():
+    """Rebuild the whole uuid -> model object map.
+
+    `global_data.uuid2obj` is an in-memory map that is empty in a session that
+    just opened a file (and after undo/redo, which clears it). Everything that
+    resolves a uuid - a mesh looking up its pattern, a pattern looking up its
+    fabric, a sewing side looking up its edge - fails until the map is filled,
+    and it used to be filled only as a side effect of the UI drawing a panel.
+    Walking the projects explicitly makes the data path independent of that.
+
+    Returns the number of objects registered.
+    """
+    from ..utilities.node_tree import get_all_node_tree
+
+    count = 0
+    for project in get_all_node_tree():
+        count += register_uuid(project)
+        for fabric in project.fabrics:
+            count += register_uuid(fabric)
+        for sewing in project.sewings:
+            count += register_uuid(sewing)
+        for pattern in project.patterns:
+            count += register_uuid(pattern)
+            for vertex in pattern.vertices:
+                count += register_uuid(vertex)
+            for edge in pattern.edges:
+                count += _register_edge(edge)
+            for line in pattern.internal_lines:
+                count += register_uuid(line)
+                for edge in line.edges:
+                    count += _register_edge(edge)
+    return count
+
+
 def define_temp_prop(cls, name, default=None):
     @property
     def func(self):

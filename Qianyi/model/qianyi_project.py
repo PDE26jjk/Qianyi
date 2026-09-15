@@ -45,6 +45,45 @@ def normalize_sewing_color(color):
     return tuple(max(0.0, min(1.0, value)) for value in values[:3])
 
 
+def edge_click_fraction(edge, point):
+    """Where along an edge a point sits: 0.0 at its start, 1.0 at its end."""
+    points = edge.render_points
+    if points is None or len(points) < 2:
+        return 0.0
+    delta_x = points[:, 0] - float(point[0])
+    delta_y = points[:, 1] - float(point[1])
+    return float(np.argmin(delta_x * delta_x + delta_y * delta_y)) / (len(points) - 1)
+
+
+def sewing_half_directions(edge1, point1, edge2, point2):
+    """``(pos1, pos2, reverse)`` for both halves of a one-to-one sewing.
+
+    Each click only says which of its edge's two ends is nearer. When both
+    clicks are near the same end - both first or both second - both halves run
+    from their edge's first point to its second and nothing is flipped. When
+    the clicks are near different ends the second half is flipped: it runs from
+    its second point back to its first.
+
+    `reverse` is the flip: False follows the edge's vertex order, True walks
+    against it. A flipped half is also the one that has to leave its edge
+    through the second point, otherwise the section walk would go the long way
+    round the pattern.
+    """
+    first_of_edge1 = edge_click_fraction(edge1, point1) < 0.5
+    first_of_edge2 = edge_click_fraction(edge2, point2) < 0.5
+    if first_of_edge1 == first_of_edge2:
+        return (0.0, 1.0, False), (0.0, 1.0, False)
+    return (0.0, 1.0, False), (1.0, 0.0, True)
+
+
+def edge_point_at(edge, position):
+    """The edge end a half-sewing position refers to."""
+    points = edge.render_points
+    if points is None or len(points) < 2:
+        return (0.0, 0.0)
+    return points[0] if position < 0.5 else points[-1]
+
+
 class QianyiProject(bpy.types.NodeTree, ModelData):
     """ Qianyi Project for editor, a NodeTree"""
     bl_label = "Qianyi Project"
@@ -217,6 +256,19 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         return self.add_sewing(edge1, 0, edge1, 1, side1_reverse, edge2, 1, edge2, 0, side2_revers,
                                color=color)
 
+    def add_sewing1to1_from_points(self, edge1, point1, edge2, point2, color=None):
+        """One-to-one sewing whose direction follows where the edges were clicked.
+
+        `point1` / `point2` are the click positions in the pattern space of
+        their edge. Clicks near the same end of both edges keep the original
+        pairing; clicks near different ends flip the second half - which is the
+        only way this editor can express the two stitch directions.
+        """
+        first_half, second_half = sewing_half_directions(edge1, point1, edge2, point2)
+        return self.add_sewing(edge1, first_half[0], edge1, first_half[1], first_half[2],
+                               edge2, second_half[0], edge2, second_half[1], second_half[2],
+                               color=color)
+
     def setup_sewings_for_simulation(self):
         # self.calc_all_sewings_sections()
         # recalculate all sewings if needed.
@@ -386,6 +438,7 @@ define_temp_prop(QianyiProject, "query_point", None)
 define_temp_prop(QianyiProject, "nearest_pattern", None)
 define_temp_prop(QianyiProject, "edge_point_offset", None)
 define_temp_prop(QianyiProject, "selected_sewing_edge1", None)
+define_temp_prop(QianyiProject, "selected_sewing_point1", None)
 define_temp_prop(QianyiProject, "last_sewing_error", "")
 
 register, unregister = register_classes_factory((UuidType, QianyiProject))

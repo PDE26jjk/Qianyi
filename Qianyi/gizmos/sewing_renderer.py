@@ -97,6 +97,11 @@ class SewingRenderer(BaseRenderer):
         )
         p1 = self.sewing.side1.line1.pattern
         p2 = self.sewing.side2.line1.pattern
+        # Both halves are drawn as their polylines whatever their direction:
+        # calc_sewing_side_render_points normalises the sampling order, so the
+        # drawn polyline cannot carry the direction. The correspondence is
+        # shown only by the connectors below, from the sample order, which is
+        # the order the halves were created in.
         self.batch_stitch_lines = batch_for_shader(
             self.shader, 'LINES',
             {"pos": stitch_connector_points(p1, render_points1, p2, render_points2)},

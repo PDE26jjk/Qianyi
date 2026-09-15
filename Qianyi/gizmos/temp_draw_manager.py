@@ -9,13 +9,13 @@ from gpu_extras.batch import batch_for_shader
 
 from .color_points_renderer import MultiColorPointsRenderer
 from ..model.sewing import SewingOneSide
-from ..model.qianyi_project import QianyiProject
+from ..model.qianyi_project import QianyiProject, edge_point_at, sewing_half_directions
 from ..utilities.console import console
 from .edit_gizmos import Point, Line, Rect
 from .moving_curve import MovingCurve, MovingCurveWhole
 from .pattern_renderer import PatternRenderer
 from .points_renderer import PointsRenderer
-from ..utilities.coords_transform import create_2d_matrix
+from ..utilities.coords_transform import create_2d_matrix, region2view_coord
 from .. import global_data
 from ..model.geometry import Edge2D, Vertex2D
 from ..model.pattern import Pattern
@@ -32,6 +32,7 @@ class TempDrawManager:
         self.id_texture = None
         self.region_width = 0
         self.region_height = 0
+        self.mouse_location = None
 
     def add_point(self):
         self.points.append(Point())
@@ -222,7 +223,45 @@ class TempDrawManager:
                                 s.renderer.draw_id()
                 points_renderer.draw(15.0, draw_id=True)
 
+    def draw_sewing_direction_preview(self, context, project):
+        """Show which ends would be stitched while the second edge is hovered.
+
+        Only the two end connectors, computed with the same rule the created
+        sewing is drawn with: a half-segment's polyline starts at the end its
+        click chose, and the connectors join the two halves' starts and their
+        two ends. That is what makes the preview show the sewing's direction.
+        """
+        shader = self.uniform_color_shader
+        edge1 = project.selected_sewing_edge1
+        hover = context.scene.qmyi.hover_object
+        if shader is None or edge1 is None or not isinstance(hover, Edge2D):
+            return
+        if hover.global_uuid == edge1.global_uuid or self.mouse_location is None:
+            return
+        point1 = project.selected_sewing_point1
+        if point1 is None:
+            return
+        point2 = hover.pattern.view_to_pattern_pos(
+            region2view_coord(context, self.mouse_location))
+        first_half, second_half = sewing_half_directions(edge1, point1, hover, point2)
+        start1, end1 = first_half[0], first_half[1]
+        start2, end2 = second_half[0], second_half[1]
+        pattern1 = edge1.pattern
+        pattern2 = hover.pattern
+        positions = [
+            pattern1.pattern_to_view_pos(edge_point_at(edge1, start1)),
+            pattern2.pattern_to_view_pos(edge_point_at(hover, start2)),
+            pattern1.pattern_to_view_pos(edge_point_at(edge1, end1)),
+            pattern2.pattern_to_view_pos(edge_point_at(hover, end2)),
+        ]
+        shader.bind()
+        gpu.state.blend_set("ALPHA")
+        gpu.state.line_width_set(1.5)
+        shader.uniform_float("color", (0.2, 0.8, 0.8, 1.0))
+        batch_for_shader(shader, 'LINES', {"pos": positions}).draw(shader)
+
     def draw_hover(self, qmyi):
+        """Highlight the object under the pointer."""
         shader = self.uniform_color_shader
         hover_object = qmyi.hover_object
         if hover_object is not None:
@@ -412,6 +451,7 @@ class TempDrawManager:
                 # console.info("edge1",project.selected_sewing_edge1)
                 if project.selected_sewing_edge1 is not None:
                     project.selected_sewing_edge1.renderer.draw(color=(0.2, 0.8, 0.8, 1), thickness=10.0)
+                    self.draw_sewing_direction_preview(context, project)
         # console.info(f"mode_collect_points: {(time.time() - start_time) * 1000}")
         # start_time = time.time()
         points_renderer.draw((1, 1, 0, 1), 10)

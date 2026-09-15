@@ -41,6 +41,9 @@ class NODE_GT_qmyi_preselection(Gizmo):
         mouse_x, mouse_y = location
         # res = context.region.view2d.region_to_view(mouse_x, mouse_y)
         draw_manager: TempDrawManager = global_data.temp_draw_manager
+        # The preview of the sewing that would be created needs the pointer
+        # position to know which end of the second edge is being pointed at.
+        draw_manager.mouse_location = (mouse_x, mouse_y)
         id_texture = draw_manager.id_texture
         if id_texture is None:
             return -1

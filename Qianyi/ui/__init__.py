@@ -9,6 +9,7 @@ from .panels.patterns import QY_PT_patterns, QY_UL_PatternList, QY_PT_patternPro
 from .panels.projects import QY_PT_qmyi_projects, QY_UL_ProjectList
 from .panels_3d.simulation import QY_PT_simulation, SimulationNextNframesOperator, SimulationToNframesOperator
 from .panels_3d.simulation_object import QY_PT_simulation_object, SimulationDataRefreshOperator
+from .panels_3d import simulation_params
 
 classes = [
     NODE_MT_CustomMenu,
@@ -27,6 +28,7 @@ classes = [
     SimulationNextNframesOperator,
     SimulationToNframesOperator,
     QY_PT_simulation_object,
+    *simulation_params.classes,
 ]
 
 

@@ -8,6 +8,7 @@ from bpy.utils import register_class, unregister_class
 from ..utilities.console import console_print
 from .model_data import ModelData, define_temp_prop
 from .simulation_data import SimulationProps
+from .solver_params import CaptureProps, SolverParams
 
 
 # logger = logging.getLogger(__name__)
@@ -51,6 +52,17 @@ class QianyiProps(PropertyGroup, ModelData):
         default=False,
     )
     simulation_data: bpy.props.CollectionProperty(type=SimulationProps)
+
+    solver: bpy.props.PointerProperty(
+        name="Solver",
+        description="Solver name and parameter block used by the engine",
+        type=SolverParams,
+    )
+    capture: bpy.props.PointerProperty(
+        name="Capture",
+        description="Scene capture settings",
+        type=CaptureProps,
+    )
 
     @property
     def simulation(self):

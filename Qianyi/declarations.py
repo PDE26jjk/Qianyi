@@ -73,6 +73,8 @@ class Panels(str, Enum):
     InOut = "NODE_PT_QianyiINOUT"
     Simulation = "NODE_PT_QianyiSimulation"
     SimulationObject = "NODE_PT_QianyiSimulationObject"
+    Solver = "NODE_PT_QianyiSolver"
+    Capture = "NODE_PT_QianyiCapture"
 
 
 class VisibilityTypes(str, Enum):

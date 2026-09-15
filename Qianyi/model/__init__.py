@@ -7,6 +7,7 @@ modules = [
     "fabric",
     "sewing",
     "simulation_data",
+    "solver_params",
     "obj_sim_data",
     "qianyi_data",
     "qianyi_project",

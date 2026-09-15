@@ -234,34 +234,39 @@ class TempDrawManager:
                 return
         if hover_object is not None and hover_object.global_uuid != -1:
             gpu.matrix.push()
-
-            obj = qmyi.hover_object
-            # offset = [0., 0.]
-            p = None
-            if hasattr(obj, 'pattern'):
-                # offset = obj.pattern.anchor
-                p = obj.pattern
-            elif hasattr(obj, 'anchor'):
-                # offset = obj.anchor
-                p = obj
-            if p is None:
-                if isinstance(obj, SewingOneSide):  # why false?
-                    # if obj.__class__.__name__ == "SewingOneSide":
-                    if obj.sewing is not None:
-                        gpu.state.line_width_set(20.)
-                        obj.sewing.renderer.draw(dashed_line=False)
-                return
-            # gpu.matrix.translate((offset[0], offset[1], 0.0))
-            gpu.matrix.load_matrix(p.calc_matrix())
-            if isinstance(obj, Edge2D):
-                gpu.state.point_size_set(5.0)
-                # console.info("edge", obj)
-                # obj.renderer.draw((1, 1, 1, 1), 10)
-                shader.uniform_float("color", (1, 1, 1, 1))
-                render_points = []
-                if obj.render_points is None:
-                    raise Exception(obj.get_temp_data(), global_data.temp_data)
-                if obj.render_points is not None:
+            # The pop must happen on every exit: an unbalanced push leaves
+            # Blender's GPU matrix stack broken for the rest of the frame, and
+            # the next consumer - Blender's own gizmo drawing - then reads a
+            # null matrix and takes the process down (crash in
+            # gizmo_axis_draw -> GPU_matrix_translate_3f -> translate_m4).
+            try:
+                obj = qmyi.hover_object
+                # offset = [0., 0.]
+                p = None
+                if hasattr(obj, 'pattern'):
+                    # offset = obj.pattern.anchor
+                    p = obj.pattern
+                elif hasattr(obj, 'anchor'):
+                    # offset = obj.anchor
+                    p = obj
+                if p is None:
+                    if isinstance(obj, SewingOneSide):  # why false?
+                        # if obj.__class__.__name__ == "SewingOneSide":
+                        if obj.sewing is not None:
+                            gpu.state.line_width_set(20.)
+                            obj.sewing.renderer.draw(dashed_line=False)
+                    return
+                # gpu.matrix.translate((offset[0], offset[1], 0.0))
+                gpu.matrix.load_matrix(p.calc_matrix())
+                if isinstance(obj, Edge2D):
+                    gpu.state.point_size_set(5.0)
+                    # console.info("edge", obj)
+                    # obj.renderer.draw((1, 1, 1, 1), 10)
+                    shader.uniform_float("color", (1, 1, 1, 1))
+                    render_points = []
+                    if obj.render_points is None:
+                        console.warning("hover edge has no render points: ", obj)
+                        return
                     # raise Exception(obj.get_temp_data(), global_data.temp_data)
                     render_points.extend(obj.render_points)
                     line_batch = batch_for_shader(
@@ -269,28 +274,29 @@ class TempDrawManager:
                         {"pos": render_points},
                     )
                     line_batch.draw(shader)
-            elif isinstance(obj, Vertex2D):
-                v: Vertex2D = obj
-                shader.uniform_float("color", (1, 1, 1, 1))
-                gpu.state.point_size_set(10.0)
-                point_batch = batch_for_shader(
-                    shader, 'POINTS',
-                    {"pos": [v.co, v.co]},
-                )
-                point_batch.draw(shader)
-            elif isinstance(obj, Pattern):
-                p: Pattern = obj
-                line_batch = batch_for_shader(
-                    shader, 'LINE_LOOP',
-                    {"pos": p.render_points},
-                )
-                gpu.state.blend_set("ALPHA")
-                line_color = (0.8, 0.8, 0.8, 1)
-                gpu.state.line_width_set(3.0)
-                shader.uniform_float("color", line_color)
-                line_batch.draw(shader)
-            gpu.matrix.pop()
-            # console.info("hover",obj)
+                elif isinstance(obj, Vertex2D):
+                    v: Vertex2D = obj
+                    shader.uniform_float("color", (1, 1, 1, 1))
+                    gpu.state.point_size_set(10.0)
+                    point_batch = batch_for_shader(
+                        shader, 'POINTS',
+                        {"pos": [v.co, v.co]},
+                    )
+                    point_batch.draw(shader)
+                elif isinstance(obj, Pattern):
+                    p: Pattern = obj
+                    line_batch = batch_for_shader(
+                        shader, 'LINE_LOOP',
+                        {"pos": p.render_points},
+                    )
+                    gpu.state.blend_set("ALPHA")
+                    line_color = (0.8, 0.8, 0.8, 1)
+                    gpu.state.line_width_set(3.0)
+                    shader.uniform_float("color", line_color)
+                    line_batch.draw(shader)
+                # console.info("hover",obj)
+            finally:
+                gpu.matrix.pop()
 
     def draw(self, context):
         project: QianyiProject = get_active_node_tree(context)

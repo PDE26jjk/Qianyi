@@ -23,6 +23,7 @@ modules = [
     '_2d_add_spline_point',
     '_2d_add_sewing_1to1',
     '_3d_pick_mesh',
+    'capture_scene',
 ]
 
 register, unregister = module_register_factory(__name__, modules)

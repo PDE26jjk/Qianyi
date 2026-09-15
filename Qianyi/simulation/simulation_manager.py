@@ -9,9 +9,108 @@ import bpy
 import numpy as np
 
 from ..model.fabric import Fabric
+from ..model.model_data import refresh_all_uuids
 from ..model.pattern import Pattern
 from ..utilities.console import console_print, console
 from .task_manager import task_mgr
+
+
+def _read_shape_key_points(shape_key, num_vertices):
+    points = np.empty(num_vertices * 3, dtype=np.float32)
+    shape_key.data.foreach_get("co", points)
+    return points
+
+
+def build_object_payload(obj, depsgraph, ensure_shape_keys=True):
+    """Build the per-object payload entry exactly as the engine receives it.
+
+    `ensure_shape_keys` creates and selects the ``QYBasis`` / ``QYSim`` shape
+    keys the running simulation reads and writes. A capture that must not
+    mutate the scene passes ``False``: it reads the keys that exist and falls
+    back to the mesh itself for an object that has never been simulated.
+
+    Returns the entry dict, or None when the object does not participate.
+    """
+    if not obj or obj.type != 'MESH':
+        return None
+    mesh: bpy.types.Mesh = obj.data
+    sim_props = obj.qmyi_simulation_props
+    is_cloth = sim_props.is_pattern_mesh
+    num_vertices = len(mesh.vertices)
+    vertices_local = np.empty(num_vertices * 3, dtype=np.float32)
+    world_matrix = obj.matrix_world
+    vertices_sim = None
+    if is_cloth:
+        keys = mesh.shape_keys.key_blocks if mesh.shape_keys is not None else None
+        base_name = "QYBasis"
+        sim_name = "QYSim"
+        if ensure_shape_keys:
+            if mesh.shape_keys is None:
+                obj.shape_key_add(name='Basis')
+            keys = mesh.shape_keys.key_blocks
+            keys[base_name].data.foreach_get("co", vertices_local)
+            if sim_name not in keys:
+                obj.shape_key_add(name=sim_name, from_mix=False)
+            keys[sim_name].value = 1.0
+            keys[sim_name].relative_key = keys[base_name]
+            vertices_sim = _read_shape_key_points(keys[sim_name], num_vertices)
+        else:
+            if keys is not None and base_name in keys:
+                keys[base_name].data.foreach_get("co", vertices_local)
+            else:
+                mesh.vertices.foreach_get("co", vertices_local)
+            vertices_sim = _read_shape_key_points(keys[sim_name], num_vertices) \
+                if keys is not None and sim_name in keys else vertices_local.copy()
+    else:
+        obj_eval = obj.evaluated_get(depsgraph)
+        mesh = obj_eval.data
+        world_matrix = obj_eval.matrix_world
+        normals = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.float32)
+        mesh.loop_triangles.foreach_get("normal", normals)
+        mesh.vertices.foreach_get("co", vertices_local)
+
+    world_matrix = np.array(world_matrix, dtype=np.float32)
+    tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
+    mesh.loop_triangles.foreach_get("vertices", tris)
+    if is_cloth or len(mesh.polygons) == len(mesh.loop_triangles):
+        edges = np.empty(len(mesh.edges) * 2, dtype=np.int32)
+        mesh.edges.foreach_get("vertices", edges)
+    else:
+        console.warning("Not all faces are triangles! ", len(mesh.polygons), len(mesh.loop_triangles))
+        tris_ = tris.reshape(-1, 3)
+        edges_per_tri = np.stack([
+            tris_[:, [0, 1]],
+            tris_[:, [1, 2]],
+            tris_[:, [2, 0]]
+        ], axis=1)
+
+        all_edges = edges_per_tri.reshape(-1, 2)
+        all_edges.sort(axis=1)
+        edges = np.unique(all_edges, axis=0).ravel()
+
+    result = {'obj': obj, 'vertices': vertices_local,
+              'edges': edges, 'triangles': tris,
+              'world_matrix': world_matrix,
+              'object_type': 0 if is_cloth else 1}
+    if is_cloth:
+        pattern: Pattern = sim_props.pattern
+        fabric = pattern.fabric
+        result['collision_layer'] = pattern.collision_layer
+        result['grain_dir'] = pattern.grain_dir
+        result['vertices_sim'] = vertices_sim
+        result['mass'] = fabric.weight
+        result['granularity'] = pattern.granularity
+        result['thickness'] = fabric.thickness
+        result['friction'] = fabric.friction
+        result['stretch'] = np.array(fabric.stretch, dtype=np.float32)
+        result['bending'] = np.array(fabric.bending, dtype=np.float32)
+        result['fixed_vertices'] = sim_props.get_vertex_group_weight(sim_props.fix_pin_group_name)
+        result['attached_vertices'] = sim_props.get_vertex_group_weight(sim_props.attach_pin_group_name)
+    else:
+        result['collision_layer'] = sim_props.collision_layer
+        result['normals'] = normals
+        result['mass'] = 1.
+    return result
 
 
 class SimulationManager:
@@ -68,7 +167,7 @@ class SimulationManager:
         # self.simulator.update(0.01)
         # for i in range(2):
         try:
-            self.simulator.update(0.0045)
+            self.simulator.update(self._step_h())
         except:
             self.running = False
         # self.simulator.update(0.001)
@@ -79,6 +178,15 @@ class SimulationManager:
             self.pending_cloth_vertices = self.simulator.get_simulation_data().reshape(-1).copy()
             self.pending_colors = self.simulator.get_debug_colors().reshape(-1).copy()
             self.new_cloth_data_available = True
+
+    def _step_h(self):
+        """Substep size from the solver panel, falling back to the shipped 4.5 ms."""
+        scene = bpy.context.scene
+        if scene is not None and hasattr(scene, "qmyi"):
+            solver = getattr(scene.qmyi, "solver", None)
+            if solver is not None and solver.step_h > 0.0:
+                return solver.step_h
+        return 0.0045
 
     def update_N_frames_debug(self, n):
         if self.running:
@@ -195,6 +303,11 @@ class SimulationManager:
                 self.new_frame_data_available = True
 
     def setup_data(self):
+        # The uuid -> object map is in-memory only, so a session that just
+        # opened a file (or ran an undo) has an empty one and every pattern /
+        # fabric / edge lookup fails. Rebuild it explicitly instead of relying
+        # on the UI panels to have filled it.
+        refresh_all_uuids()
         self.simulated_objects.clear()
         self.world_matrixs.clear()
         projects = set()
@@ -227,6 +340,7 @@ class SimulationManager:
 
     def start_simulation(self):
         """开始物理模拟"""
+        self._apply_panel_parameters()
         self.setup_data()
         if self.running:
             return True
@@ -263,90 +377,12 @@ class SimulationManager:
 
     def _initialize_object_simulation(self, obj):
         """初始化对象的模拟数据"""
-        if not obj or obj.type != 'MESH':
-            return False
         depsgraph = bpy.context.evaluated_depsgraph_get()
-        mesh: bpy.types.Mesh = obj.data
-        sim_props = obj.qmyi_simulation_props
-        is_cloth = sim_props.is_pattern_mesh
-        num_vertices = len(mesh.vertices)
-        vertices_local = np.empty(num_vertices * 3, dtype=np.float32)
-        world_matrix = obj.matrix_world
-        if is_cloth:
-            if mesh.shape_keys is None:
-                obj.shape_key_add(name='Basis')
-            keys = mesh.shape_keys.key_blocks
-            base_name = "QYBasis"
-            shape_key = keys[base_name]
-            shape_key.data.foreach_get("co", vertices_local)
-
-            sim_name = "QYSim"
-            if sim_name not in keys:
-                obj.shape_key_add(name=sim_name, from_mix=False)
-            keys[sim_name].value = 1.0
-            keys[sim_name].relative_key = keys[base_name]
-            shape_key = keys[sim_name]
-            vertices_sim = np.empty(num_vertices * 3, dtype=np.float32)
-            shape_key.data.foreach_get("co", vertices_sim)
-
-        else:
-            obj_eval = obj.evaluated_get(depsgraph)
-            mesh = obj_eval.data
-            world_matrix = obj_eval.matrix_world
-            normals = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.float32)
-            mesh.loop_triangles.foreach_get("normal", normals)
-            # console.warning(normals.reshape(-1,3))
-            mesh.vertices.foreach_get("co", vertices_local)
-
-        world_matrix = np.array(world_matrix, dtype=np.float32)
-        # world_matrix_inv = np.linalg.inv(world_matrix)
-        tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
-        mesh.loop_triangles.foreach_get("vertices", tris)
-        if is_cloth or len(mesh.polygons) == len(mesh.loop_triangles):
-            edges = np.empty(len(mesh.edges) * 2, dtype=np.int32)
-            mesh.edges.foreach_get("vertices", edges)
-        else:
-            console.warning("Not all faces are triangles! ", len(mesh.polygons), len(mesh.loop_triangles))
-            tris_ = tris.reshape(-1, 3)
-            edges_per_tri = np.stack([
-                tris_[:, [0, 1]],
-                tris_[:, [1, 2]],
-                tris_[:, [2, 0]]
-            ], axis=1)
-
-            all_edges = edges_per_tri.reshape(-1, 2)
-            all_edges.sort(axis=1)
-            edges = np.unique(all_edges, axis=0).ravel()
-
-        result = {'obj': obj, 'vertices': vertices_local,
-                  'edges': edges, 'triangles': tris,
-                  'world_matrix': world_matrix,
-                  'object_type': 0 if is_cloth else 1}
-        if is_cloth:
-            pattern: Pattern = sim_props.pattern
-            fabric = pattern.fabric
-            result['collision_layer'] = pattern.collision_layer
-            result['grain_dir'] = pattern.grain_dir
-            result['vertices_sim'] = vertices_sim
-            result['mass'] = fabric.weight
-            result['granularity'] = pattern.granularity
-            result['thickness'] = fabric.thickness
-            result['friction'] = fabric.friction
-            result['stretch'] = np.array(fabric.stretch, dtype=np.float32)
-            # result['shear'] = np.array(fabric.shear, dtype=np.float32)
-            result['bending'] = np.array(fabric.bending, dtype=np.float32)
-
-            result['fixed_vertices'] = sim_props.get_vertex_group_weight(sim_props.fix_pin_group_name)
-            result['attached_vertices'] = sim_props.get_vertex_group_weight(sim_props.attach_pin_group_name)
-
-            # console.info(result)
-        else:
-            result['collision_layer'] = sim_props.collision_layer
-            result['normals'] = normals
-            result['mass'] = 1.
-            # console_print(obj.simulation_props.mass, result['object_type'])
+        result = build_object_payload(obj, depsgraph, ensure_shape_keys=True)
+        if result is None:
+            return False
         self.simulated_objects.append(result)
-        self.world_matrixs.append(world_matrix.copy())
+        self.world_matrixs.append(result['world_matrix'].copy())
         console_print(f"已初始化 {obj.name} 的模拟数据")
         return True
 
@@ -398,6 +434,7 @@ class SimulationManager:
         console.info("frame:", scene.frame_current, "simulation: ", (time.time() - start_time) * 1000)
 
     def start_simulation_with_animation(self):
+        self._apply_panel_parameters()
         self.setup_data()
         self.pending_frame_vertices = self.recode_collision_vertices(bpy.context.evaluated_depsgraph_get())
         if self.running:
@@ -410,6 +447,24 @@ class SimulationManager:
 
         if self._frame_changed_post_animation not in bpy.app.handlers.frame_change_post:
             bpy.app.handlers.frame_change_post.append(self._frame_changed_post_animation)
+
+    def _apply_panel_parameters(self):
+        """Hand the Solver panel to the engine when the scene asks for it.
+
+        The panel is the UI's control surface, so a run started from the UI
+        must use it; a scene that tunes the engine programmatically clears
+        `apply_on_start` (or sets the same values in the panel).
+        """
+        scene = bpy.context.scene
+        if scene is None or not hasattr(scene, "qmyi"):
+            return
+        solver = getattr(scene.qmyi, "solver", None)
+        if solver is None or not solver.apply_on_start:
+            return
+        try:
+            solver.apply_to_engine()
+        except Exception as error:
+            console_print("Solver panel parameters were not applied: ", error)
 
     def stop_simulation_with_animation(self):
         self.running = False

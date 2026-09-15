@@ -250,6 +250,13 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
 
     def find_or_add_section(self, pos) -> Section | None:
         eps = 1e-5
+        if self.section_start is None:
+            # Same guard as sections(): the add-sewing path walks the sections
+            # without recreating them first, so on a scene that has not run a
+            # simulation yet every edge has section_start is None and the walk
+            # raised "'NoneType' object has no attribute 'start_pos'" - which
+            # the add-sewing operator reports as "sewing overlap!".
+            self.pattern.recreate_sections()
         if pos >= 1 - eps:
             return self.section_end
         max_sec = 10000

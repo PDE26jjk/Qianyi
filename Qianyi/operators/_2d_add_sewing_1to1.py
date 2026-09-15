@@ -52,10 +52,13 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
                     project.selected_sewing_edge1 = None
                     console.info("sewing", sw)
                     if sw is None:
-                        def draw(self, context):
-                            self.layout.label(text="sewing overlap!")
+                        reason = project.last_sewing_error or "sewing overlap!"
 
-                        context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
+                        def draw(self, context):
+                            self.layout.label(text=reason)
+
+                        context.window_manager.popup_menu(draw, title="Cannot add sewing",
+                                                          icon='ERROR')
                         return {"CANCELLED"}
         elif self.mode == "CANCEL":
             project.selected_sewing_edge1 = None

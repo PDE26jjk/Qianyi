@@ -1,5 +1,6 @@
 import bpy
 import numpy as np
+import random
 from bpy.utils import register_classes_factory
 
 from ..utilities.console import console
@@ -24,6 +25,24 @@ def get_unique_name(collection, base_name):
     while f"{base_name}.{i:03d}" in collection:
         i += 1
     return f"{base_name}.{i:03d}"
+
+
+def normalize_sewing_color(color):
+    """The RGB a sewing is drawn with.
+
+    A caller (a script, an importer) can pass its own (r, g, b) or (r, g, b, a)
+    tuple; without one the sewing gets a random but saturated color, so adjacent
+    chains are told apart instead of every one of them being white.
+    """
+    if color is None:
+        import colorsys
+
+        r, g, b = colorsys.hsv_to_rgb(random.random(), 0.7, 1.0)
+        return (r, g, b)
+    values = [float(value) for value in color]
+    if len(values) < 3:
+        raise ValueError(f"sewing color needs at least three components, got {color!r}")
+    return tuple(max(0.0, min(1.0, value)) for value in values[:3])
 
 
 class QianyiProject(bpy.types.NodeTree, ModelData):
@@ -80,9 +99,38 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     #
     def calc_all_sewings_sections(self):
         self.refresh_collection_uuid(self.sewings)
+        # Start every recompute from fresh sections.
+        #
+        # The link id lives on the Section object, while the list those ids
+        # index into (`Section.link_sections`) is cleared at the start of
+        # calc_sewing_sections. Linking sections that still carry an id from
+        # the previous run therefore fails: two sections that happen to share
+        # an id raise "Sewing overlap!!!" even though the sewing is valid, and
+        # different ids walk into the list that was just emptied. It also needs
+        # the edge geometry (length, sampled points, sections) built, which a
+        # freshly opened file or a just created pattern does not have yet -
+        # that used to fail inside with a NoneType error. The simulation path
+        # does the same three steps (recreate_sections, forced_update,
+        # calc_sewings_sections); this is that sequence for the sewings the
+        # editor is about to link.
+        for pattern in self.sewing_patterns():
+            pattern.recreate_sections()
+            pattern.forced_update()
         calc_sewing_sections(self.sewings)
         for p in self.patterns:
             p.need_sewing_update = False
+
+    def sewing_patterns(self):
+        """Every pattern the current sewings touch, each one once."""
+        patterns = []
+        seen = set()
+        for sewing in self.sewings:
+            for pattern in self.sewing_patterns_of(sewing):
+                if pattern.global_uuid in seen:
+                    continue
+                seen.add(pattern.global_uuid)
+                patterns.append(pattern)
+        return patterns
 
     def calc_sewings_sections(self, sewings):
         calc_sewing_sections(sewings)
@@ -130,23 +178,44 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
             self.selected_sewings.clear()
 
     def add_sewing(self, side1_line1, side1_pos1, side1_line2, side1_pos2, side1_reverse,
-                   side2_line1, side2_pos1, side2_line2, side2_pos2, side2_reverse, update=True):
+                   side2_line1, side2_pos1, side2_line2, side2_pos2, side2_reverse, update=True,
+                   color=None):
         sw = self.sewings.add()
         sw.side1.update_data(side1_line1, side1_pos1, side1_line2, side1_pos2, side1_reverse)
         sw.side2.update_data(side2_line1, side2_pos1, side2_line2, side2_pos2, side2_reverse)
+        sw.color = normalize_sewing_color(color)
         if update:
             try:
+                # calc_all_sewings_sections rebuilds the edge geometry of every
+                # pattern a sewing touches first; see ensure_sewing_geometry.
                 self.calc_all_sewings_sections()
                 sw.update()
             except Exception as e:
                 console.warning("Failed to add sewing: ", e)
                 self.sewings.remove(len(self.sewings) - 1)
+                # Keep the reason: the add-sewing operator used to show
+                # "sewing overlap!" for every failure, which hid a missing
+                # section, a missing edge length and a real overlap behind the
+                # same message.
+                self.last_sewing_error = str(e)
                 return None
         self.refresh_collection_uuid(self.sewings)
         return sw
 
-    def add_sewing1to1(self, edge1, edge2, side1_reverse=False, side2_revers=True):
-        return self.add_sewing(edge1, 0, edge1, 1, side1_reverse, edge2, 1, edge2, 0, side2_revers)
+    @staticmethod
+    def sewing_patterns_of(sewing):
+        """The patterns a sewing joins, in a stable order."""
+        patterns = []
+        for side in (sewing.side1, sewing.side2):
+            line = side.line1
+            pattern = line.pattern if line is not None else None
+            if pattern is not None and pattern not in patterns:
+                patterns.append(pattern)
+        return patterns
+
+    def add_sewing1to1(self, edge1, edge2, side1_reverse=False, side2_revers=True, color=None):
+        return self.add_sewing(edge1, 0, edge1, 1, side1_reverse, edge2, 1, edge2, 0, side2_revers,
+                               color=color)
 
     def setup_sewings_for_simulation(self):
         # self.calc_all_sewings_sections()
@@ -317,5 +386,6 @@ define_temp_prop(QianyiProject, "query_point", None)
 define_temp_prop(QianyiProject, "nearest_pattern", None)
 define_temp_prop(QianyiProject, "edge_point_offset", None)
 define_temp_prop(QianyiProject, "selected_sewing_edge1", None)
+define_temp_prop(QianyiProject, "last_sewing_error", "")
 
 register, unregister = register_classes_factory((UuidType, QianyiProject))

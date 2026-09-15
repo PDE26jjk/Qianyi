@@ -14,13 +14,69 @@ from ..utilities.console import console_print, console
 from ..utilities.coords_transform import create_2d_matrix
 
 
+# One connector every this many millimetres of sewing, so a short chain still
+# gets a couple of lines and a long one does not turn into a solid block. The
+# ends are always sampled, they are the lines that show where the sewing starts
+# and ends.
+STITCH_LINE_STEP_MM = 15.0
+STITCH_LINE_SEGMENTS_MAX = 32
+
+# The connectors are a reading aid, not the sewing itself: draw them thinner
+# than the sewing so a selected chain stays readable.
+STITCH_LINE_WIDTH = 1.0
+
+
+def polyline_length(points):
+    pts = np.asarray(points, dtype=np.float64)
+    if pts.shape[0] < 2:
+        return 0.0
+    return float(np.linalg.norm(np.diff(pts[:, :2], axis=0), axis=1).sum())
+
+
+def sample_polyline(points, fractions):
+    """Positions at the given normalized arc-length fractions."""
+    pts = np.asarray(points, dtype=np.float64)
+    if pts.shape[0] < 2:
+        return np.repeat(pts[:1], len(fractions), axis=0)
+    cumulative = np.concatenate(([0.0], np.cumsum(
+        np.linalg.norm(np.diff(pts[:, :2], axis=0), axis=1))))
+    total = cumulative[-1]
+    if total <= 0.0:
+        return np.repeat(pts[:1], len(fractions), axis=0)
+    targets = np.asarray(fractions, dtype=np.float64) * total
+    sampled = np.empty((len(fractions), pts.shape[1]), dtype=np.float64)
+    for axis in range(pts.shape[1]):
+        sampled[:, axis] = np.interp(targets, cumulative, pts[:, axis])
+    return sampled
+
+
+def stitch_connector_points(pattern1, points1, pattern2, points2):
+    """Sampled pairs across a sewing, in view space.
+
+    Both halves are sampled at the same normalized arc length, so the lines
+    show how the two sides correspond. The first and the last fraction are
+    included: those two pairs are the end connectors.
+    """
+    length = min(polyline_length(points1), polyline_length(points2))
+    segments = int(round(length / STITCH_LINE_STEP_MM))
+    segments = max(1, min(STITCH_LINE_SEGMENTS_MAX, segments))
+    fractions = np.linspace(0.0, 1.0, segments + 1)
+    sampled1 = sample_polyline(points1, fractions)
+    sampled2 = sample_polyline(points2, fractions)
+    positions = []
+    for point1, point2 in zip(sampled1, sampled2):
+        positions.append(pattern1.pattern_to_view_pos(point1))
+        positions.append(pattern2.pattern_to_view_pos(point2))
+    return positions
+
+
 class SewingRenderer(BaseRenderer):
 
     def __init__(self, sewing):
         super().__init__()
         self.batch_edge1 = None
         self.batch_edge2 = None
-        self.batch_dashed_line = None
+        self.batch_stitch_lines = None
         self.sewing_uuid = sewing.global_uuid
 
     @property
@@ -41,12 +97,9 @@ class SewingRenderer(BaseRenderer):
         )
         p1 = self.sewing.side1.line1.pattern
         p2 = self.sewing.side2.line1.pattern
-        lines = [p1.pattern_to_view_pos(render_points1[0]), p2.pattern_to_view_pos(render_points2[0]),
-                 p1.pattern_to_view_pos(render_points1[-1]), p2.pattern_to_view_pos(render_points2[-1])]
-        # TODO dashed line shader
-        self.batch_dashed_line = batch_for_shader(
+        self.batch_stitch_lines = batch_for_shader(
             self.shader, 'LINES',
-            {"pos": lines},
+            {"pos": stitch_connector_points(p1, render_points1, p2, render_points2)},
         )
 
     def draw(self, dashed_line=False):
@@ -68,9 +121,16 @@ class SewingRenderer(BaseRenderer):
         self.update_model_matrix(transform_matrix)
         self.batch_edge2.draw(self.shader)
 
-        if dashed_line:
+        # Only the selected sewing shows how the two sides correspond; drawing
+        # them for every chain turned the view into a mesh and made the selected
+        # one impossible to pick out.
+        if dashed_line and self.batch_stitch_lines is not None:
+            previous_width = gpu.state.line_width_get()
+            gpu.state.line_width_set(STITCH_LINE_WIDTH)
             self.update_model_matrix(Matrix.Identity(4))
-            self.batch_dashed_line.draw(self.shader)
+            self.shader.uniform_float("color", (*self.sewing.color, 1.0))
+            self.batch_stitch_lines.draw(self.shader)
+            gpu.state.line_width_set(previous_width)
 
     def draw_id(self):
         if not self.shader:

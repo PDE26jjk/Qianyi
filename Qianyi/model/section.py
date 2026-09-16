@@ -102,7 +102,7 @@ class Section:
     def is_reverse(self):
         if self.link_map_id == -1:
             return False
-        console.warning("is_reverse", Section.link_sections,self.link_map_id )
+        # console.warning("is_reverse", Section.link_sections,self.link_map_id )
         for sec in Section.link_sections[self.link_map_id]:
             if sec.section is self:
                 return sec.reverse

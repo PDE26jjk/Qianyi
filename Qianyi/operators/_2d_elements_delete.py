@@ -4,6 +4,7 @@ from bpy.utils import register_classes_factory
 
 from ..model.pattern_instance import collect_unique_instances
 from ..model.sewing import SewingOneSide
+from ..model.pattern import interactive_edit_allowed
 from ..gizmos.moving_curve import TempPoint
 from ..model.geometry import Edge2D, Vertex2D
 from ..utilities.console import console_print, console
@@ -63,13 +64,22 @@ class NODE_OT_elements_delete(Operator2DBase):
             for p in point_set:
                 p.impacted = True
 
-            res = None  # intersect test result
+            blocked = False  # a pattern whose outline would intersect is left alone
             sewing_map = dict()
 
             def insert_sewing_map(idx, sw):
                 if idx not in sewing_map:
                     sewing_map[idx] = []
                 sewing_map[idx].append(sw)
+
+            def mark_impacted(sw):
+                sw.impacted = True
+                # The sewing is reachable through all four of its line uuids;
+                # forget every one of them, so a later pattern of this same
+                # delete cannot touch a sewing that is already gone.
+                for key in (sw.side1.line1_uuid, sw.side1.line2_uuid,
+                            sw.side2.line1_uuid, sw.side2.line2_uuid):
+                    sewing_map.pop(key, None)
 
             for s in project.sewings:
                 s.impacted = False
@@ -114,19 +124,16 @@ class NODE_OT_elements_delete(Operator2DBase):
                     checking_edge_points.append(mc.render_points[:-1])
                     # console.info(e, mc.render_points[:-1])
                 checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
-                from Qianyi_DP import pattern_helper
-                res = pattern_helper.check_edge_intersection(checking_edge_points)
-                # console.warning(checking_edge_points)
-                console.warning(res)
-                if res['intersected']:
+                if not interactive_edit_allowed(context, checking_edge_points):
+                    blocked = True
                     break
                 for i in sorted(edges_del, reverse=True):
                     for ins in p.instances:
                         edge_uuid = ins.edges[i].global_uuid
                         if edge_uuid in sewing_map:
                             for s in sewing_map[edge_uuid]:
-                                s.impacted = True
-                            del sewing_map[edge_uuid]
+                                mark_impacted(s)
+                            sewing_map.pop(edge_uuid, None)
                         ins.edges.remove(i)
                 for ins in p.instances:
                     ins.refresh_collection_uuid(ins.edges)
@@ -148,23 +155,18 @@ class NODE_OT_elements_delete(Operator2DBase):
                         if len(sps) > 0:
                             for j in sorted(sps, reverse=True):
                                 e.spline_points.remove(j)
+                # The sewings that lost a line have to go before the pattern is
+                # refreshed: `forced_update` walks every sewing in the project
+                # and a deleted edge no longer resolves.
+                project.remove_impacted_sewings()
                 for ins in p.instances:
                     ins.recreate_sections()
                     ins.forced_update()
                     ins.generate_mesh()
-            if res is None or res['intersected']:
-                def draw(self, context):
-                    self.layout.label(text="edges intersected!")
-
+            if blocked:
                 context.area.tag_redraw()
-                context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
             draw_manager.clear()
-            sewings_del = [s.get_index() for s in project.sewings if s.impacted]
-            for i in sorted(sewings_del, reverse=True):
-                project.sewings.remove(i)
-            if len(sewings_del):
-                project.refresh_collection_uuid(project.sewings)
-                project.selected_sewings.clear()
+            project.remove_impacted_sewings()
             project.clear_edge_finder()
         elif edit_mode == "SEWING":
             objs = project.get_selected_objects_by_mode("SEWING")

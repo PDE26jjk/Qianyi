@@ -355,6 +355,24 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         p.name = get_unique_name(self.patterns, name)
         return p
 
+    def remove_impacted_sewings(self):
+        """Drop the sewings flagged as impacted; returns how many went.
+
+        An editor deletes an element but flags every sewing that used it, and a
+        deleted element leaves its uuid in the in-memory map still pointing at a
+        wrapper that now reads a different uuid - so any lookup of it raises.
+        Everything that walks all sewings has to run after the sewings that lost
+        a line are gone; `forced_update` walks them through
+        `get_connected_patterns_and_sewings`.
+        """
+        indexes = [sewing.get_index() for sewing in self.sewings if sewing.impacted]
+        for index in sorted(indexes, reverse=True):
+            self.sewings.remove(index)
+        if indexes:
+            self.refresh_collection_uuid(self.sewings)
+            self.selected_sewings.clear()
+        return len(indexes)
+
     def _unlink_pattern_from_instance_list(self, pattern_to_del):
         uuid_to_del = pattern_to_del.global_uuid
         if uuid_to_del == -1:

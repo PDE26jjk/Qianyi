@@ -51,6 +51,15 @@ class QianyiProps(PropertyGroup, ModelData):
         description="Display the grain direction arrow in the pattern editor",
         default=False,
     )
+    interactive_self_intersection_check: BoolProperty(
+        name="Check Self-Intersection",
+        description="Test a pattern outline for a self-crossing while it is "
+                    "edited interactively (pen, add vertex, moved edge, delete) "
+                    "and refuse the edit when it crosses. This is the only place "
+                    "the check is optional: a mesh and a simulation are always "
+                    "tested, whatever this is set to",
+        default=True,
+    )
     simulation_data: bpy.props.CollectionProperty(type=SimulationProps)
 
     solver: bpy.props.PointerProperty(

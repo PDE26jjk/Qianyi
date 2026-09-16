@@ -1,7 +1,7 @@
 
 from ... import declarations
 from . import VIEW_3D_PT_qmyi_base
-from ...utilities.node_tree import get_active_node_tree
+from ...utilities.node_tree import get_active_node_tree, get_all_node_tree
 import bpy
 
 class QY_PT_simulation(VIEW_3D_PT_qmyi_base):
@@ -13,6 +13,17 @@ class QY_PT_simulation(VIEW_3D_PT_qmyi_base):
         layout = self.layout
         qmyi = context.scene.qmyi
         scene_props = qmyi.simulation
+
+        # Only the cached state is read here, so drawing never runs a test.
+        invalid = [pattern.name or "(unnamed pattern)"
+                   for project in get_all_node_tree()
+                   for pattern in project.patterns if pattern.is_invalid]
+        if invalid:
+            box = layout.box()
+            box.label(text=f"{len(invalid)} pattern outline(s) intersect", icon="ERROR")
+            for name in invalid:
+                box.label(text=name)
+            box.label(text="fix them before starting a simulation")
 
         layout.prop(scene_props, "enable_free_simulation", toggle=True)
         row = layout.row()

@@ -109,6 +109,13 @@ class Sewing(PropertyGroup, ModelData, Selectable):
         ss2 = self.side2
         pattern1 = ss1.line1.pattern
         pattern2 = ss2.line1.pattern
+        for pattern in (pattern1, pattern2):
+            if pattern.mesh_object is None:
+                # A crossing outline is not meshed at all, so a sewing that
+                # ends on it has no vertices to pair. Say that instead of
+                # failing on a None object further down.
+                raise ValueError(f"pattern {pattern.name or '(unnamed)'} has no mesh "
+                                 f"(its outline is invalid?)")
         if pattern1.need_geo_update:
             pattern1.calc_mesh_edge_points()
         if pattern2.need_geo_update:

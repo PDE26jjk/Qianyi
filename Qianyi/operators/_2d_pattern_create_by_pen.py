@@ -10,6 +10,7 @@ from .states.IState import IState
 from .states.StatefulOperator import StateOperator, ReturnState
 from ..declarations import Operators
 from ..gizmos.moving_curve import MovingCurve
+from ..model.pattern import interactive_edit_allowed
 from ..utilities.node_tree import get_active_node_tree
 
 
@@ -77,13 +78,7 @@ class NODE_OT_pattern_create_by_pen(Operator2DBase, StateOperator):
             checking_points = mc.render_points
             checking_edge_points.append(checking_points[:-1])
         checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
-        from Qianyi_DP import pattern_helper
-        res = pattern_helper.check_edge_intersection(checking_edge_points)
-        if res['intersected']:
-            def draw(self, context):
-                self.layout.label(text="edges intersected!")
-
-            context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
+        if not interactive_edit_allowed(context, checking_edge_points):
             self.return_state = ReturnState.CANCELLED
             return
 

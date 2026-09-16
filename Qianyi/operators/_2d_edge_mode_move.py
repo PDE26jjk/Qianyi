@@ -4,6 +4,7 @@ from bpy.types import Context
 from bpy.utils import register_classes_factory
 
 from ..model.pattern_instance import collect_unique_instances
+from ..model.pattern import interactive_edit_allowed
 from ..model.geometry import Edge2D, Vertex2D
 from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
@@ -122,25 +123,15 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
         if not self.updated:
             self.return_state = ReturnState.CANCELLED
             return
-        res = None
         for p in self.pattern_set:
             checking_edge_points = []
             for e in p.edges:
                 checking_points = e.render_points if e.proxy is None else e.proxy.render_points
                 checking_edge_points.append(checking_points[:-1])
             checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
-            from Qianyi_DP import pattern_helper
-            res = pattern_helper.check_edge_intersection(checking_edge_points)
-            # console.warning(res)
-            if res['intersected']:
-                break
-        if res['intersected']:
-            def draw(self, context):
-                self.layout.label(text="edges intersected!")
-
-            context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
-            self.return_state = ReturnState.CANCELLED
-            return
+            if not interactive_edit_allowed(context, checking_edge_points):
+                self.return_state = ReturnState.CANCELLED
+                return
 
         for p in self.point_proxys:
             p.apply_proxy_to_instances()

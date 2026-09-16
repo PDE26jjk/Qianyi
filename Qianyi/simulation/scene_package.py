@@ -27,8 +27,10 @@ Layout of a package directory
       counts. ``array_keys`` names the arrays that belong to it.
     - ``sewings``: one entry per sewing chain, with ``patterns`` (the two cloth
       object indices the stitches join), ``stitch_count`` and ``array_key``.
-    - ``summary``: total counts, the cloth edge-length statistics and the
-      bounding volume, for a quick sanity check without loading the arrays.
+    - ``summary``: total counts, the cloth edge-length statistics, the
+      bounding volume and the names of the patterns whose outline crosses
+      itself (empty when there is none), for a quick sanity check without
+      loading the arrays.
     - ``layout``: the naming rule of the arrays.
 
 ``scene.npz``

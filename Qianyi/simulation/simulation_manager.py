@@ -10,8 +10,9 @@ import numpy as np
 
 from ..model.fabric import Fabric
 from ..model.model_data import refresh_all_uuids
-from ..model.pattern import Pattern
+from ..model.pattern import Pattern, find_invalid_patterns
 from ..utilities.console import console_print, console
+from ..utilities.report import report_error
 from .task_manager import task_mgr
 
 
@@ -340,6 +341,10 @@ class SimulationManager:
 
     def start_simulation(self):
         """开始物理模拟"""
+        invalid = self.invalid_simulated_patterns()
+        if invalid:
+            self.refuse_invalid_start(invalid)
+            return False
         self._apply_panel_parameters()
         self.setup_data()
         if self.running:
@@ -385,6 +390,47 @@ class SimulationManager:
         self.world_matrixs.append(result['world_matrix'].copy())
         console_print(f"已初始化 {obj.name} 的模拟数据")
         return True
+
+    def simulated_patterns(self):
+        """Every pattern whose mesh a start would hand to the engine."""
+        patterns = []
+        for obj in bpy.data.objects:
+            if obj.type != 'MESH':
+                continue
+            props = obj.qmyi_simulation_props
+            if not (props.is_pattern_mesh or props.participate_in_simulation):
+                continue
+            try:
+                pattern = props.pattern if props.is_pattern_mesh else None
+            except ValueError:
+                # A mesh whose pattern is gone cannot be simulated either; it
+                # has no outline to check, so it does not block a start here.
+                pattern = None
+            if pattern is not None and pattern not in patterns:
+                patterns.append(pattern)
+        return patterns
+
+    def invalid_simulated_patterns(self):
+        """The patterns that have to be fixed before a simulation may start.
+
+        Every outline is tested again here, cache or not, so a shape change that
+        never regenerated a mesh still cannot start a simulation. One outline of
+        this scene costs a few milliseconds (measured), against a whole run.
+        """
+        # A mesh resolves its pattern through the uuid map, which a session that
+        # just opened the file has not filled yet.
+        refresh_all_uuids()
+        return find_invalid_patterns(self.simulated_patterns(), force=True)
+
+    def refuse_invalid_start(self, invalid):
+        """Report why a start was refused. Never touches the engine."""
+        names = ", ".join(pattern.name or "(unnamed pattern)" for pattern in invalid)
+        report_error(
+            f"simulation not started: {len(invalid)} pattern outline(s) intersect themselves",
+            (f"patterns: {names}",
+             "the outline of a self-intersecting pattern is drawn in red; fix it and start again",
+             "to keep editing through a crossing, turn off Check Self-Intersection in the Pattern panel"),
+        )
 
     def _frame_changed_post_animation(self, scene, depsgraph):
         if not scene.qmyi.simulation.simulation_with_animation:
@@ -434,6 +480,10 @@ class SimulationManager:
         console.info("frame:", scene.frame_current, "simulation: ", (time.time() - start_time) * 1000)
 
     def start_simulation_with_animation(self):
+        invalid = self.invalid_simulated_patterns()
+        if invalid:
+            self.refuse_invalid_start(invalid)
+            return False
         self._apply_panel_parameters()
         self.setup_data()
         self.pending_frame_vertices = self.recode_collision_vertices(bpy.context.evaluated_depsgraph_get())

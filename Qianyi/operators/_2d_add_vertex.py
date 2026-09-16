@@ -6,7 +6,7 @@ from bpy.utils import register_classes_factory
 from ..utilities.cubic_spline import get_handles_after_split, compute_split_handles
 from ..utilities.geometric_operation import split_bezier
 from ..model.pattern_instance import collect_unique_instances
-from ..model.pattern import Pattern
+from ..model.pattern import Pattern, interactive_edit_allowed
 from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .. import global_data
@@ -121,14 +121,7 @@ class NODE_OT_add_vertex(Operator2DBase):
             else:
                 checking_edge_points.append(e.render_points[:-1])
         checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
-        from Qianyi_DP import pattern_helper
-        res = pattern_helper.check_edge_intersection(checking_edge_points)
-        console.warning(res)
-        if res['intersected']:
-            def draw(self, context):
-                self.layout.label(text="edges intersected!")
-
-            context.window_manager.popup_menu(draw, title="Error", icon='ERROR')
+        if not interactive_edit_allowed(context, checking_edge_points):
             draw_manager.clear()
             return {'CANCELLED'}
 

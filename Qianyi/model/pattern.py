@@ -10,6 +10,7 @@ from bpy.utils import register_classes_factory
 from mathutils import Vector
 
 from ..utilities.console import console_print, console
+from ..utilities.report import report_error
 from ..utilities.coords_transform import create_2d_matrix, create_2d_matrix_invert
 from .geometry import Vertex2D, Edge2D
 from .internal_line import InternalLine
@@ -19,6 +20,79 @@ from .. import global_data
 from ..utilities.cubic_spline import cubic_spline_2d_numpy
 from .model_data import ModelData, define_temp_prop, Selectable
 from .pattern_mesh import generate_pattern_mesh
+
+
+# Cached self-intersection state of a pattern outline. The answer comes from an
+# engine call, so it is cached and the cache is a temp prop: a file that is
+# reopened starts as unknown and is checked again on the next consumer.
+VALIDITY_UNKNOWN = "UNKNOWN"
+VALIDITY_VALID = "VALID"
+VALIDITY_INVALID = "INVALID"
+
+
+def boundary_self_intersection(points):
+    """Test one closed boundary polyline for a self-crossing.
+
+    `points` is the concatenated sampled outline (N x 2, in pattern space); the
+    engine treats it as a loop, so the last point connects back to the first.
+    Returns ``(intersected, crossing)``, where `crossing` is the intersection
+    point in the same space, or None when there is none.
+    """
+    points = np.ascontiguousarray(points, dtype=np.float32)
+    if points.ndim != 2 or points.shape[0] < 3:
+        # Fewer than three points cannot enclose an area, which the engine
+        # reports as an intersection ("one point or one edge").
+        return True, None
+    from Qianyi_DP import pattern_helper
+    result = pattern_helper.check_edge_intersection(points.reshape(-1))
+    if not result["intersected"]:
+        return False, None
+    index = int(result["res_index"])
+    weight = float(result["res_weight"])
+    if not 0 <= index < len(points):
+        return True, None
+    start = points[index]
+    end = points[(index + 1) % len(points)]
+    return True, (float(start[0] + (end[0] - start[0]) * weight),
+                  float(start[1] + (end[1] - start[1]) * weight))
+
+
+def interactive_edit_allowed(context, points):
+    """Whether an interactive edit that produced `points` may be applied.
+
+    False means the outline crosses itself, and the user is told why. The
+    interactive operators are the only path that tests at edit time, and the
+    scene's "Check Self-Intersection" switch turns that test off, so a new
+    operator can be written without the check first. Nothing else needs the
+    call: `forced_update` marks the outline unchecked on every shape change, and
+    the mesh and the simulation test it before they use it.
+    """
+    scene = getattr(context, "scene", None)
+    qmyi = getattr(scene, "qmyi", None)
+    if qmyi is not None and not qmyi.interactive_self_intersection_check:
+        return True
+    intersected, _crossing = boundary_self_intersection(points)
+    if not intersected:
+        return True
+    report_error("edges intersected!", (
+        "turn off Check Self-Intersection in the Pattern panel to edit through it",
+    ))
+    return False
+
+
+def find_invalid_patterns(patterns, force=False):
+    """The patterns of `patterns` whose outline crosses itself.
+
+    With `force` the outline is tested again even when the cached answer is
+    known: a simulation start asks for that, so an operator that changed the
+    outline without marking it cannot slip through. The mesh path uses the
+    cache instead, so an edit pays for one test, not one per consumer.
+    """
+    invalid = []
+    for pattern in patterns:
+        if pattern.validate(force=force) == VALIDITY_INVALID and pattern not in invalid:
+            invalid.append(pattern)
+    return invalid
 
 
 class Pattern(PropertyGroup, ModelData, Selectable):
@@ -123,6 +197,60 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         self.forced_update()
         return ccw
 
+    def mark_shape_changed(self):
+        """Forget the cached outline state; the next consumer re-checks.
+
+        Marking costs nothing: there is no engine call here, so a numeric field
+        that passes through an illegal shape while it is typed is never blocked.
+        """
+        self.validity_state = VALIDITY_UNKNOWN
+        self.invalid_point = None
+
+    def get_boundary_points(self):
+        """The closed outline as one (N, 2) float32 array in pattern space.
+
+        Every edge contributes its sampled points except the last one, which is
+        the next edge's first point, so the concatenation is exactly the loop
+        the engine's self-intersection test expects. Internal lines are not part
+        of it: an internal line crossing the outline is supported (the sections
+        are split and the outside part is marked), not an error.
+        """
+        chunks = []
+        for edge in self.edges:
+            edge.update(self)
+            points = edge.render_points
+            if points is None or len(points) < 2:
+                continue
+            chunks.append(points[:-1])
+        if len(chunks) == 0:
+            return None
+        return np.concatenate(chunks, dtype=np.float32)
+
+    def check_self_intersection(self):
+        """Run the outline test now and cache the result with the crossing."""
+        points = self.get_boundary_points()
+        if points is None:
+            self.validity_state = VALIDITY_INVALID
+            self.invalid_point = None
+            return self.validity_state
+        intersected, crossing = boundary_self_intersection(points)
+        self.invalid_point = crossing
+        self.validity_state = VALIDITY_INVALID if intersected else VALIDITY_VALID
+        if intersected:
+            console.warning(f"pattern {self.name} outline intersects itself")
+        return self.validity_state
+
+    def validate(self, force=False):
+        """Cached state of the outline: only an unknown state costs a test."""
+        if force or self.validity_state not in (VALIDITY_VALID, VALIDITY_INVALID):
+            return self.check_self_intersection()
+        return self.validity_state
+
+    @property
+    def is_invalid(self):
+        """The cached answer, for the draw loop: never runs the test."""
+        return self.validity_state == VALIDITY_INVALID
+
     def get_connected_patterns_and_sewings(self):
         # 1. 构建邻接表：记录每个 pattern 连接的 sewing 对象
         adj = defaultdict(list)
@@ -167,6 +295,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
                 p.need_sewing_update = True
 
     def forced_update(self, calc_intersect=True):
+        self.mark_shape_changed()
         self.refresh_collection_uuid(self.edges)
         for edge in self.edges:
             edge.need_update_points = True
@@ -510,6 +639,16 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
     def generate_mesh(self, scale_data=None):
         granularity = self.granularity / 1000
+        # A crossing outline cannot become a mesh at all. The sampler does not
+        # only drop the triangles it cannot validate: on a bowtie outline it
+        # takes the engine down with an illegal memory access in the 2D BVH
+        # (`lbvh_2d.cu`), and that fault only surfaces on the next engine call.
+        # So the mesh is not generated and the pattern keeps whatever mesh it
+        # had; the outline is drawn red and a simulation will not start.
+        if self.validate() == VALIDITY_INVALID:
+            console.warning(f"pattern {self.name or '(unnamed)'}: mesh not regenerated, "
+                            f"the outline is invalid")
+            return
         start = time.time()
         if self.need_geo_update:
             self.calc_mesh_edge_points()
@@ -598,5 +737,9 @@ define_temp_prop(Pattern, "mesh_edge_points", None)
 define_temp_prop(Pattern, "mesh_edge_index_map", None)
 define_temp_prop(Pattern, "mesh_point_indices", None)
 define_temp_prop(Pattern, "mesh_edge_point_outer_size", -1)
+# Outline validity. A temp prop on purpose: it is a cache of an engine answer,
+# so it is never written to the file and a reopened scene starts as unknown.
+define_temp_prop(Pattern, "validity_state", VALIDITY_UNKNOWN)
+define_temp_prop(Pattern, "invalid_point", None)
 
 register, unregister = register_classes_factory((Pattern,))

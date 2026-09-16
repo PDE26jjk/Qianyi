@@ -23,6 +23,9 @@ from ..utilities.node_tree import get_active_node_tree
 from .GizmosMeshRenderer import MeshRenderer
 
 
+INVALID_PATTERN_COLOR = (1.0, 0.25, 0.2, 1.0)
+
+
 class TempDrawManager:
     def __init__(self):
         self.last_edit_mode = None
@@ -403,9 +406,15 @@ class TempDrawManager:
             gpu.state.blend_set("ALPHA")
             color = (0.2, 0.2, 0.8, 1)
             line_color = (*color[:3], color[3] * 0.8)  # 降低透明度
-            shader.uniform_float("color", line_color)
+            # An outline that crosses itself cannot become a sound mesh: the
+            # sampler drops the triangles it cannot validate, so the pattern is
+            # drawn in red and the crossing is marked until it is fixed.
+            outline_color = INVALID_PATTERN_COLOR if p.is_invalid else line_color
+            shader.uniform_float("color", outline_color)
             # TODO different pattern rendering mode
-            p.line_renderer.draw_edges(color=line_color)
+            p.line_renderer.draw_edges(color=outline_color)
+            if p.is_invalid and p.invalid_point is not None:
+                p.line_renderer.draw_invalid_marker(p.invalid_point)
             for il in p.internal_lines:
                 il.renderer.draw_edges(color=line_color)
             if qmyi.show_grain_dir:

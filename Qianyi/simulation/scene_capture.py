@@ -24,6 +24,7 @@ import bpy
 import numpy as np
 
 from ..model.model_data import refresh_all_uuids
+from ..model.pattern import find_invalid_patterns
 from . import scene_package
 from .simulation_manager import build_object_payload
 
@@ -66,6 +67,22 @@ def _cloth_projects(objects):
             if project not in projects:
                 projects.append(project)
     return projects
+
+
+def _captured_patterns(objects):
+    """The patterns whose mesh is part of the capture."""
+    patterns = []
+    for obj in objects:
+        props = obj.qmyi_simulation_props
+        if not props.is_pattern_mesh:
+            continue
+        try:
+            pattern = props.pattern
+        except ValueError:
+            continue
+        if pattern is not None and pattern not in patterns:
+            patterns.append(pattern)
+    return patterns
 
 
 def _edge_lengths(entry):
@@ -189,6 +206,12 @@ def collect(solver=None, parameters=None):
     summary = _summary(objects_json, sewings_json,
                        np.concatenate(cloth_edge_lengths) if cloth_edge_lengths
                        else np.zeros(0, dtype=np.float32))
+    # A capture is a simulation input for somewhere else, and a crossing outline
+    # is not meshed here at all, so the package would carry the stale mesh. The
+    # capture still goes out - it may be the repro - but it says so.
+    summary["invalid_patterns"] = sorted(
+        pattern.name or "(unnamed pattern)"
+        for pattern in find_invalid_patterns(_captured_patterns(objects)))
     blend = bpy.data.filepath
     payload = {
         "format": scene_package.FORMAT_NAME,
@@ -266,6 +289,10 @@ def main(argv=None):
           f"(cloth {summary['cloth_count']}, obstacles {summary['obstacle_count']}) "
           f"vertices={summary['vertex_count']} stitches={summary['stitch_count']}")
     print(f"[capture] edge length median={summary['cloth_edge_length']['median']:.6f} m")
+    if summary["invalid_patterns"]:
+        print(f"[capture] WARNING: outline intersects itself in "
+              f"{len(summary['invalid_patterns'])} pattern(s): "
+              f"{', '.join(summary['invalid_patterns'])}")
     print(f"[capture] wrote {json_path}")
     print(f"[capture] wrote {array_path}")
     return 0

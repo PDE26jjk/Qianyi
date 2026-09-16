@@ -10,6 +10,10 @@ from ..simulation.simulation_manager import simulation_manager
 
 # from ..simulation.frame_timer import frame_changed_post
 
+# Set while the toggle is being put back after a refused start, so writing the
+# property from inside its own update callback does not recurse.
+_reset_in_progress = False
+
 
 class SimulationProps(PropertyGroup):
     enable_free_simulation: BoolProperty(
@@ -21,10 +25,20 @@ class SimulationProps(PropertyGroup):
     )
 
     def _on_global_simulation_toggle(self, context):
+        global _reset_in_progress
         if self.enable_free_simulation:
+            if _reset_in_progress:
+                return
             self.simulation_with_animation = False
             self.play_frame_cache = False
-            simulation_manager.start_simulation()
+            if not simulation_manager.start_simulation():
+                # The manager refused (an invalid pattern); put the switch back
+                # so the UI does not claim a run that never started.
+                _reset_in_progress = True
+                try:
+                    self.enable_free_simulation = False
+                finally:
+                    _reset_in_progress = False
         else:
             simulation_manager.stop_simulation()
 
@@ -50,10 +64,18 @@ class SimulationProps(PropertyGroup):
     )
 
     def _on_simulation_with_animation_toggle(self, context):
+        global _reset_in_progress
         if self.simulation_with_animation:
+            if _reset_in_progress:
+                return
             self.enable_free_simulation = False
             self.play_frame_cache = False
-            simulation_manager.start_simulation_with_animation()
+            if not simulation_manager.start_simulation_with_animation():
+                _reset_in_progress = True
+                try:
+                    self.simulation_with_animation = False
+                finally:
+                    _reset_in_progress = False
         else:
             simulation_manager.stop_simulation_with_animation()
 

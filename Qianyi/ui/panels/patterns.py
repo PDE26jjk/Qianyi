@@ -3,6 +3,7 @@ from bpy.types import Context
 
 from ...utilities.node_tree import get_active_node_tree
 from ...declarations import Panels,Operators
+from ...model.pattern import VALIDITY_UNKNOWN
 from . import NODE_PT_qmyi_base
 
 
@@ -103,4 +104,16 @@ class QY_PT_patternProperty(NODE_PT_qmyi_base):
         col.prop(pattern, "rotation")
         col.prop(pattern, "grain_dir")
         col.prop(context.scene.qmyi, "show_grain_dir")
+
+        box = layout.box()
+        box.label(text="Outline", icon="ERROR" if pattern.is_invalid else 'INFO')
+        box.prop(context.scene.qmyi, "interactive_self_intersection_check")
+        if not context.scene.qmyi.interactive_self_intersection_check:
+            box.label(text="interactive edits are not checked")
+        if pattern.is_invalid:
+            box.label(text="this outline crosses itself" if pattern.invalid_point is not None
+                      else "this outline is not a closed loop", icon="ERROR")
+            box.label(text="a simulation will not start while it does")
+        elif pattern.validity_state == VALIDITY_UNKNOWN:
+            box.label(text="not checked yet")
 

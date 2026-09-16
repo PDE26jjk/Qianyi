@@ -21,6 +21,8 @@ class PatternRenderer(BaseRenderer):
         self.batch_vertex = None
         self.batch_spline_point = None
         self.batch_grain_dir = None
+        self.batch_invalid = None
+        self.invalid_marker = None
         self.pattern_uuid = pattern.global_uuid
 
     @property
@@ -100,6 +102,32 @@ class PatternRenderer(BaseRenderer):
         self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", color)
         self.batch_edge.draw(self.shader)
+
+    def update_batch_invalid(self, point, size):
+        x, y = float(point[0]), float(point[1])
+        self.batch_invalid = batch_for_shader(
+            self.shader, 'LINES',
+            {"pos": ((x - size, y), (x + size, y), (x, y - size), (x, y + size))},
+        )
+        self.invalid_marker = (x, y, size)
+
+    def draw_invalid_marker(self, point, color=(1.0, 0.25, 0.2, 1.0), size=5.0):
+        """A cross where the outline crosses itself.
+
+        `size` is in pattern space, so the marker keeps its size relative to
+        the pattern whatever transform that pattern is drawn with.
+        """
+        if not self.pattern:
+            return
+        target = (float(point[0]), float(point[1]), size)
+        if self.batch_invalid is None or self.invalid_marker != target:
+            self.update_batch_invalid(point, size)
+        gpu.state.blend_set('ALPHA')
+        gpu.state.line_width_set(3.0)
+        self.shader.bind()
+        self.update_model_matrix(self.pattern.calc_matrix())
+        self.shader.uniform_float("color", color)
+        self.batch_invalid.draw(self.shader)
 
     def draw_instance_edges(self, anchor, rotation, mirror=False, scale=(1, 1),
                             color=(1.0, 1.0, 1.0, 0.7), thickness=2.0):

@@ -6,6 +6,7 @@ modules = [
     "project",
     "pattern_panel",
     "fabric_panel",
+    "generator",
     "in_out",
     "mesh",
     "TestOperator",

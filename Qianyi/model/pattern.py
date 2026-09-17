@@ -109,6 +109,10 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         name="CollisionLayer",
         description="When in contact, the higher level is above the lower level, along the normal direction of the lower level.",
         default=0)
+    generator_uuid: IntProperty(
+        name="Generator",
+        description="Generator that produced this panel; -1 for a hand-drawn panel.",
+        default=-1)
 
     def update_granularity(self, context):
         self.forced_update()

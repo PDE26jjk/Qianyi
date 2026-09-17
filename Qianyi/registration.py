@@ -4,6 +4,7 @@ from . import global_data
 from .utilities.register import module_register_factory
 
 core_modules = [
+    "preferences",
     "model",
     "operators",
     "gizmos",

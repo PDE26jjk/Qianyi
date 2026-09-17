@@ -5,6 +5,7 @@ from bpy.utils import register_classes_factory
 
 from ..model.pattern_instance import collect_unique_instances
 from ..model.pattern import interactive_edit_allowed
+from ..model.generator import generation_lock
 from ..model.geometry import Edge2D, Vertex2D
 from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
@@ -33,7 +34,11 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
             return False
         project = get_active_node_tree(context)
         if project is not None:
-            if len(project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")) > 0:
+            objs = project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
+            # A generated panel refuses geometry edits; its parameters own its shape.
+            if any(generation_lock(project, obj.pattern) for obj in objs):
+                return False
+            if len(objs) > 0:
                 return True
         return False
 

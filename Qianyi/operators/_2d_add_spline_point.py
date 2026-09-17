@@ -7,6 +7,7 @@ from ..utilities.cubic_spline import get_handles_after_split
 from ..utilities.geometric_operation import sample_polyline
 from ..model.pattern_instance import collect_unique_instances
 from ..model.pattern import Pattern, interactive_edit_allowed
+from ..model.generator import refuse_generated_edit
 from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .. import global_data
@@ -41,6 +42,8 @@ class NODE_OT_add_spline_point(Operator2DBase):
         project = get_active_node_tree(context)
 
         pattern, edge, add_point_pos, t = project.get_nearest_point_data()
+        if refuse_generated_edit(self, project, pattern):
+            return {'CANCELLED'}
         if len(edge.render_points) > 200:
             add_point_pos = sample_polyline(edge.render_points, t)
         edge_index = edge.get_index()

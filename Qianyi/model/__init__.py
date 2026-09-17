@@ -3,6 +3,7 @@ from ..utilities.register import module_register_factory
 modules = [
     "geometry",
     "internal_line",
+    "generator",
     "pattern",
     "fabric",
     "sewing",

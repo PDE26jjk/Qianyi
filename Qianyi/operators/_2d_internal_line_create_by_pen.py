@@ -9,6 +9,7 @@ from ..model.pattern_instance import collect_unique_instances
 from ..model import pattern
 from ..model.internal_line import InternalLine
 from ..model.pattern import Pattern
+from ..model.generator import refuse_generated_edit
 from ..gizmos.moving_curve import MovingCurve
 from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
@@ -55,6 +56,10 @@ class NODE_OT_internal_line_create_by_pen(Operator2DBase, StateOperator):
                     if obj:
                         self.pattern = obj
                         break
+        # A generated panel refuses geometry edits, internal lines included.
+        if refuse_generated_edit(self, self.project, self.pattern):
+            self.return_state = ReturnState.CANCELLED
+            return
         if not self.pattern:
             self.return_state = ReturnState.CANCELLED
             console.info("No pattern found")

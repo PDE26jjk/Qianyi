@@ -8,9 +8,24 @@ from .. import global_data
 from .pattern import Pattern
 
 from .fabric import Fabric
+from .generator import (PatternGenerator, generator_of_pattern, instance_chain,
+                        refresh_generators)
 from .model_data import ModelData, define_temp_prop
 from .sewing import Sewing, calc_sewing_sections
 from ..declarations import Panels
+
+
+def library_category_items(self=None, context=None):
+    """Categories offered by the panel library, evaluated when the UI asks."""
+    from ..panellib import registry
+
+    items = [("ALL", "All", "Every panel component")]
+    try:
+        categories = sorted({info.category for info in registry.infos()})
+    except Exception:
+        categories = []
+    items.extend((category.upper(), category, "") for category in categories)
+    return items
 
 
 class UuidType(bpy.types.PropertyGroup):
@@ -106,6 +121,11 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         name="fabrics",
         description="The fabrics of this project",
     )
+    generators: bpy.props.CollectionProperty(
+        type=PatternGenerator,
+        name="generators",
+        description="Parametric panel generators of this project",
+    )
 
     active_pattern_index: bpy.props.IntProperty(
         default=0,
@@ -120,6 +140,27 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         name="Active fabric",
         description="The project editing",
         # update=update_active_fabric_index,
+    )
+    active_generator_index: bpy.props.IntProperty(
+        default=0,
+        min=0,
+        name="Active generator",
+        description="The generator shown in the library panel",
+    )
+    library_filter: bpy.props.StringProperty(
+        name="Search",
+        default="",
+        description="Filter the panel library by name, category or description",
+    )
+    library_category: bpy.props.EnumProperty(
+        name="Category",
+        items=library_category_items,
+        description="Show only components of this category",
+    )
+    library_component_id: bpy.props.StringProperty(
+        name="Selected component",
+        default="",
+        description="Component shown in the library's detail area",
     )
 
     index: bpy.props.IntProperty(
@@ -411,7 +452,9 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
 
         pattern_to_del.instance_next_uuid = -1
 
-    def remove_patterns(self, patterns_to_delete):
+    def remove_patterns(self, patterns_to_delete, expand_groups=True):
+        if expand_groups:
+            patterns_to_delete = self._expand_pattern_groups(patterns_to_delete)
         for p in patterns_to_delete:
             self._unlink_pattern_from_instance_list(p)
 
@@ -442,10 +485,47 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
 
         self.refresh_patterns()
 
+    def _expand_pattern_groups(self, patterns_to_delete):
+        """Deleting one panel of a generator deletes the whole group.
+
+        A generated panel is not a standalone object: its siblings and the
+        generator that produced them are one unit, so removing any of them
+        removes the unit.
+        """
+        expanded = list(patterns_to_delete)
+        seen = {p.global_uuid for p in expanded}
+        generators_to_remove = []
+        for pattern in patterns_to_delete:
+            generator = generator_of_pattern(self, pattern)
+            if generator is None or generator in generators_to_remove:
+                continue
+            generators_to_remove.append(generator)
+            for output in generator.outputs:
+                if output.pattern_uuid == -1:
+                    continue
+                sibling = global_data.get_obj_by_uuid(output.pattern_uuid, check_uuid=False)
+                # A copy of a generated panel belongs to the same group.
+                for member in instance_chain(sibling):
+                    if member.global_uuid not in seen:
+                        expanded.append(member)
+                        seen.add(member.global_uuid)
+
+        if generators_to_remove:
+            indices = sorted((generator.get_index() for generator in generators_to_remove
+                              if generator.get_index() is not None), reverse=True)
+            for index in indices:
+                if 0 <= index < len(self.generators):
+                    self.generators.remove(index)
+            refresh_generators(self)
+            self.active_generator_index = max(
+                0, min(self.active_generator_index, len(self.generators) - 1))
+        return expanded
+
     def refresh_patterns(self):
         self.refresh_collection_uuid(self.patterns)
         for p in self.patterns:
             p.clear_temp_data()
+        refresh_generators(self)
 
 
 define_temp_prop(QianyiProject, "initialized", False)

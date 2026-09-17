@@ -13,6 +13,7 @@ from .states.StatefulOperator import StateOperator, ReturnState
 from .. import global_data
 from ..declarations import Operators
 from ..model.pattern_instance import collect_unique_instances
+from ..model.generator import generation_lock
 from ..utilities.coords_transform import region2view_coord
 from ..utilities.node_tree import get_active_node_tree
 
@@ -31,7 +32,15 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
             return False
         project = get_active_node_tree(context)
         if project is not None:
-            return len(project.selected_patterns) > 0
+            if len(project.selected_patterns) == 0:
+                return False
+            # Scaling is a geometry edit, so a generated panel refuses it.
+            for item in project.selected_patterns:
+                pattern = (global_data.get_obj_by_uuid(item.uuid, check_uuid=False)
+                           if item.uuid != -1 else None)
+                if pattern is not None and generation_lock(project, pattern):
+                    return False
+            return True
         return False
 
     def setup_state_machine(self, context):

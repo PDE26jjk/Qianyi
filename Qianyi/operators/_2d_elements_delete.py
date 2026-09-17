@@ -5,6 +5,7 @@ from bpy.utils import register_classes_factory
 from ..model.pattern_instance import collect_unique_instances
 from ..model.sewing import SewingOneSide
 from ..model.pattern import interactive_edit_allowed
+from ..model.generator import refuse_generated_edit
 from ..gizmos.moving_curve import TempPoint
 from ..model.geometry import Edge2D, Vertex2D
 from ..utilities.console import console_print, console
@@ -48,6 +49,9 @@ class NODE_OT_elements_delete(Operator2DBase):
             for obj in objs:
                 pattern_set.add(obj.pattern)
             pattern_set = collect_unique_instances(pattern_set)
+            for candidate in pattern_set:
+                if refuse_generated_edit(self, project, candidate):
+                    return {"CANCELLED"}
             for p in pattern_set:
                 for v in p.vertices:
                     v.impacted = False

@@ -36,6 +36,10 @@ class Operators(str, Enum):
     RemoveAllSimulationData = "node.qmyi_remove_all_simulation_data"
     AddProject = "qmyi.add_project"
     AddFabric = "qmyi.add_fabric"
+    AddGenerator = "qmyi.add_generator"
+    DetachGenerator = "qmyi.detach_generator"
+    SelectLibraryComponent = "qmyi.select_library_component"
+    ReloadComponents = "qmyi.reload_components"
     RemoveProject = "qmyi.remove_project"
     RemovePattern = "qmyi.remove_pattern"
     RemoveFabric = "qmyi.remove_fabric"
@@ -75,6 +79,8 @@ class Panels(str, Enum):
     SimulationObject = "NODE_PT_QianyiSimulationObject"
     Solver = "NODE_PT_QianyiSolver"
     Capture = "NODE_PT_QianyiCapture"
+    GcLibrary = "NODE_PT_QianyiGcLibrary"
+    GcGeneratorProperty = "NODE_PT_QianyiGcGeneratorProperty"
 
 
 class VisibilityTypes(str, Enum):

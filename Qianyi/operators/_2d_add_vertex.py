@@ -7,6 +7,7 @@ from ..utilities.cubic_spline import get_handles_after_split, compute_split_hand
 from ..utilities.geometric_operation import split_bezier
 from ..model.pattern_instance import collect_unique_instances
 from ..model.pattern import Pattern, interactive_edit_allowed
+from ..model.generator import refuse_generated_edit
 from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .. import global_data
@@ -41,6 +42,8 @@ class NODE_OT_add_vertex(Operator2DBase):
         project = get_active_node_tree(context)
 
         pattern, edge, add_point_pos, t = project.get_nearest_point_data()
+        if refuse_generated_edit(self, project, pattern):
+            return {'CANCELLED'}
         edge_index = edge.get_index()
         edge_points = [p.co for p in edge.spline_points]
         q = np.array((edge.vertex0.co, *edge_points, edge.vertex1.co))

@@ -1,26 +1,21 @@
 """Component registry.
 
-The library panel lists whatever this registry exposes, so adding a component
-is one entry below plus its module.
+Built-in components are discovered automatically: drop a module that declares
+``COMPONENT_ID`` anywhere under the ``components`` package (subfolders are
+scanned too) and it appears in the library. Helper modules without a
+``COMPONENT_ID`` are ignored. Reloading re-scans both the built-in package and
+the user folders.
 """
 
 from __future__ import annotations
 
 import importlib
 import importlib.util
+import pkgutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-# Module names relative to this package, so the registry also works when the
-# library is imported outside Blender.
-BUILTIN_COMPONENTS = (
-    ".components.square",
-    ".components.waistband",
-    ".components.notched_panel",
-    ".components.pleated_panel",
-)
 
 _modules: dict[str, Any] = {}
 _sources: dict[str, str] = {}
@@ -40,10 +35,38 @@ class ComponentInfo:
     params: dict
 
 
+def _discover_components(package_name: str, path):
+    """Module names under a package, recursively, skipping private modules."""
+    for info in pkgutil.iter_modules(path, package_name + "."):
+        if info.ispkg:
+            try:
+                package = importlib.import_module(info.name)
+            except Exception as error:      # one broken package must not hide the rest
+                _errors.append({"path": info.name,
+                                "error": f"{type(error).__name__}: {error}",
+                                "source": "builtin"})
+                continue
+            yield from _discover_components(info.name, package.__path__)
+        elif not info.name.rsplit(".", 1)[-1].startswith("_"):
+            yield info.name
+
+
 def load_builtin() -> None:
-    for name in BUILTIN_COMPONENTS:
-        module = importlib.import_module(name, __package__)
-        register(module)
+    """(Re)discover every built-in component under the ``components`` package."""
+    _errors[:] = [entry for entry in _errors if entry.get("source") != "builtin"]
+    for component_id in [name for name, source in _sources.items() if source == "builtin"]:
+        _modules.pop(component_id, None)
+        _sources.pop(component_id, None)
+    package = importlib.import_module(".components", __package__)
+    for name in _discover_components(package.__name__, package.__path__):
+        try:
+            module = importlib.import_module(name)
+        except Exception as error:
+            _errors.append({"path": name, "error": f"{type(error).__name__}: {error}",
+                            "source": "builtin"})
+            continue
+        if getattr(module, "COMPONENT_ID", None):
+            register(module, source="builtin")
 
 
 def register(module, source: str = "builtin") -> None:
@@ -59,16 +82,8 @@ def errors() -> list[dict]:
     return list(_errors)
 
 
-def load_user_components(paths) -> list[dict]:
-    """Load (or reload) user components from ``paths``.
-
-    A component module is a plain python file that declares ``COMPONENT_ID``.
-    Reloading re-executes a module that was already loaded, so a user can edit
-    a component and press reload instead of restarting Blender. Modules that
-    fail are recorded with their error and the others stay usable; built-in
-    components are never touched.
-    """
-    _errors.clear()
+def _load_user_components(paths) -> None:
+    """Load user components from ``paths`` without clearing the error list."""
     for component_id in [name for name, source in _sources.items() if source == "user"]:
         _modules.pop(component_id, None)
         _sources.pop(component_id, None)
@@ -76,13 +91,15 @@ def load_user_components(paths) -> list[dict]:
     for path in paths or []:
         directory = Path(path).expanduser()
         if not directory.is_dir():
-            _errors.append({"path": str(directory), "error": "not a directory"})
+            _errors.append({"path": str(directory), "error": "not a directory",
+                            "source": "user"})
             continue
         # Deliberate Python loop: one module import per file, per directory.
-        for file in sorted(directory.glob("*.py")):
+        for file in sorted(directory.rglob("*.py")):
             if file.name.startswith("_"):
                 continue
-            module_name = f"qianyi_user_component_{file.stem}"
+            relative = file.relative_to(directory).with_suffix("")
+            module_name = "qianyi_user_component_" + "_".join(relative.parts)
             try:
                 spec = importlib.util.spec_from_file_location(module_name, file)
                 if spec is None or spec.loader is None:
@@ -99,7 +116,32 @@ def load_user_components(paths) -> list[dict]:
                 register(module, source="user")
             except Exception as error:      # one broken file must not hide the rest
                 sys.modules.pop(module_name, None)
-                _errors.append({"path": str(file), "error": f"{type(error).__name__}: {error}"})
+                _errors.append({"path": str(file),
+                                "error": f"{type(error).__name__}: {error}",
+                                "source": "user"})
+
+
+def load_user_components(paths) -> list[dict]:
+    """Load (or reload) user components from ``paths``.
+
+    A component module is a plain python file that declares ``COMPONENT_ID``.
+    Subfolders are scanned too; a file's module name is built from its path so
+    two files with the same stem in different folders do not collide.
+    Reloading re-executes a module that was already loaded, so a user can edit
+    a component and press reload instead of restarting Blender. Modules that
+    fail are recorded with their error and the others stay usable; built-in
+    components are never touched.
+    """
+    _errors.clear()
+    _load_user_components(paths)
+    return errors()
+
+
+def reload_all(paths=None) -> list[dict]:
+    """Re-scan the built-in package and the user folders."""
+    _errors.clear()
+    load_builtin()
+    _load_user_components(paths)
     return errors()
 
 

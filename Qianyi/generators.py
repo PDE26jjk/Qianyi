@@ -34,7 +34,53 @@ def create_generator(project, component_id: str, params: dict | None = None) -> 
     refresh_generators(project)
     project.active_generator_index = len(project.generators) - 1
     apply_generator(project, generator)
+    _create_internal_seams(project, generator)
     return generator
+
+
+def _create_internal_seams(project, generator) -> int:
+    """Create a generator's own seams, once, when the generator is created.
+
+    They are not recreated on rebuilds: a rebuild only keeps them attached
+    through the normal edge-label remap, or drops a seam whose edge no longer
+    exists.
+    """
+    try:
+        spec = component.build_component(generator.component_id, _clamped_values(generator))
+    except Exception as error:
+        console.warning(f"generator '{generator.name}': cannot resolve internal seams: {error}")
+        return 0
+    if not spec.seams:
+        return 0
+    panels = {}
+    for output in generator.outputs:
+        pattern = global_data.get_obj_by_uuid(output.pattern_uuid, check_uuid=False)
+        if pattern is not None:
+            panels[output.slot] = pattern
+    created = 0
+    # Deliberate loop: one sewing per declared seam pair.
+    for seam in spec.seams:
+        first = panels.get(seam.panel_a)
+        second = panels.get(seam.panel_b)
+        if first is None or second is None:
+            continue
+        edge_a = _edge_named(first, seam.edge_a)
+        edge_b = _edge_named(second, seam.edge_b)
+        if edge_a is None or edge_b is None:
+            continue
+        if project.add_sewing1to1(edge_a, edge_b, reverse=seam.reverse) is not None:
+            created += 1
+    if created:
+        console.print(f"generator '{generator.name}': {created} internal seam(s)")
+    return created
+
+
+def _edge_named(pattern, name: str):
+    """The first edge of a pattern carrying the given label."""
+    for edge in pattern.edges:
+        if edge.name == name:
+            return edge
+    return None
 
 
 def _unique_name(project, base: str) -> str:

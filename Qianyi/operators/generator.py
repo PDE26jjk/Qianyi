@@ -89,13 +89,13 @@ class QY_OT_ReloadComponents(bpy.types.Operator):
     bl_options = {"REGISTER", "INTERNAL"}
 
     def execute(self, context):
-        errors = registry.load_user_components(preferences.component_paths())
+        errors = registry.reload_all(preferences.component_paths())
         if errors:
             for entry in errors:
                 self.report({"ERROR"}, f"{entry['path']}: {entry['error']}")
         else:
-            count = len([info for info in registry.infos() if info.source == "user"])
-            self.report({"INFO"}, f"component library reloaded, {count} user component(s)")
+            count = len(registry.infos())
+            self.report({"INFO"}, f"component library reloaded, {count} component(s)")
         if context.area:
             context.area.tag_redraw()
         return {"FINISHED"}

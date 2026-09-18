@@ -54,6 +54,24 @@ class ComponentSpec:
     component_id: str
     params: dict
     panels: list[PanelSpec] = field(default_factory=list)
+    seams: list["SeamSpec"] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SeamSpec:
+    """One internal seam the generator creates once, at first generation.
+
+    Each side is a panel slot plus the label of one edge in that panel. The
+    labels are the semantic edge names the component gives its boundary; they
+    are also what the rebuild remap uses to keep a seam attached when the
+    edge order changes.
+    """
+
+    panel_a: str
+    edge_a: str
+    panel_b: str
+    edge_b: str
+    reverse: bool = False
 
 
 def auto_label(index: int) -> str:

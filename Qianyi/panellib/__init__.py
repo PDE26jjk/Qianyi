@@ -5,7 +5,7 @@ components can be developed, generated and tested outside the add-on.
 """
 
 from .curves import Arc, Bezier, Curve, FrontendEdge, Line, Polyline
-from .spec import ComponentSpec, EdgeSpec, PanelSpec, PanelSpecError
+from .spec import ComponentSpec, EdgeSpec, PanelSpec, PanelSpecError, SeamSpec
 from .noise import noise_run
 
 __all__ = [
@@ -19,5 +19,6 @@ __all__ = [
     "EdgeSpec",
     "PanelSpec",
     "PanelSpecError",
+    "SeamSpec",
     "noise_run",
 ]

@@ -37,11 +37,14 @@ class SewingOneSide(PropertyGroup, ModelData, Selectable):
 
     @property
     def line1(self):
-        return global_data.get_obj_by_uuid(self.line1_uuid)
+        # During a panel rebuild the edge collection is rewritten before the
+        # sewings are remapped, so this lookup can transiently point at a
+        # shifted wrapper. Return None instead of raising.
+        return global_data.get_obj_by_uuid(self.line1_uuid, check_uuid=False)
 
     @property
     def line2(self):
-        return global_data.get_obj_by_uuid(self.line2_uuid)
+        return global_data.get_obj_by_uuid(self.line2_uuid, check_uuid=False)
 
 
 define_temp_prop(SewingOneSide, "sewing", None)
@@ -71,11 +74,13 @@ class Sewing(PropertyGroup, ModelData, Selectable):
 
     @property
     def pattern1(self):
-        return self.side1.line1.pattern
+        line = self.side1.line1
+        return line.pattern if line is not None else None
 
     @property
     def pattern2(self):
-        return self.side2.line1.pattern
+        line = self.side2.line1
+        return line.pattern if line is not None else None
 
     @property
     def side1(self):

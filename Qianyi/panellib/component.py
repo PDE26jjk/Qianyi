@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from . import registry
-from .spec import ComponentSpec, PanelSpec, finalize_panel
+from .spec import ComponentSpec, PanelSpec, SeamSpec, finalize_panel
 
 
 def build_component(component_id: str, params: dict | None = None) -> ComponentSpec:
@@ -22,7 +22,20 @@ def build_component(component_id: str, params: dict | None = None) -> ComponentS
     panels: list[PanelSpec] = [finalize_panel(panel) for panel in raw_panels]
     if not panels:
         raise ValueError(f"component '{component_id}' produced no panels")
-    return ComponentSpec(component_id=component_id, params=dict(merged), panels=panels)
+    return ComponentSpec(component_id=component_id, params=dict(merged), panels=panels,
+                         seams=_component_seams(module, dict(merged), panels))
+
+
+def _component_seams(module, params: dict, panels: list[PanelSpec]) -> list[SeamSpec]:
+    """The component's declared internal seams, if it has any."""
+    factory = getattr(module, "seams", None)
+    if factory is None:
+        return []
+    result = []
+    # Deliberate loop: one SeamSpec per declared Python tuple.
+    for entry in factory(params, panels):
+        result.append(entry if isinstance(entry, SeamSpec) else SeamSpec(*entry))
+    return result
 
 
 def clamp_to_schema(component_id: str, values: dict) -> dict:

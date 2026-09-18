@@ -260,6 +260,8 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         adj = defaultdict(list)
         for sewing in self.project.sewings:
             p1, p2 = sewing.pattern1, sewing.pattern2
+            if p1 is None or p2 is None:
+                continue
             adj[p1].append(sewing)
             if p1 != p2:
                 adj[p2].append(sewing)

@@ -14,6 +14,13 @@ from .. import global_data
 from ..utilities.coords_transform import create_2d_matrix, create_2d_matrix_invert
 
 
+# The grain line is drawn rotated a quarter turn: every other garment tool
+# draws the default warp direction vertically on the pattern, while this
+# add-on's stored grain direction of 0 is the +X axis. Only the drawing is
+# rotated - the value handed to the engine is the panel's own `grain_dir`.
+GRAIN_DISPLAY_ROTATION = math.pi / 2
+
+
 class PatternRenderer(BaseRenderer):
     def __init__(self, pattern):
         super().__init__()
@@ -58,7 +65,8 @@ class PatternRenderer(BaseRenderer):
         bbox = pattern.get_bbox()
         size = min(bbox[1] - bbox[0])
         length = max(float(size) * 0.25, 1.0)
-        direction = np.array((math.cos(pattern.grain_dir), math.sin(pattern.grain_dir)), dtype=np.float32)
+        angle = pattern.grain_dir + GRAIN_DISPLAY_ROTATION
+        direction = np.array((math.cos(angle), math.sin(angle)), dtype=np.float32)
         normal = np.array((-direction[1], direction[0]), dtype=np.float32)
         tip = center + direction * length
         head_length = length * 0.25

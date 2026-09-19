@@ -31,6 +31,7 @@ class QY_PT_simulation_object(VIEW_3D_PT_qmyi_base):
                     box.prop(fabric, "thickness")
                     box.prop(fabric, "friction")
                     box.prop(fabric, "weight")
+                    box.prop(fabric, "color")
                     box.prop(fabric, "stretch")
                     # box.prop(fabric, "shear")
                     box.prop(fabric, "bending")

@@ -26,6 +26,19 @@ from .GizmosMeshRenderer import MeshRenderer
 INVALID_PATTERN_COLOR = (1.0, 0.25, 0.2, 1.0)
 
 
+def fabric_fill_color(pattern, alpha=0.5):
+    """The fill colour of a panel: its fabric's display colour, or a neutral grey.
+
+    Display only - the fabric's colour is not part of the simulation payload.
+    """
+    try:
+        fabric = pattern.fabric
+    except Exception:
+        fabric = None
+    rgb = tuple(fabric.color) if fabric is not None else (0.85, 0.85, 0.9)
+    return (rgb[0], rgb[1], rgb[2], alpha)
+
+
 class TempDrawManager:
     def __init__(self):
         self.last_edit_mode = None
@@ -381,6 +394,8 @@ class TempDrawManager:
         # console.info(f"temp lines: {(time.time() - start_time) * 1000}")
         # start_time = time.time()
 
+        display_mode = qmyi.pattern_display_mode
+
         shader.bind()
         gpu.state.line_width_set(1.0)
         for p in patterns:
@@ -401,17 +416,24 @@ class TempDrawManager:
                 if p.mesh_renderer.obj != p.mesh_object:
                     p.mesh_renderer.start_rendering(p.mesh_object)
                 is_selected = qmyi.edit_mode == "PATTERN" and p.is_selected
-                p.mesh_renderer.draw_mesh_lines(is_selected)
+                # The display mode only chooses what is drawn: no branch here
+                # resamples a panel, rebuilds a mesh or touches a sewing.
+                if display_mode == 'MESH':
+                    p.mesh_renderer.draw_mesh_lines(is_selected)
+                elif display_mode in ('SOLID', 'STRESS', 'DEBUG'):
+                    # Stress and debug need an applied frame; without one the
+                    # panel keeps the solid fill and the header says why.
+                    if display_mode == 'SOLID' or not p.mesh_renderer.draw_fill_mesh_vertex_colors(display_mode):
+                        p.mesh_renderer.draw_fill_mesh(fabric_fill_color(p))
 
             gpu.state.blend_set("ALPHA")
             color = (0.2, 0.2, 0.8, 1)
-            line_color = (*color[:3], color[3] * 0.8)  # 降低透明度
+            line_color = (*color[:3], color[3] * 0.8)
             # An outline that crosses itself cannot become a sound mesh: the
             # sampler drops the triangles it cannot validate, so the pattern is
             # drawn in red and the crossing is marked until it is fixed.
             outline_color = INVALID_PATTERN_COLOR if p.is_invalid else line_color
             shader.uniform_float("color", outline_color)
-            # TODO different pattern rendering mode
             p.line_renderer.draw_edges(color=outline_color)
             if p.is_invalid and p.invalid_point is not None:
                 p.line_renderer.draw_invalid_marker(p.invalid_point)

@@ -145,6 +145,10 @@ class SimulationManager:
         self.pending_colors = None
         self.new_cloth_data_available = False
         self.new_frame_data_available = False
+        # Object names whose mesh carries colours written from an engine frame.
+        # A fresh mesh has a Color attribute too, so this set - not the
+        # attribute - is what tells the display modes that there is data.
+        self.colored_objects = set()
         print("SimulationManager 已初始化")
         if self.simulation_task_name in task_mgr.scheduled_tasks:
             task_mgr.remove_scheduled_task(self.simulation_task_name).wait()
@@ -258,8 +262,22 @@ class SimulationManager:
                     colors_4d[:, :3] = colors
                     colors_4d[:, 3] = 1.0
                     color_attribute.data.foreach_set("color", colors_4d.ravel())
+                    self.colored_objects.add(obj.name)
             nb_all_v += num_vertices
             mesh.update()
+
+    def has_simulation_frame(self, obj):
+        """Whether the engine has applied a frame to this object's mesh."""
+        return getattr(obj, "name", None) in self.colored_objects
+
+    def frame_key(self):
+        """A value that changes every time a frame is applied.
+
+        The display modes cache what they derived from the last frame (colours,
+        strain) under this key, so a redraw that did not advance the simulation
+        reuses the previous result instead of recomputing it.
+        """
+        return self.run_count
 
     def _apply_blender_data(self):
         update_time_step = 0.016
@@ -311,6 +329,8 @@ class SimulationManager:
         refresh_all_uuids()
         self.simulated_objects.clear()
         self.world_matrixs.clear()
+        # A new payload invalidates the previous frame's colours.
+        self.colored_objects.clear()
         projects = set()
         objs = []
         for obj in bpy.data.objects:

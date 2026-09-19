@@ -51,6 +51,23 @@ class QianyiProps(PropertyGroup, ModelData):
         description="Display the grain direction arrow in the pattern editor",
         default=False,
     )
+    pattern_display_mode: EnumProperty(
+        name="Display",
+        description="What the pattern editor draws for a panel: the fabric "
+                    "colour, the outline only, the sampled mesh, or the "
+                    "engine's per-vertex stress / debug values",
+        items=[
+            ('SOLID', "Solid", "Fill each panel with its fabric colour",),
+            ('WIREFRAME', "Wireframe",
+             "Draw outlines and internal lines only",),
+            ('MESH', "Mesh", "Draw the sampled panel mesh over the outline",),
+            ('STRESS', "Stress",
+             "Colour the mesh with the engine's per-vertex values",),
+            ('DEBUG', "Debug",
+             "Colour the mesh with the engine's debug values",),
+        ],
+        default='MESH',
+    )
     interactive_self_intersection_check: BoolProperty(
         name="Check Self-Intersection",
         description="Test a pattern outline for a self-crossing while it is "

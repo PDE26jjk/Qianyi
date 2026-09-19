@@ -96,29 +96,20 @@ class NODE_OT_internal_line_create_by_pen(Operator2DBase, StateOperator):
             return
         pattern = self.pattern
         collect_unique_instances({pattern})
-        v_index_offset = len(pattern.vertices)
-        # inv_mat = pattern.calc_inv_matrix()
+        # View coordinates to pattern space once, then let the model layer write
+        # the same line into every panel of the instance list.
+        segments = []
         for mc in state.moving_curves:
-            mc.vertex0.co = pattern.view_to_pattern_pos(mc.vertex0.co)
-            mc.vertex1.co = pattern.view_to_pattern_pos(mc.vertex1.co)
-            mc.handle1.co = pattern.view_to_pattern_pos(mc.handle1.co)
-            mc.handle2.co = pattern.view_to_pattern_pos(mc.handle2.co)
-
+            segments.append({
+                "p0": pattern.view_to_pattern_pos(mc.vertex0.co),
+                "p1": pattern.view_to_pattern_pos(mc.vertex1.co),
+                "h1": pattern.view_to_pattern_pos(mc.handle1.co),
+                "h2": pattern.view_to_pattern_pos(mc.handle2.co),
+                "h1_type": mc.handle1_type,
+                "h2_type": mc.handle2_type,
+            })
         for ins in pattern.instances:
-            il: InternalLine = ins.internal_lines.add()
-            il.is_loop = state.circle
-            vertices_size = len(moving_curves)
-            if not state.circle:
-                vertices_size += 1
-            for i, mc in enumerate(moving_curves):
-                ins.add_vertex(mc.vertex0.co)
-                next_i = (i + 1) % vertices_size
-                il.add_edge(i + v_index_offset, next_i + v_index_offset, mc.handle1.co, mc.handle2.co,
-                            mc.handle1_type, mc.handle2_type, update=False)
-            if not state.circle:
-                ins.add_vertex(moving_curves[-1].vertex1.co)
-            ins.recreate_sections()
-            ins.forced_update()
+            ins.add_internal_line(segments, is_loop=state.circle)
             ins.generate_mesh()
 
     def handle_failure(self, context, state: IState):

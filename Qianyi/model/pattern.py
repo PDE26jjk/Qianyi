@@ -558,6 +558,38 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             self.calc_bbox()
         return edge
 
+    def add_internal_line(self, segments, is_loop=False):
+        """Add one internal line from a run of curve pieces.
+
+        ``segments`` is a list of dicts with ``p0``, ``p1`` (pattern space, in
+        millimetres), ``h1``, ``h2``, ``h1_type`` and ``h2_type``; consecutive
+        pieces share their end point the way the internal line pen draws them.
+        The control points become vertices of this pattern, exactly as they do
+        when the pen writes the line, so the line can be edited afterwards.
+        """
+        if not segments:
+            raise ValueError("an internal line needs at least one segment")
+        line: InternalLine = self.internal_lines.add()
+        line.is_loop = bool(is_loop)
+        offset = len(self.vertices)
+        for segment in segments:  # loop: one vertex object per curve piece
+            self.add_vertex(segment["p0"])
+        if not is_loop:
+            self.add_vertex(segments[-1]["p1"])
+        for index, segment in enumerate(segments):  # loop: one edge object per piece
+            if is_loop:
+                next_index = (index + 1) % len(segments)
+            else:
+                next_index = index + 1
+            line.add_edge(index + offset, next_index + offset,
+                          segment["h1"], segment["h2"],
+                          segment.get("h1_type", "VECTOR"),
+                          segment.get("h2_type", "VECTOR"), update=False)
+        line.pattern = self
+        self.recreate_sections()
+        self.forced_update()
+        return line
+
     def update_render_line(self):
         if not self.initialized:
             self.initialize()
@@ -707,9 +739,66 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         pos = self.calc_matrix() @ Vector((pos[0], pos[1], 0, 1))
         return pos[0], pos[1]
 
-    def copy_pattern(self, as_instance=False, mirror=False, project=None):
+    def _copy_geometry_from(self, source):
+        """Copy vertices, edges, handles and spline points, index for index.
+
+        Copies stay index-aligned with their source, which is what lets an edit
+        be written to the whole instance list by index. Internal lines are not
+        copied, matching what the editor's copy has always done.
+        """
+        for vertex in source.vertices:  # loop: one vertex object per point
+            self.add_vertex((vertex.co[0], vertex.co[1]))
+        for edge in source.edges:  # loop: one edge object per edge
+            new_edge: Edge2D = self.edges.add()
+            new_edge.vertex_index[0] = edge.vertex_index[0]
+            new_edge.vertex_index[1] = edge.vertex_index[1]
+            handle1 = edge.handle1.co[:] if len(edge.handles) > 0 else (0.0, 0.0)
+            handle2 = edge.handle2.co[:] if len(edge.handles) > 1 else (0.0, 0.0)
+            # One implementation of "write this edge as a line, a Bezier or a
+            # spline", so a copy cannot drift from what the editor writes.
+            new_edge.set_curve(edge.kind, handle1, handle2,
+                               [(point.co[0], point.co[1])
+                                for point in edge.spline_points],
+                               edge.handle1_type, edge.handle2_type)
+            new_edge.name = edge.name
+            new_edge.pattern = self
+        self.refresh_collection_uuid(self.edges)
+
+    def copy_pattern(self, as_instance=False, mirror=False, project=None, anchor=None):
+        """Copy this panel and return the copy.
+
+        The copy holds the same local geometry; a mirror is expressed by the
+        transform matrix and the mesh scale, so `mirror` only flips the copy's
+        flag. Both panels end up in one instance list, which is how the editor
+        keeps copies of a panel in step.
+        """
+        from .qianyi_project import get_unique_name
+
         if project is None:
             project = self.project
+        new_pattern = project.add_pattern()
+        new_pattern.name = get_unique_name(
+            project.patterns, f"{self.name}_{'mirror' if mirror else 'instance'}")
+        new_pattern._copy_geometry_from(self)
+        new_pattern.anchor = self.anchor[:] if anchor is None else (float(anchor[0]),
+                                                                   float(anchor[1]))
+        new_pattern.rotation = self.rotation
+        new_pattern.grain_dir = self.grain_dir
+        new_pattern.collision_layer = self.collision_layer
+        new_pattern.fabric_uuid = self.fabric_uuid
+        new_pattern.granularity = self.granularity
+        new_pattern.is_mirror = bool(self.is_mirror) ^ bool(mirror)
+        # The instance list is circular: the source points at the copy, and the
+        # copy points at whatever the source pointed at - itself when the source
+        # was alone.
+        if self.instance_next_uuid == -1:
+            self.instance_next_uuid = self.global_uuid
+        new_pattern.instance_next_uuid = self.instance_next_uuid
+        self.instance_next_uuid = new_pattern.global_uuid
+        new_pattern.initialize()
+        new_pattern.forced_update()
+        new_pattern.generate_mesh()
+        return new_pattern
 
     def other_instances(self):
         instances = []

@@ -7,6 +7,8 @@ parameter changes. The geometry itself comes from :mod:`Qianyi.panellib`.
 
 from __future__ import annotations
 
+import math
+
 import bpy
 import numpy as np
 from mathutils import Vector
@@ -34,8 +36,52 @@ def create_generator(project, component_id: str, params: dict | None = None) -> 
     refresh_generators(project)
     project.active_generator_index = len(project.generators) - 1
     apply_generator(project, generator)
+    _place_outputs(project, generator)
     _create_internal_seams(project, generator)
     return generator
+
+
+LAYOUT_GAP = 50.0  # millimetres between panels laid out on first generation
+
+
+def _place_outputs(project, generator) -> int:
+    """Lay a multi-panel generator's panels out side by side, once.
+
+    Panels are generated around the same origin and would otherwise overlap in
+    the 2D editor. The anchor is the 2D view offset only - the simulation uses
+    the mesh object, which this does not touch - so moving it is safe. Only the
+    first generation is laid out: a rebuild must not move panels the user has
+    arranged.
+    """
+    panels = []
+    for output in generator.outputs:
+        pattern = global_data.get_obj_by_uuid(output.pattern_uuid, check_uuid=False)
+        if pattern is None:
+            continue
+        bbox = pattern.get_bbox()
+        x_min, y_min = float(bbox[0][0]), float(bbox[0][1])
+        x_max, y_max = float(bbox[1][0]), float(bbox[1][1])
+        if x_max - x_min > 0.0 and y_max - y_min > 0.0:
+            panels.append((pattern, x_min, y_min, x_max, y_max))
+    if len(panels) < 2:
+        return 0
+
+    columns = max(1, int(math.ceil(math.sqrt(len(panels)))))
+    first, first_x_min, _, _, first_y_max = panels[0]
+    origin_x = first_x_min + float(first.anchor[0])
+    origin_y = first_y_max + float(first.anchor[1])
+    cursor_y = origin_y
+    # Deliberate loops: one anchor write per panel, in row-major order.
+    for start in range(0, len(panels), columns):
+        row = panels[start:start + columns]
+        row_height = max(y_max - y_min for _, _, y_min, _, y_max in row)
+        cursor_x = origin_x
+        for pattern, x_min, y_min, x_max, y_max in row:
+            pattern.anchor = (cursor_x - x_min, cursor_y - y_max)
+            cursor_x += (x_max - x_min) + LAYOUT_GAP
+        cursor_y -= row_height + LAYOUT_GAP
+    console.print(f"generator '{generator.name}': laid out {len(panels)} panel(s)")
+    return len(panels)
 
 
 def _create_internal_seams(project, generator) -> int:
@@ -454,11 +500,8 @@ def _drop_stale_outputs(project, generator, keep: list[str]) -> int:
 
 
 def _edge_kind(edge) -> str:
-    if len(edge.spline_points) > 0:
-        return "spline"
-    if edge.handle1_type == "VECTOR" and edge.handle2_type == "VECTOR":
-        return "straight"
-    return "bezier"
+    """The edge's form, from the one place that decides it."""
+    return edge.kind
 
 
 def _pattern_topology(pattern) -> tuple:

@@ -183,6 +183,48 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
     def type(self):
         return "BESSEL" if len(self.spline_points) == 0 else "CUBIC_SPLINE"
 
+    @property
+    def kind(self):
+        """How this edge is drawn and sampled: straight, bezier or spline."""
+        if len(self.spline_points) > 0:
+            return "spline"
+        if self.handle1_type == "VECTOR" and self.handle2_type == "VECTOR":
+            return "straight"
+        return "bezier"
+
+    def set_curve(self, kind, handle1=None, handle2=None, points=None,
+                  handle1_type=None, handle2_type=None):
+        """Write this edge in one of the three forms the editor can hold.
+
+        ``straight`` is a two-point edge with vector handles, ``bezier`` is a
+        two-point edge with free (or aligned) handles, and ``spline`` is an
+        interpolating curve through ``points``. The spline points are cleared
+        for the other two kinds, so the written form is the one the kind asks
+        for and nothing of the previous form is left behind.
+        """
+        if kind not in ("straight", "bezier", "spline"):
+            raise ValueError(f"unknown edge kind {kind!r}")
+        while len(self.spline_points) > 0:
+            self.spline_points.remove(len(self.spline_points) - 1)
+        if kind == "spline":
+            for point in (points or ()):  # loop: one point object per control point
+                handle = self.spline_points.add()
+                handle.co = (float(point[0]), float(point[1]))
+            handle1_type = handle1_type or "VECTOR"
+            handle2_type = handle2_type or "VECTOR"
+        elif kind == "straight":
+            handle1_type = "VECTOR"
+            handle2_type = "VECTOR"
+        else:
+            handle1_type = handle1_type or "FREE"
+            handle2_type = handle2_type or "FREE"
+        self.handle1.co = (float(handle1[0]), float(handle1[1])) if handle1 else (0.0, 0.0)
+        self.handle2.co = (float(handle2[0]), float(handle2[1])) if handle2 else (0.0, 0.0)
+        self.handle1_type = handle1_type
+        self.handle2_type = handle2_type
+        self.need_update_points = True
+        return self
+
     def add_edge_point(self, position):
         point = self.spline_points.add()
         point.co = position

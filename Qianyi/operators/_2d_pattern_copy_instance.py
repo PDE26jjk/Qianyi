@@ -86,52 +86,14 @@ class NODE_OT_pattern_copy_instance(Operator2DBase, StateOperator):
 
     def handle_success(self, context, state):
         for src, new_anchor in zip(self.source_pats, self.new_anchors):
-            new_pat = self.project.patterns.add()
-            new_pat.name = src.name + ("_mirror" if self.mirror else "_instance")
-            new_pat.anchor = new_anchor
-            new_pat.rotation = src.rotation
-            new_pat.fabric_uuid = src.fabric_uuid
-            new_pat.granularity = src.granularity
-
-            mirror_x = self.mirror ^ src.is_mirror
-            new_pat.is_mirror = mirror_x
-
-            # insert linked list
-            if src.instance_next_uuid == -1:
-                src.instance_next_uuid = src.global_uuid
-            new_pat.instance_next_uuid = src.instance_next_uuid
-            src.instance_next_uuid = new_pat.global_uuid
-
+            # The copy itself lives in the model layer, so the script surface
+            # and this operator produce the same panel.
+            new_pat = src.copy_pattern(as_instance=True, mirror=self.mirror,
+                                       anchor=new_anchor)
             console.info(f"{src.global_uuid}->{src.instance_next_uuid}")
             console.info(f"{new_pat.global_uuid}->{new_pat.instance_next_uuid}")
 
-            self._copy_geometry(src, new_pat)
-
-            new_pat.initialize()
-            new_pat.forced_update()
-            new_pat.generate_mesh()
-
         self.return_state = ReturnState.FINISHED
-
-    def _copy_geometry(self, src, dst):
-        """逐项复制顶点和边的局部坐标"""
-        for v in src.vertices:
-            dst.add_vertex((v.co[0], v.co[1]))
-
-        for e in src.edges:
-            h1 = (e.handle1.co[0], e.handle1.co[1]) if len(e.handles) > 0 else (0, 0)
-            h2 = (e.handle2.co[0], e.handle2.co[1]) if len(e.handles) > 1 else (0, 0)
-            new_edge = dst.edges.add()
-            new_edge.vertex_index[0] = e.vertex_index[0]
-            new_edge.vertex_index[1] = e.vertex_index[1]
-            # new_edge.type = e.type
-            new_edge.handle1.co = h1
-            new_edge.handle2.co = h2
-            new_edge.handle1_type = e.handle1_type
-            new_edge.handle2_type = e.handle2_type
-            for sp in e.spline_points:
-                new_sp = new_edge.spline_points.add()
-                new_sp.co = (sp.co[0], sp.co[1])
 
     def handle_failure(self, context, state):
         self.return_state = ReturnState.CANCELLED

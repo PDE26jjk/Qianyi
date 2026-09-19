@@ -293,8 +293,11 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
                 patterns.append(pattern)
         return patterns
 
-    def add_sewing1to1(self, edge1, edge2, side1_reverse=False, side2_revers=True, color=None):
-        return self.add_sewing(edge1, 0, edge1, 1, side1_reverse, edge2, 1, edge2, 0, side2_revers,
+    def add_sewing1to1(self, edge1, edge2, reverse=False, color=None):
+        first_half = (0.0, 1.0, False)
+        second_half = (0.0, 1.0, False) if not reverse else (1.0, 0.0, True)
+        return self.add_sewing(edge1, first_half[0], edge1, first_half[1], first_half[2],
+                               edge2, second_half[0], edge2, second_half[1], second_half[2],
                                color=color)
 
     def add_sewing1to1_from_points(self, edge1, point1, edge2, point2, color=None):

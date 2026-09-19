@@ -13,7 +13,9 @@ core_modules = [
     "debug_draw_3d",
     "workspacetools",
     "vr",
-    "m17n"
+    "m17n",
+    # Last: the script surface imports the model and the simulation manager.
+    "qyapi"
 ]
 
 _register_modules, unregister_full = module_register_factory(__package__, core_modules)

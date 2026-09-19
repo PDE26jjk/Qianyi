@@ -5,6 +5,7 @@ from bpy.utils import register_classes_factory
 import atexit
 
 from ..utilities.console import console_print, console
+from ..utilities.report import report_error
 from ..simulation.simulation_manager import simulation_manager
 
 
@@ -26,21 +27,30 @@ class SimulationProps(PropertyGroup):
 
     def _on_global_simulation_toggle(self, context):
         global _reset_in_progress
+        if _reset_in_progress:
+            return
+        # The panel runs through the same entry points the script surface
+        # exposes, so the mode a script reads cannot disagree with the code that
+        # is actually running. Imported here: the surface loads after this
+        # module, and importing it at module level would be a cycle.
+        from ..qyapi import sim as qmyi_sim
+        from ..qyapi.errors import QyapiError
         if self.enable_free_simulation:
-            if _reset_in_progress:
-                return
             self.simulation_with_animation = False
             self.play_frame_cache = False
-            if not simulation_manager.start_simulation():
+            try:
+                qmyi_sim.start()
+            except QyapiError as error:
                 # The manager refused (an invalid pattern); put the switch back
                 # so the UI does not claim a run that never started.
+                report_error(str(error), error.details)
                 _reset_in_progress = True
                 try:
                     self.enable_free_simulation = False
                 finally:
                     _reset_in_progress = False
         else:
-            simulation_manager.stop_simulation()
+            qmyi_sim.stop()
 
     next_n_frames: IntProperty(
         name="next_n_frames",

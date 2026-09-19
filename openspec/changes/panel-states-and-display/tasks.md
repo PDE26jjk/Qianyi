@@ -78,18 +78,21 @@
 
 ## 6. Avatar silhouette guide
 
-- [ ] 6.1 Add the projection helper that maps a collider mesh into a panel's 2D
-  space along a chosen axis, and verify it against a known planar case
-  (a 1 m body edge projects to 1000 mm at the panel's scale)
-- [ ] 6.2 Draw the projected silhouette behind the panel outlines, with the
-  global and per-panel toggles and the per-panel axis control
-- [ ] 6.3 Cache the projection keyed by the collider's transform, and verify
-  moving or rotating the avatar updates the silhouette without regenerating a
-  panel mesh
-- [ ] 6.4 Verify the guide is display-only: enabling it changes no panel
+- [x] 6.1 Project the project's selected collection along a world axis into the
+  pattern space in millimetres, with the project's offset, and verify a 1 m
+  edge projects to 1000 mm and that the offset shifts it by exactly that much
+- [x] 6.2 Draw the projected triangles filled behind the panels and the
+  projected mesh edges over them, each with its own colour and opacity
+- [x] 6.3 Add the project properties (collection, switch, axis, offset, colour,
+  fill and mesh opacities) and the pattern editor panel that exposes them, with
+  the guide off by default
+- [x] 6.4 Cache the projection on the selection, the transforms, the settings
+  and the engine's frame, with a bounded rebuild rate while the selection
+  deforms
+- [x] 6.5 Verify the guide is display-only: enabling it changes no panel
   vertex, mesh, sewing or payload entry
-- [ ] 6.5 Verify the control reports "no collider" and draws nothing when the
-  scene has no collider mesh
+- [x] 6.6 Verify that a project with no collection named projects nothing and
+  reports it in the controls
 
 ## 7. Script surface and documentation
 

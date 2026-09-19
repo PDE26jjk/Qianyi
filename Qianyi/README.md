@@ -77,14 +77,15 @@ name are specified in `openspec/changes/<name>/`.
 
 - [x] Pattern window drawing: outline, internal lines, spline points, seam
   lines, preselection, grain direction and the outline-validity marker.
-- [ ] Display modes for the pattern window: solid, wireframe, mesh, stress,
+- [x] Display modes for the pattern window: solid, wireframe, mesh, stress,
   debug — `panel-states-and-display`.
 - [ ] Stress and debug vertex colours in the 3D viewport, with the material
   that displays them — `panel-states-and-display`.
 - [ ] Seam lines drawn in the 3D viewport between the paired stitch vertices —
   `panel-states-and-display`.
-- [ ] The avatar silhouette projected into the pattern window as an alignment
-  guide — `panel-states-and-display`.
+- [x] The avatar silhouette projected into the pattern window as an alignment
+  guide (a project collection, projected 1:1 with its mesh edges, cached) —
+  `panel-states-and-display`.
 - [ ] Anti-aliased points and lines, and a line-width control that survives a
   redraw.
 - [ ] Fabric texture and UV display on the simulated garment.

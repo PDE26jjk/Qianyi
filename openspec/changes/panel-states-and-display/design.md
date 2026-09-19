@@ -135,18 +135,35 @@ What was derived from a frame is cached under the engine's frame key, so a
 redraw that did not advance the simulation neither re-derives the strain nor
 re-uploads a batch.
 
-### D7. The silhouette is a projection performed at draw time
+### D7. The silhouette is one projection of a named collection, drawn in the window's own space
 
-For each panel and each collider mesh: take the collider's world-space
-triangles, project them along the chosen axis into the panel plane, and draw the
-result as a translucent filled shape (using the same triangulation the collider
-already has, so no 2D boolean work is needed). The projection runs in the draw
-path with numpy, over a cached copy of the collider's vertices, and is
-recomputed only when the collider moves or the axis changes.
+The project names a collection and the guide projects it once into the pattern
+window's space: world-space vertices, one world axis dropped, the remaining two
+scaled from metres to millimetres and moved by the project's offset. Panels are
+already drafted in that space (millimetres, each panel placed by its own
+anchor), so the body lands next to them at 1:1 and every panel sees the same
+backdrop - which is what a pattern maker aligns against, and why the projection
+is per project rather than per panel.
 
-*Alternative:* precompute the silhouette into the panel's local space and cache
-it as panel data. Rejected: it would be stored in the file, invalidated by every
-avatar edit, and would leak a display aid into the document model.
+The projected triangles are drawn filled, and the projected mesh edges over
+them, because aligning a panel against a body needs its surface *and* its
+seams; both have their own colour and opacity, and the mesh overlay can be
+switched off.
+
+The projection is cached in the draw path: the batches are rebuilt when the
+selection, the objects' transforms, the settings or the engine's frame change,
+and a deforming selection is followed at most every 50 ms. A redraw that
+changed nothing costs one signature comparison, which is the answer to "will
+this be slow?" - the expensive work (reading tens of thousands of vertices,
+building two batches) happens on change, not per frame.
+
+*Alternative:* project into each panel's own space, per panel. Rejected: a
+panel's anchor would then decide where the body appears, so two panels could
+show the body at different places and no shared alignment would exist.
+
+*Alternative:* precompute the silhouette into the document and store it on the
+panel. Rejected: it would be saved in the file, invalidated by every avatar
+edit, and would leak a display aid into the document model.
 
 ### D8. One display panel for everything drawn over the viewport
 

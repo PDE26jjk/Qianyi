@@ -21,6 +21,7 @@ from ..model.geometry import Edge2D, Vertex2D
 from ..model.pattern import Pattern
 from ..utilities.node_tree import get_active_node_tree
 from .GizmosMeshRenderer import MeshRenderer
+from .silhouette_guide import SilhouetteGuide
 
 
 INVALID_PATTERN_COLOR = (1.0, 0.25, 0.2, 1.0)
@@ -49,6 +50,10 @@ class TempDrawManager:
         self.region_width = 0
         self.region_height = 0
         self.mouse_location = None
+        # Projection of the project's silhouette objects, drawn behind the
+        # panels. Built lazily: a GPU shader cannot be created before the draw
+        # callback has a context.
+        self.silhouette_guide = None
 
     def add_point(self):
         self.points.append(Point())
@@ -382,6 +387,12 @@ class TempDrawManager:
             rect_batch.draw(shader)
 
         patterns = project.patterns
+        # The silhouette is the background of the pattern window, so it is drawn
+        # before anything the panels draw.
+        if global_data.renderers_enabled:
+            if self.silhouette_guide is None:
+                self.silhouette_guide = SilhouetteGuide()
+            self.silhouette_guide.draw(context, project)
         for p in patterns:
             if global_data.get_obj_by_uuid(p.global_uuid) is None:
                 console.warning(f'{p} is invalid, refreshing...')

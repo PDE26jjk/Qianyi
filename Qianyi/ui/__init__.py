@@ -9,6 +9,7 @@ from .panels.patterns import QY_PT_patterns, QY_UL_PatternList, QY_PT_patternPro
 from .panels.library import (QY_PT_gc_library, QY_PT_gc_generator_property,
                              QY_UL_GeneratorList)
 from .panels.projects import QY_PT_qmyi_projects, QY_UL_ProjectList
+from .panels.silhouette import QY_PT_silhouette
 from .panels_3d.simulation import QY_PT_simulation, SimulationNextNframesOperator, SimulationToNframesOperator
 from .panels_3d.simulation_object import QY_PT_simulation_object, SimulationDataRefreshOperator
 from .panels_3d import simulation_params
@@ -27,6 +28,7 @@ classes = [
     QY_UL_GeneratorList,
     QY_PT_gc_generator_property,
     QY_PT_qmyi_entities,
+    QY_PT_silhouette,
     NODE_PT_qmyi_in_out,
     QY_PT_simulation,
     SimulationDataRefreshOperator,

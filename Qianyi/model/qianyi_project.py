@@ -163,6 +163,68 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         description="Component shown in the library's detail area",
     )
 
+    # Silhouette guide: objects projected into the pattern window as an
+    # alignment background. Display only - nothing here is meshed, simulated or
+    # written into the engine payload.
+    show_silhouette: bpy.props.BoolProperty(
+        name="Show Silhouette",
+        description="Draw the silhouette of the collection below behind the "
+                    "panels of the pattern editor",
+        default=False,
+    )
+    silhouette_collection: bpy.props.PointerProperty(
+        type=bpy.types.Collection,
+        name="Objects",
+        description="Collection projected into the pattern window as an "
+                    "alignment background (typically the body)",
+    )
+    silhouette_axis: bpy.props.EnumProperty(
+        name="View",
+        description="World axis the silhouette is projected along",
+        items=[
+            ('X', "Side (X)", "Project along X, so the body is seen from its side"),
+            ('Y', "Front (Y)", "Project along Y, so the body is seen from the front"),
+            ('Z', "Top (Z)", "Project along Z, so the body is seen from above"),
+        ],
+        default='Y',
+    )
+    silhouette_offset: bpy.props.FloatVectorProperty(
+        name="Offset",
+        description="Move the silhouette within the pattern window, in millimetres",
+        size=2,
+        default=(0.0, 0.0),
+    )
+    silhouette_color: bpy.props.FloatVectorProperty(
+        name="Color",
+        description="Colour the silhouette is drawn with",
+        subtype='COLOR',
+        size=3,
+        default=(0.35, 0.35, 0.40),
+        min=0.0,
+        max=1.0,
+    )
+    silhouette_opacity: bpy.props.FloatProperty(
+        name="Fill Opacity",
+        description="Opacity of the filled silhouette",
+        default=0.25,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+    )
+    silhouette_show_mesh: bpy.props.BoolProperty(
+        name="Mesh",
+        description="Also draw the projected mesh edges over the fill",
+        default=True,
+    )
+    silhouette_mesh_opacity: bpy.props.FloatProperty(
+        name="Mesh Opacity",
+        description="Opacity of the projected mesh edges",
+        default=0.35,
+        min=0.0,
+        max=1.0,
+        subtype='FACTOR',
+    )
+
     index: bpy.props.IntProperty(
         default=-1,
         description="The index of this node tree in the node tree list",

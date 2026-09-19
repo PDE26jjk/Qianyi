@@ -81,6 +81,7 @@ class Panels(str, Enum):
     Capture = "NODE_PT_QianyiCapture"
     GcLibrary = "NODE_PT_QianyiGcLibrary"
     GcGeneratorProperty = "NODE_PT_QianyiGcGeneratorProperty"
+    Silhouette = "NODE_PT_QianyiSilhouette"
 
 
 class VisibilityTypes(str, Enum):

@@ -609,7 +609,11 @@ def _startup_cb(*args):
 
 def register():
     bpy.utils.register_class(DEBUG_OT_register_draw_3d)
-    bpy.app.timers.register(_startup_cb, first_interval=1, persistent=True)
+    # This module is the earlier debug scratchpad: it draws nothing unless a
+    # test script fills its buffers, and it is registered on demand through its
+    # own operator (`view3d.qmyi_register_debug_draw_3d`). The automatic startup
+    # hook is gone so it no longer adds a draw handler to every redraw; the
+    # supported overlays live in `gizmos/view3d_overlay.py`.
 
 
 def unregister():

@@ -165,11 +165,54 @@ show the body at different places and no shared alignment would exist.
 panel. Rejected: it would be saved in the file, invalidated by every avatar
 edit, and would leak a display aid into the document model.
 
-### D8. One display panel for everything drawn over the viewport
+### D8. One Overlays panel for everything drawn over the 3D viewport
 
-The seam overlay, the stress colours and the debug primitives share one panel
-in the 3D sidebar and all default to off. The current unconditional
-registration in `debug_draw_3d.py` becomes a no-op unless the panel asks for it.
+The vertex colouring, the seam lines and the HUD share one panel in the 3D
+sidebar. Everything is off by default except the HUD, which draws nothing until
+a frame has been timed, so a freshly opened file looks exactly as it did before.
+
+### D9. The 3D overlays are a new module, not an extension of the debug scratchpad
+
+`debug_draw_3d.py` was written as a throwaway: it tessellates every primitive in
+Python and rebuilds its batches on every redraw, which is why it is slow. The
+overlays are therefore a new module (`gizmos/view3d_overlay.py`) with one shader
+and at most one cached batch per object and per engine frame, keyed the same way
+the pattern window's colouring is keyed. The old module keeps its classes and
+its on-demand operator, but no longer registers a draw handler at startup.
+
+Two consequences of drawing the surface ourselves:
+
+* the colouring is drawn with `LESS_EQUAL` depth against the surface the
+  viewport has already shaded, and its vertices are lifted towards the camera by
+  a fraction (0.15%) of the drawn garment's size. The lift is computed when a
+  batch is built but applied in the vertex shader from the viewport's camera
+  position, so orbiting the view neither rebuilds a batch nor leaves the two
+  surfaces tied - a tie is what made the first version flicker, and a
+  view-dependent offset baked into the vertices would have needed a rebuild per
+  camera move. The depth buffer is not written, so the passes after it still see
+  the scene's own depth;
+* no material is created or assigned. The overlay replaces the panel's colouring
+  only while a mode is on, and Blender keeps rendering the garment itself.
+
+The seam preview is deliberately independent of the simulation: it is the thing
+a pattern maker looks at to check that the connections are right, so it has to
+be there before anything is simulated and whatever shape key the panels are
+showing. Its geometry is read from the scene - the sewing objects and the
+evaluated panel meshes - and every seam is drawn in its own colour. Its cache is
+invalidated by the pose (shape key values and object transforms) and by the
+scene frame, with the engine's frame counter as one further term so the lines
+follow a live drape as well.
+
+The overlays are hidden whenever Blender's own overlays are hidden. A custom
+draw handler does not follow that switch, so the callbacks read
+`space_data.overlay.show_overlays` first; the panel's own settings are untouched
+by hiding.
+
+The HUD's number is the same one the project measures elsewhere: RTS is
+simulated seconds per wall-clock second, which is the simulated milliseconds of
+a frame divided by the milliseconds it took. The simulation manager records
+(step, wall time) per frame from every path that advances a run - the live run,
+the manual steppers and `qyapi.sim.step` - and the HUD averages the last twelve.
 
 ## Risks / Trade-offs
 

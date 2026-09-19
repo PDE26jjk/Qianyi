@@ -13,6 +13,7 @@ from .panels.silhouette import QY_PT_silhouette
 from .panels_3d.simulation import QY_PT_simulation, SimulationNextNframesOperator, SimulationToNframesOperator
 from .panels_3d.simulation_object import QY_PT_simulation_object, SimulationDataRefreshOperator
 from .panels_3d import simulation_params
+from .panels_3d.overlays import QY_PT_view3d_overlays
 
 classes = [
     NODE_MT_CustomMenu,
@@ -35,6 +36,7 @@ classes = [
     SimulationNextNframesOperator,
     SimulationToNframesOperator,
     QY_PT_simulation_object,
+    QY_PT_view3d_overlays,
     *simulation_params.classes,
 ]
 

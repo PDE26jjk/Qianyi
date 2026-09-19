@@ -66,15 +66,32 @@
 
 ## 5. 3D viewport overlays
 
-- [ ] 5.1 Add one display panel that owns the seam overlay, the stress/debug
-  colors and the debug primitives, with every entry defaulting to off
-- [ ] 5.2 Draw seam lines between paired stitch vertices and verify they follow
-  the simulated positions
-- [ ] 5.3 Route the existing force/collision debug primitives behind the toggle
-  and verify nothing is drawn in a freshly opened scene
-- [ ] 5.4 Add the material that displays the mesh color attribute and assign it
-  to simulated meshes, and verify the 3D viewport shows the engine's colors
-  after a step
+- [x] 5.1 Add one Overlays panel to the 3D sidebar that owns the vertex-colour
+  mode, the seam overlay (its line width) and the HUD, with everything off by
+  default except the HUD (which draws nothing until a frame has been timed)
+- [x] 5.2 Draw the panels again with a colour per vertex - the strain ramp or
+  the engine's debug values - with LESS_EQUAL depth and a shader-side lift
+  towards the camera so it lands on the surface Blender already shaded without
+  flickering, and no material is created or assigned
+- [x] 5.3 Draw a line between each paired stitch vertex, in the seam's own
+  colour and at the chosen width, depth tested, skipping a seam whose sides
+  cannot be resolved
+- [x] 5.4 Hide every overlay while Blender's own overlays are off, and bring it
+  back with the same settings when they are shown again
+- [x] 5.5 Add the HUD: the run state, the RTS line in the documented format, the
+  solver name and the frame count, from frame timings the manager records
+- [x] 5.6 Record the timings from every path that advances the simulation (the
+  live run, the manual frame steppers and `qyapi.sim.step`)
+- [x] 5.7 Stop `debug_draw_3d.py` from registering its draw handler at startup,
+  so the retired scratchpad no longer runs on every redraw (its own operator
+  still registers it on demand), and build the overlays in a new module instead
+- [x] 5.9 Draw the seam preview from the scene (the sewing objects and the
+  panels' current meshes) so it works with no simulation and whatever shape key
+  is active, and invalidate it on the pose (shape key values and transforms) as
+  well as on an engine frame
+- [ ] 5.8 Verify in a live session that the overlays are hidden with Blender's
+  overlays, that the stress and debug colourings land on the cloth without
+  z-fighting, and that the seam lines are hidden behind it
 
 ## 6. Avatar silhouette guide
 

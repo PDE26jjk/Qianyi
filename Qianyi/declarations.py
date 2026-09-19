@@ -82,6 +82,7 @@ class Panels(str, Enum):
     GcLibrary = "NODE_PT_QianyiGcLibrary"
     GcGeneratorProperty = "NODE_PT_QianyiGcGeneratorProperty"
     Silhouette = "NODE_PT_QianyiSilhouette"
+    View3DOverlays = "VIEW_3D_PT_QianyiOverlays"
 
 
 class VisibilityTypes(str, Enum):

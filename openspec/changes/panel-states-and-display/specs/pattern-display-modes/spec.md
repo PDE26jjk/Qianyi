@@ -66,36 +66,123 @@ recomputation.
 - **THEN** the panel meshes, the sewing pairings and the last simulated frame
   are unchanged
 
-### Requirement: The 3D viewport has matching overlays
+### Requirement: The 3D viewport has its own overlay panel
 
-The 3D viewport SHALL offer, behind one display panel, seams drawn as lines
-between paired stitch vertices, the stress/debug vertex colors on the simulated
-mesh, and the existing force/collision debug primitives. Every overlay SHALL
-default to off, and the debug primitives SHALL no longer draw unconditionally.
+The 3D viewport's sidebar SHALL carry an Overlays panel whose settings live on
+the scene's Qianyi settings: a vertex-colour mode (`off`, `stress`, `debug`), a
+seam overlay with a line width, and a simulation HUD. Every overlay SHALL
+default to off except the HUD, which draws nothing until a frame has been
+timed. The overlays SHALL be drawn by the add-on itself, over the material
+Blender renders; the add-on MUST NOT create or assign a material for them.
 
-#### Scenario: Overlays default to off
+#### Scenario: Defaults
 
-- **WHEN** a file is opened and nothing is enabled in the display panel
-- **THEN** the 3D viewport draws no seam lines and no debug primitives
+- **WHEN** a file is opened and nothing is enabled in the Overlays panel
+- **THEN** the vertex-colour mode is `off`, no seam lines are drawn, and no
+  material is created or assigned by the add-on
+
+#### Scenario: Vertex colours on demand
+
+- **WHEN** the vertex-colour mode is `stress` and a frame has been simulated
+- **THEN** the simulated panels are drawn in the viewport with the strain ramp
+  of the pattern editor's stress display
+
+#### Scenario: Debug on demand
+
+- **WHEN** the vertex-colour mode is `debug` and a frame has been simulated
+- **THEN** the panels are drawn with the engine's per-vertex debug values
+
+### Requirement: The colouring does not fight the surface Blender rendered
+
+The vertex-colour pass SHALL draw the same surface the viewport has already
+shaded. Because the two surfaces would otherwise sit at the same depth and
+flicker, the overlay SHALL lift its vertices towards the camera by a small
+fraction of the drawn garment's size, and that lift SHALL be applied in the
+vertex shader from the viewport's camera position, so orbiting the view changes
+the drawing without rebuilding anything and without touching the panels.
+
+#### Scenario: Orbiting the view
+
+- **WHEN** the view is orbited while the vertex-colour mode is on
+- **THEN** the colouring stays on the cloth without flickering, and no batch is
+  rebuilt and no panel is modified
+
+#### Scenario: The colouring still respects the scene
+
+- **WHEN** a panel is behind another panel from the current viewpoint
+- **THEN** the nearer panel hides it, because the pass is depth tested
+
+### Requirement: Overlays follow Blender's own overlay switch
+
+Every overlay the add-on draws in the 3D viewport SHALL be hidden while
+Blender's own overlays are hidden, and SHALL come back when they are shown
+again. Hiding the overlays SHALL NOT change any setting.
+
+#### Scenario: Overlays hidden
+
+- **WHEN** the viewport's overlays are switched off while vertex colours and
+  seams are enabled
+- **THEN** neither is drawn, and enabling the overlays draws them again with the
+  same settings
+
+### Requirement: Seams are drawn between paired stitch vertices
+
+With the seam overlay enabled, the 3D viewport SHALL draw a line between each
+paired stitch vertex of every seam, in that seam's own colour and at the chosen
+width, depth tested so that a seam behind the cloth is hidden by it. A seam
+whose sides cannot be resolved SHALL be skipped rather than fail the drawing.
+
+The preview SHALL be drawn from the scene's own data - the sewing objects and
+the panels' current meshes - and MUST NOT require a simulation: it SHALL be
+visible before anything has been simulated and while any shape key is active,
+and it SHALL follow the shape the viewport is showing.
+
+#### Scenario: No simulation yet
+
+- **WHEN** the seam overlay is enabled on a freshly sewn project that has never
+  been simulated
+- **THEN** the seams are drawn between the paired stitch vertices of the panels
+  as they are placed now
+
+#### Scenario: A shape key that is not the simulated one
+
+- **WHEN** the panels are showing a shape key other than the simulated one
+- **THEN** the seams follow that shape
+
+#### Scenario: A seam's own colour
+
+- **WHEN** two seams have different colours
+- **THEN** each is drawn in its own colour
 
 #### Scenario: Seams on demand
 
 - **WHEN** the seam overlay is enabled for a project with sewings
-- **THEN** the 3D viewport draws a line between each paired stitch vertex, and
-  the lines follow the simulated positions
+- **THEN** the viewport draws a line between each paired stitch vertex, and the
+  lines follow the simulated positions
 
-### Requirement: Stress and debug colors reach the viewport
+#### Scenario: Depth
 
-The mesh SHALL receive the engine's per-vertex debug colors through the color
-attribute the bridge already writes, and the add-on SHALL provide the material
-that displays that attribute, so the 3D viewport shows the stress coloring
-without the user building a shader.
+- **WHEN** a seam is behind a panel from the current viewpoint
+- **THEN** the panel hides it
 
-#### Scenario: Colors shown after a step
+### Requirement: The HUD reports the run and its real-time speed
 
-- **WHEN** a simulation is stepped with the vertex-color display enabled
-- **THEN** the simulated mesh is drawn with the colors the engine reported for
-  that frame
+The HUD SHALL report, while a simulation is running or after frames have been
+timed, whether a run is active and the real-time speed as simulated time over
+wall-clock time, averaged over the last frames, in the form
+`RTS: <ratio> = <simulated ms>ms / <wall ms>ms`. It SHALL also name the solver
+in effect and the number of frames simulated.
+
+#### Scenario: While a live run is active
+
+- **WHEN** a live simulation is running and the HUD is enabled
+- **THEN** the viewport shows that a simulation is running, the RTS line with
+  the averaged frame timings, the solver name and the frame count
+
+#### Scenario: Nothing timed yet
+
+- **WHEN** no frame has been timed
+- **THEN** the HUD draws nothing
 
 ### Requirement: The grain line is drawn vertically by default
 

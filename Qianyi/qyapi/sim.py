@@ -348,6 +348,7 @@ def step(frames=1, dt=None):
              "call qyapi.sim.prepare() before running again")) from error
 
     elapsed = time.perf_counter() - start
+    manager.record_frame(step_h * frames, elapsed)
     _session.substeps += frames
     _session.wall_time += elapsed
     _session.mode = MODE_PREPARED

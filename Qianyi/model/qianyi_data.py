@@ -1,7 +1,8 @@
 import logging
 
 import bpy
-from bpy.props import IntProperty, BoolProperty, PointerProperty, IntVectorProperty, EnumProperty
+from bpy.props import (IntProperty, BoolProperty, PointerProperty, IntVectorProperty,
+                       EnumProperty, FloatProperty, FloatVectorProperty)
 from bpy.types import PropertyGroup
 from bpy.utils import register_class, unregister_class
 
@@ -75,6 +76,38 @@ class QianyiProps(PropertyGroup, ModelData):
              "Colour the mesh with the engine's debug values",),
         ],
         default='MESH',
+    )
+    view3d_vertex_colors: EnumProperty(
+        name="Vertex Colors",
+        description="Colour the simulated panels in the 3D viewport by the "
+                    "editor's per-vertex strain or by the engine's debug values, "
+                    "drawn as an overlay over the material Blender renders",
+        items=[
+            ('OFF', "Off", "Leave the viewport as Blender draws it"),
+            ('STRESS', "Stress",
+             "Colour each vertex by its strain, relative to the flat pattern"),
+            ('DEBUG', "Debug",
+             "Colour each vertex with the engine's debug values"),
+        ],
+        default='OFF',
+    )
+    view3d_seams: BoolProperty(
+        name="Seams",
+        description="Draw a line between each paired stitch vertex in the 3D "
+                    "viewport, depth tested against the cloth",
+        default=False,
+    )
+    view3d_seam_width: FloatProperty(
+        name="Seam Width",
+        default=2.0,
+        min=0.5,
+        max=8.0,
+    )
+    view3d_hud: BoolProperty(
+        name="Simulation HUD",
+        description="Show the run state and the real-time speed while a "
+                    "simulation is running",
+        default=True,
     )
     interactive_self_intersection_check: BoolProperty(
         name="Check Self-Intersection",

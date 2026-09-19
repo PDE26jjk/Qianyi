@@ -22,9 +22,11 @@ release.
 ## Requirements
 
 - Blender 4.3 or newer.
-- An NVIDIA GPU with a working CUDA driver. The simulation runs on the GPU:
-  the engine is a CUDA program, so a machine without a CUDA-capable device
-  cannot simulate (the pattern editor itself still opens and runs).
+- An NVIDIA GPU with a working CUDA driver. The add-on cannot do its work
+  without one: the engine is a CUDA program, and it runs not only the simulation
+  but also the panel meshing (point sampling and triangulation), the outline
+  self-intersection tests and the sewing helper. A machine without a
+  CUDA-capable device cannot mesh or simulate a panel at all.
 - The `Qianyi_DP` module built for the same Python ABI as the Blender you run,
   importable by Blender's Python interpreter.
 - No third-party Python packages: the add-on uses only what Blender ships,
@@ -79,10 +81,10 @@ name are specified in `openspec/changes/<name>/`.
   lines, preselection, grain direction and the outline-validity marker.
 - [x] Display modes for the pattern window: solid, wireframe, mesh, stress,
   debug — `panel-states-and-display`.
-- [ ] Stress and debug vertex colours in the 3D viewport, with the material
-  that displays them — `panel-states-and-display`.
-- [ ] Seam lines drawn in the 3D viewport between the paired stitch vertices —
-  `panel-states-and-display`.
+- [x] Stress and debug vertex colours in the 3D viewport, drawn as an overlay
+  over the material Blender renders — `panel-states-and-display`.
+- [x] Seam lines drawn in the 3D viewport between the paired stitch vertices,
+  with depth — `panel-states-and-display`.
 - [x] The avatar silhouette projected into the pattern window as an alignment
   guide (a project collection, projected 1:1 with its mesh edges, cached) —
   `panel-states-and-display`.
@@ -165,6 +167,8 @@ name are specified in `openspec/changes/<name>/`.
   recording and playback, and PC2 export through a Mesh Cache modifier.
 - [x] Gravity, ground contact, collision layers and the pick-and-drag
   interaction in the 3D viewport.
+- [x] A simulation HUD in the viewport: the run state, the solver and the frame
+  count, and the real-time speed as simulated time over wall-clock time.
 - [ ] Wind and air forces (needs engine support).
 - [ ] Pressure / inflate for down jackets and other filled garments (needs
   engine support).

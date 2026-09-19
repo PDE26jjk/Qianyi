@@ -4,6 +4,7 @@ import struct
 import tempfile
 import threading
 import time
+from collections import deque
 
 import bpy
 import numpy as np
@@ -149,6 +150,9 @@ class SimulationManager:
         # A fresh mesh has a Color attribute too, so this set - not the
         # attribute - is what tells the display modes that there is data.
         self.colored_objects = set()
+        # Pacing of the last frames: (simulated seconds, wall seconds) per
+        # frame, averaged for the 3D viewport's HUD.
+        self.frame_times = deque(maxlen=12)
         print("SimulationManager 已初始化")
         if self.simulation_task_name in task_mgr.scheduled_tasks:
             task_mgr.remove_scheduled_task(self.simulation_task_name).wait()
@@ -197,7 +201,9 @@ class SimulationManager:
         if self.running:
             return
         for i in range(n):
+            start = time.time()
             self._update_one_frame()
+            self.record_frame(self._step_h(), time.time() - start)
 
         vertices_data = None
         with self.data_lock:
@@ -216,7 +222,9 @@ class SimulationManager:
             return
         times = n - self.run_count
         for i in range(times):
+            start = time.time()
             self._update_one_frame()
+            self.record_frame(self._step_h(), time.time() - start)
 
         vertices_data = None
         with self.data_lock:
@@ -239,6 +247,7 @@ class SimulationManager:
             self.need_to_set_data = False
         self._update_one_frame()
         time2 = time.time() - start
+        self.record_frame(self._step_h(), time2)
         console_print("simulation", self.run_count, ": ", time2 * 1000)
 
     def apply_simulation_data(self, vertices_data, debug_colors=None):
@@ -278,6 +287,31 @@ class SimulationManager:
         reuses the previous result instead of recomputing it.
         """
         return self.run_count
+
+    def record_frame(self, step_h, wall_seconds):
+        """Remember one frame's simulated length and its wall-clock cost."""
+        self.frame_times.append((float(step_h), float(wall_seconds)))
+
+    def rts_summary(self):
+        """How fast the simulation is running, averaged over the last frames.
+
+        RTS is simulated time per wall-clock second, which is the simulated
+        milliseconds of a frame divided by the milliseconds it took to compute.
+        Returns None while nothing has been timed.
+        """
+        if not self.frame_times:
+            return None
+        simulated = sum(entry[0] for entry in self.frame_times) / len(self.frame_times)
+        wall = sum(entry[1] for entry in self.frame_times) / len(self.frame_times)
+        if wall <= 0.0:
+            return None
+        return {
+            "running": bool(self.running),
+            "frames": len(self.frame_times),
+            "rts": simulated / wall,
+            "sim_ms": simulated * 1000.0,
+            "wall_ms": wall * 1000.0,
+        }
 
     def _apply_blender_data(self):
         update_time_step = 0.016
@@ -331,6 +365,7 @@ class SimulationManager:
         self.world_matrixs.clear()
         # A new payload invalidates the previous frame's colours.
         self.colored_objects.clear()
+        self.frame_times.clear()
         projects = set()
         objs = []
         for obj in bpy.data.objects:

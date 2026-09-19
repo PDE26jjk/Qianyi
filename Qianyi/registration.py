@@ -14,6 +14,7 @@ core_modules = [
     "workspacetools",
     "vr",
     "m17n",
+    "selection_sync",
     # Last: the script surface imports the model and the simulation manager.
     "qyapi"
 ]

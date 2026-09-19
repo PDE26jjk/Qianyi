@@ -56,6 +56,9 @@ def header_append(self, context):
         row.prop(qmyi, "pattern_display_mode", text="")
         if qmyi.pattern_display_mode in ('STRESS', 'DEBUG') and not _has_any_debug_colors():
             row.label(text="no simulation data yet", icon='ERROR')
+        # The same button the outliner and the UV editor use for their selection
+        # sync: one toggle in the header, on the scene's Qianyi settings.
+        row.prop(qmyi, "sync_selection", icon='UV_SYNC_SELECT', text="")
         # col = sub_row.column(align=True)
         # col.label(text="header_append...")
 

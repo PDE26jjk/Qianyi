@@ -25,6 +25,11 @@ from .silhouette_guide import SilhouetteGuide
 
 
 INVALID_PATTERN_COLOR = (1.0, 0.25, 0.2, 1.0)
+# A selected panel is outlined a second time, thicker and in this colour: in
+# every display mode other than "mesh" the ordinary outline is the same white
+# for all panels, which makes a selection impossible to read.
+SELECTED_PATTERN_COLOR = (1.0, 0.62, 0.12, 1.0)
+SELECTED_PATTERN_LINE_WIDTH = 3.0
 
 
 def fabric_fill_color(pattern, alpha=0.5):
@@ -450,6 +455,12 @@ class TempDrawManager:
                 p.line_renderer.draw_invalid_marker(p.invalid_point)
             for il in p.internal_lines:
                 il.renderer.draw_edges(color=line_color)
+            if p.is_selected:
+                p.line_renderer.draw_edges(color=SELECTED_PATTERN_COLOR,
+                                           thickness=SELECTED_PATTERN_LINE_WIDTH)
+                # The next panel draws its own lines; leave the width as the
+                # loop set it.
+                gpu.state.line_width_set(1.0)
             if qmyi.show_grain_dir:
                 p.line_renderer.draw_grain_dir()
 

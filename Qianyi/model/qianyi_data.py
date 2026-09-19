@@ -51,6 +51,14 @@ class QianyiProps(PropertyGroup, ModelData):
         description="Display the grain direction arrow in the pattern editor",
         default=False,
     )
+    sync_selection: BoolProperty(
+        name="Sync Selection",
+        description="Keep the 3D selection and the pattern editor's selection in "
+                    "step: selecting a panel's mesh selects that panel (and its "
+                    "instance copies) in the pattern editor, and the other way "
+                    "round. Works the way the UV editor's sync selection does",
+        default=False,
+    )
     pattern_display_mode: EnumProperty(
         name="Display",
         description="What the pattern editor draws for a panel: the fabric "

@@ -93,7 +93,7 @@ class PatternRenderer(BaseRenderer):
         self.shader.uniform_float("color", color)
         self.batch_grain_dir.draw(self.shader)
 
-    def draw_edges(self, color=(1.0, 1.0, 1.0, 0.5)):
+    def draw_edges(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0):
         if not self.batch_edge:
             self.update_batch_edge(self.pattern.render_points)
         if not self.pattern:
@@ -101,6 +101,7 @@ class PatternRenderer(BaseRenderer):
         # self.pattern.update_render_points()
         # 设置GPU状态
         gpu.state.blend_set('ALPHA')
+        gpu.state.line_width_set(thickness)
         # gpu.state.depth_test_set('NONE')
 
         self.shader.bind()

@@ -51,6 +51,7 @@ class Operators(str, Enum):
 
     AddVertex2D = "qmyi.2d_add_vertex"
     AddSplinePoint2D = "qmyi.2d_add_spline_point"
+    DivideEdge2D = "qmyi.2d_divide_edge"
     EdgeElementsMove2D = "qmyi.2d_edge_move"
     ElementsDelete2D = "qmyi.2d_elements_delete"
     SewingAdd1to12D = "qmyi.2d_add_sewing_1to1"

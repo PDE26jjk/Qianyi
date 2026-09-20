@@ -47,6 +47,15 @@ class NODE_OT_qmyi_context_menu(Operator):
             if qmyi.edit_mode == "PATTERN":
                 row.operator(Operators.PatternCopyInstance, text="copy instance")
                 row.operator(Operators.PatternCopyInstance, text="copy instance mirror").mirror = True
+            if qmyi.edit_mode == "EDGE":
+                col = self.layout.column()
+                col.label(text="edge",)
+                row = col.row()
+                # Named explicitly: the operator asks for Blender's redo panel
+                # once it has run, and only the invoke path does that. A popup
+                # menu's default call context is not something to rely on here.
+                row.operator_context = 'INVOKE_DEFAULT'
+                row.operator(Operators.DivideEdge2D, text="divide")
 
         # if not element:
         #     bpy.ops.wm.call_menu(name="NODE_MT_selected_menu")

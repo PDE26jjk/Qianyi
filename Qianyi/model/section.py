@@ -48,6 +48,11 @@ class Section:
             self.end_pos = split_pos
             new_sec.prev = self
             new_sec.next = self.next
+            if self.next is not None:
+                # Keep the chain doubly linked: the section after this one
+                # still points back at it, so a walk the other way would skip
+                # the new one.
+                self.next.prev = new_sec
             self.next = new_sec
         else:
             split_pos = self.end_pos - length * radio
@@ -55,7 +60,17 @@ class Section:
             self.start_pos = split_pos
             new_sec.next = self
             new_sec.prev = self.prev
+            if self.prev is not None:
+                self.prev.next = new_sec
             self.prev = new_sec
+            if self.edge.section_start is self:
+                # The new section holds the beginning of the edge now, so it is
+                # the head. `Edge2D.sections()` walks from here while it is not
+                # `section_end`, so a head left in the middle of the edge hides
+                # every section before it - and those sections never get their
+                # mesh points, which is what made one side of a seam stitch half
+                # as many times as the other.
+                self.edge.section_start = new_sec
         if check_link and self.link_map_id != -1:
             new_link_sections = [DirSection(new_sec, False)]
             new_sec.link_map_id = len(Section.link_sections)

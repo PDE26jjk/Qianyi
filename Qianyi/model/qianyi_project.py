@@ -342,6 +342,8 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
                 self.last_sewing_error = str(e)
                 return None
         self.refresh_collection_uuid(self.sewings)
+        sw.pattern1.need_sewing_update = True
+        sw.pattern2.need_sewing_update = True
         return sw
 
     @staticmethod

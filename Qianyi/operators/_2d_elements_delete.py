@@ -16,6 +16,21 @@ from ..gizmos.temp_draw_manager import TempDrawManager
 from ..utilities.node_tree import get_active_node_tree
 
 
+def sewing_index(project, sewing) -> int:
+    """Where one seam sits in the project, or -1 when it is not there.
+
+    Not `sewing.get_index()`: that reads `path_from_id()`, which needs the
+    PropertyGroup to be attached to its ID. The pointer a caller has here comes
+    from a temp prop on a side, so a seam that was already removed - or a side
+    whose temp slot shifted when the collection moved - raises there instead of
+    answering. That is what made deleting the third seam fail.
+    """
+    for index, candidate in enumerate(project.sewings):  # loop: one seam per entry
+        if candidate == sewing or candidate.global_uuid == sewing.global_uuid:
+            return index
+    return -1
+
+
 class NODE_OT_elements_delete(Operator2DBase):
     bl_idname = Operators.ElementsDelete2D
     bl_label = "elements delete"
@@ -174,11 +189,28 @@ class NODE_OT_elements_delete(Operator2DBase):
             project.clear_edge_finder()
         elif edit_mode == "SEWING":
             objs = project.get_selected_objects_by_mode("SEWING")
-            del_idx_list = []
+            # A set: a seam has two sides, so selecting both of them names the
+            # same seam twice, and removing an index twice would remove another
+            # seam after the collection shifted.
+            del_idx_list = set()
             for obj in objs:
-                if isinstance(obj, SewingOneSide):
-                    del_idx_list.append(obj.sewing.get_index())
+                if not isinstance(obj, SewingOneSide):
+                    continue
+                sewing = obj.sewing
+                if sewing is None:
+                    # Only a seam that was drawn has this temp prop set.
+                    console.warning("a selected seam is not drawn, skipping it")
+                    continue
+                index = sewing_index(project, sewing)
+                if index == -1:
+                    console.warning("a selected seam is gone, skipping it")
+                    continue
+                del_idx_list.add(index)
             for i in sorted(del_idx_list, reverse=True):
+                for attribute in ("pattern1", "pattern2"):  # loop: the two panels
+                    target = getattr(project.sewings[i], attribute, None)
+                    if target is not None:
+                        target.need_sewing_update = True
                 project.sewings.remove(i)
             project.refresh_collection_uuid(project.sewings)
         project.clear_selected_objects_by_mode(edit_mode)

@@ -252,7 +252,7 @@ def calc_sewing_sections(sewings):
                     sec.seg = max_seg
                     sec.edge.need_update_points = True
                     sec.edge.pattern.need_geo_update = True
-            # console.warning(i, sections, max_seg)
+            console.warning(i, sections, max_seg)
 
 
 def calc_sewing_side_edges_index(ss, parent):
@@ -312,10 +312,12 @@ def calc_sewing_side_render_points(ss):
             start_chain, _ = split_polyline(edges[0].render_points, ss.pos1)
             _, end_chain = split_polyline(edges[-1].render_points, ss.pos2)
 
-        render_points = list(start_chain)
+        render_points = [start_chain]
         for i in range(1, len(edges) - 1):
             render_points.append(edges[i].render_points)
         render_points.append(end_chain)
+        if ss.reverse:
+            render_points = render_points[::-1]
         render_points = np.concatenate(render_points, dtype=np.float32)
     if ss.reverse:
         # render_points = render_points[::-1]

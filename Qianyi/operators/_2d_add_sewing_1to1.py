@@ -101,9 +101,9 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
         # Printed so a wrong direction can be traced: the fraction says which
         # end of the edge the click was near, and the two fractions of a sewing
         # decide whether the second half is flipped.
-        fraction = edge_click_fraction(edge, point)
-        console.info("sewing click", f"edge={edge.global_uuid}", f"fraction={fraction:.3f}",
-                     "near first" if fraction < 0.5 else "near second")
+        # fraction = edge_click_fraction(edge, point)
+        # console.info("sewing click", f"edge={edge.global_uuid}", f"fraction={fraction:.3f}",
+        #              "near first" if fraction < 0.5 else "near second")
         return point
 
     @staticmethod

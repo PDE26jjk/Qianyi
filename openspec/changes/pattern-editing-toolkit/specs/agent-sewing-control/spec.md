@@ -2,8 +2,8 @@
 
 ### Requirement: A seam can be read, recoloured and removed
 
-Reading SHALL report every seam with both sides - each side an ordered list of
-one or more spans, and each span a panel, an edge index, an edge label, a
+Reading SHALL report every seam with both sides - each side a set of one or more
+spans in drawing order, and each span a panel, an edge index, an edge label, a
 position range and a direction flag - plus the colour, the stitch count and, for
 a seam whose sides could not be matched, the unmatched remainder. A seam SHALL
 be recolourable and removable by its index. Reading the seams of one panel SHALL
@@ -28,3 +28,8 @@ report the same entries with that panel's spans marked.
 
 - **WHEN** a seam created from several spans on each side is read
 - **THEN** each side reports its spans in order, and the entry reports the stitch count and the unmatched remainder
+
+#### Scenario: Spans that are not adjacent read back as drawn
+
+- **WHEN** a side was drawn from spans that are not geometrically contiguous
+- **THEN** the read reports the spans in drawing order with the direction each was drawn in

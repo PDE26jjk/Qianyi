@@ -7,6 +7,7 @@ from ..utilities.coords_transform import region2view_coord
 from ..utilities.node_tree import get_active_node_tree
 from ..keymaps import tool_generic
 from ..declarations import GizmoGroups, Operators, WorkSpaceTools
+from ..model.qianyi_data import ensure_edit_mode
 
 
 class NODE_T_qmyi_add_vertex(WorkSpaceTool):
@@ -33,9 +34,10 @@ class NODE_T_qmyi_add_vertex(WorkSpaceTool):
         node_tree = get_active_node_tree(context)
         if not node_tree:
             return
-        if context.scene.qmyi.edit_sub_mode != "ADD_VERTEX":
-            context.scene.qmyi.edit_sub_mode = "ADD_VERTEX"
-            console.info('edit_sub_mode = ADD_VERTEX')
+        # Picking the tool puts the editor into the mode this tool works in, so
+        # there is no "the tool does nothing until you change the mode" step.
+        if ensure_edit_mode(context, "EDGE", "ADD_VERTEX"):
+            console.info('edit_mode = EDGE / ADD_VERTEX')
             node_tree.update_edge_finder()
         region = context.region
         if not region:

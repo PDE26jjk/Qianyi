@@ -8,6 +8,7 @@ from ..utilities.geometric_operation import split_bezier
 from ..model.pattern_instance import collect_unique_instances
 from ..model.pattern import Pattern, interactive_edit_allowed
 from ..model.generator import refuse_generated_edit
+from ..model.qianyi_data import ensure_edit_mode
 from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .. import global_data
@@ -28,15 +29,15 @@ class NODE_OT_add_vertex(Operator2DBase):
 
     @classmethod
     def poll(cls, context: Context):
-        qmyi = context.scene.qmyi
-        if not qmyi.edit_mode == "EDGE" or not qmyi.edit_sub_mode == "ADD_VERTEX":
-            return False
+        # The mode is not part of the poll: `invoke` puts the editor into this
+        # tool's mode, so picking the tool is enough to use it.
         project = get_active_node_tree(context)
         if project is not None and project.nearest_point is not None:
             return True
         return False
 
     def invoke(self, context, event):
+        ensure_edit_mode(context, "EDGE", "ADD_VERTEX")
         qmyi = context.scene.qmyi
 
         project = get_active_node_tree(context)

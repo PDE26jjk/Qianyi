@@ -98,14 +98,14 @@ name are specified in `openspec/changes/<name>/`.
   box select and delete.
 - [x] Parametric rectangle (the `square` component), notched panel, pleated
   panel and waistband; each rebuilds in place with its sewings remapped.
-- [ ] Divide an edge or a chain into N equal parts, or by a target length —
-  `pattern-editing-toolkit`.
-- [ ] Fillet a vertex into two points joined by an arc —
-  `pattern-editing-toolkit`.
-- [ ] Extend an edge by an arc that follows its neighbours —
-  `pattern-editing-toolkit`.
-- [ ] Editable arcs (three-point and centre/radius/sweep) —
-  `pattern-editing-toolkit`.
+- [ ] Divide an edge or a chain into N equal parts by arc length, or at a
+  target length and cut count — `pattern-editing-toolkit`.
+- [ ] Round, chamfer or hollow a corner — `pattern-editing-toolkit`.
+- [ ] Open a fan at a pivot: rotate one half of the panel and fill the sector
+  that opens — `pattern-editing-toolkit`.
+- [ ] Drag a curve into the shape the pointer describes, written back as points
+  (straight stays straight, exact arcs stay Bezier, the rest becomes a spline)
+  — `pattern-editing-toolkit`.
 - [ ] A generic circle and annulus generator — `pattern-editing-toolkit`.
 - [ ] Copy and paste of pattern elements.
 - [ ] Measuring tools: distances and angles between points, edges and the body.
@@ -118,8 +118,8 @@ name are specified in `openspec/changes/<name>/`.
   `pattern-editing-toolkit`.
 - [ ] Turn a run of outline edges into an internal line —
   `pattern-editing-toolkit`.
-- [ ] Repeat internal lines at a signed distance, with clipping —
-  `pattern-editing-toolkit`.
+- [ ] Repeat internal lines at a signed distance, with the ends clipped,
+  projected onto the outline or kept as they are — `pattern-editing-toolkit`.
 - [ ] Use an internal line as a sewing side (a dart sewn shut) —
   `pattern-editing-toolkit`.
 
@@ -127,9 +127,9 @@ name are specified in `openspec/changes/<name>/`.
 
 - [x] A parameterised pleated panel component (a rectangle with a folded edge).
 - [ ] Fold pleats (knife and box) along marked lines on an existing panel —
-  `pattern-editing-toolkit`.
-- [ ] Sewn pleats that create the seams holding them —
-  `pattern-editing-toolkit`.
+  waits for the engine to carry an angle on an internal line.
+- [ ] Sewn pleats that create the seams holding them — waits for the same
+  engine support.
 - [ ] Gathers and ruffles (sew a long edge to a short one and let the material
   bunch).
 - [ ] Darts as one command (mark, fold and close a dart).
@@ -140,8 +140,8 @@ name are specified in `openspec/changes/<name>/`.
   consecutive edges, with a colour and a direction taken from the click.
 - [x] Seams declared by a generator, remapped by edge label and geometry when
   the panel is rebuilt.
-- [ ] Many-to-many seams: several spans per side, matched by proportional
-  section mapping, including a three-panel junction — `pattern-editing-toolkit`.
+- [ ] Many-to-many seams: several drawn spans per side, matched by proportional
+  section mapping — `pattern-editing-toolkit`.
 - [ ] Per-seam stitch parameters (strength, stitch count) instead of the single
   global sewing stiffness.
 - [ ] Seam types other than a straight join: tape, binding and folded edges.
@@ -152,8 +152,8 @@ name are specified in `openspec/changes/<name>/`.
 - [ ] Flip a panel in place (horizontal, vertical, through two points) —
   `pattern-editing-toolkit`.
 - [ ] Copy with or without internal lines — `pattern-editing-toolkit`.
-- [ ] Copy the seams contained in the copied selection (the double-layer copy)
-  — `pattern-editing-toolkit`.
+- [ ] Copy the seams contained in the copied selection (the double-layer copy),
+  while an instance or mirror copy carries none — `pattern-editing-toolkit`.
 - [ ] Mirror a panel or a group about a project axis, rather than about the
   panel's own anchor.
 - [ ] Groups: named collections of panels that move and hide together.

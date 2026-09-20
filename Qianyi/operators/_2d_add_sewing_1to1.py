@@ -9,6 +9,7 @@ from ..declarations import Operators
 from .. import global_data
 from ..model.geometry import Edge2D
 from ..model.qianyi_project import edge_click_fraction
+from ..model.qianyi_data import ensure_edit_mode
 from ..utilities.node_tree import get_active_node_tree
 from .select import _clear_selection, update_selection_cache
 
@@ -32,8 +33,8 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
 
     @classmethod
     def poll(cls, context: Context):
-        if not context.scene.qmyi.edit_mode == "SEWING":
-            return False
+        # The mode is not part of the poll: `invoke` puts the editor into this
+        # tool's mode, so picking the tool is enough to use it.
         project = get_active_node_tree(context)
         if project is None:
             return False
@@ -44,6 +45,7 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
         return True
 
     def invoke(self, context, event):
+        ensure_edit_mode(context, "SEWING", "ADD_SEWING1")
         project = get_active_node_tree(context)
         console.info("in setup_state_machine", self.mode)
         if self.mode == "SELECT_EDGE":

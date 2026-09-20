@@ -7,6 +7,7 @@ from ..utilities.coords_transform import region2view_coord
 from ..utilities.node_tree import get_active_node_tree
 from ..keymaps import tool_generic
 from ..declarations import GizmoGroups, Operators, WorkSpaceTools
+from ..model.qianyi_data import ensure_edit_mode
 
 
 class NODE_T_qmyi_add_sewing1(WorkSpaceTool):
@@ -38,8 +39,8 @@ class NODE_T_qmyi_add_sewing1(WorkSpaceTool):
         project = get_active_node_tree(context)
         if not project:
             return
-        if context.scene.qmyi.edit_sub_mode != "ADD_SEWING1":
-            context.scene.qmyi.edit_sub_mode = "ADD_SEWING1"
-            console.info('edit_sub_mode = ADD_SEWING1')
+        # Picking the tool puts the editor into the mode this tool works in.
+        if ensure_edit_mode(context, "SEWING", "ADD_SEWING1"):
+            console.info('edit_mode = SEWING / ADD_SEWING1')
             project.selected_sewing_edge1 = None
             context.area.tag_redraw()

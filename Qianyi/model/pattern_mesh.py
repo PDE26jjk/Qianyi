@@ -44,7 +44,8 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
     curve_sizes = np.array([pattern.mesh_edge_point_outer_size,
                             *[il.mesh_edge_inner_point_size for il in pattern.internal_lines]], dtype=np.int32)
     all_points, triangles = geometry.sample_points(edge_points, pattern.mesh_edge_point_indices,
-                                                   curve_sizes, is_holes, float(granularity))
+                                                   curve_sizes, is_holes, float(granularity),
+                                                   triangulator=0)
     console_print("sample_points: ", time.time() - start_time)
     start_time = time.time()
     # all_points = np.vstack((edge_points, sampling_points))
@@ -177,81 +178,3 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
 
     return mesh_obj
 
-
-def poisson_disk_sampling(width, height, r, points, valid_checker, k=30):
-    """
-    泊松圆盘采样算法
-    width, height: 区域尺寸
-    r: 最小间距
-    k: 每个活动点的尝试次数
-    """
-    # 初始化网格加速结构
-    cell_size = r / np.sqrt(2)
-    grid_width = int(np.ceil(width / cell_size))
-    grid_height = int(np.ceil(height / cell_size))
-    grid = [[None] * grid_height for _ in range(grid_width)]
-
-    # # 生成第一个点
-    # points = []
-    # start = (np.random.uniform(0, width), np.random.uniform(0, height))
-    # points.append(start)
-
-    # 网格坐标转换
-    def grid_coords(point):
-        x, y = point
-        return int(x / cell_size), int(y / cell_size)
-
-    for point in points:
-        gx, gy = grid_coords(point)
-        grid[gx][gy] = point
-
-    active = list(range(len(points)))  # 活动点索引列表
-
-    # 检查点是否有效
-    def is_valid(point):
-        if not (0 <= point[0] < width and 0 <= point[1] < height) or not valid_checker(point):
-            return False
-
-        gx, gy = grid_coords(point)
-        # 检查周围5x5网格
-        for dx in range(-2, 3):
-            for dy in range(-2, 3):
-                nx, ny = gx + dx, gy + dy
-                if 0 <= nx < grid_width and 0 <= ny < grid_height:
-                    neighbor = grid[nx][ny]
-                    if neighbor is not None:
-                        dist = np.hypot(point[0] - neighbor[0], point[1] - neighbor[1])
-                        if dist < r:
-                            return False
-        return True
-
-    # 主循环
-    while active:
-        # 随机选择一个活动点
-        idx = np.random.choice(active)
-        point = points[idx]
-        found = False
-
-        # 尝试生成新点
-        for _ in range(k):
-            # 在环形区域随机采样
-            angle = np.random.uniform(0, 2 * np.pi)
-            radius = np.random.uniform(r, 2 * r)
-            new_point = (
-                point[0] + radius * np.cos(angle),
-                point[1] + radius * np.sin(angle)
-            )
-
-            if is_valid(new_point):
-                points.append(new_point)
-                gx, gy = grid_coords(new_point)
-                grid[gx][gy] = new_point
-                active.append(len(points) - 1)
-                found = True
-                break
-
-        # 如果未找到新点，移除当前活动点
-        if not found:
-            active.remove(idx)
-
-    return np.array(points)

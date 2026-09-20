@@ -68,3 +68,22 @@ duplicated.
 - **WHEN** a copy with seams is undone once
 - **THEN** the copied panels and the duplicated seams are gone and the original
   panels and seams are exactly as they were
+
+### Requirement: An instance or mirror copy carries no seams
+
+An instance copy and a mirror copy SHALL bring no seams with them: the copy
+exists to be edited in step with its source, and a seam that appeared on every
+member of the chain would multiply the stitches the user asked for. The command
+SHALL report that no seams were copied and why.
+
+#### Scenario: A linked copy of a sewn panel
+
+- **WHEN** a panel that carries seams is copied as an instance or as a mirror
+- **THEN** the copy carries no seam and the report says the copy is linked, so
+  its panels are sewn where the user sews them
+
+#### Scenario: A plain copy still carries them
+
+- **WHEN** the same panel is copied as a plain copy or a flip with seams enabled
+- **THEN** the seams inside the selection are duplicated as the copy requirement
+  describes

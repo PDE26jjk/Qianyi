@@ -162,6 +162,26 @@ class QianyiProps(PropertyGroup, ModelData):
 define_temp_prop(QianyiProps, "hover_object", None)
 
 
+def ensure_edit_mode(context, mode=None, sub_mode=None) -> bool:
+    """Put the pattern editor into the mode a tool needs.
+
+    Picking a tool says what the user wants to do next, so a tool activates its
+    own mode instead of failing silently because the header happens to be on
+    another one. Returns whether anything changed.
+    """
+    qmyi = getattr(getattr(context, "scene", None), "qmyi", None)
+    if qmyi is None:
+        return False
+    changed = False
+    if mode is not None and qmyi.edit_mode != mode:
+        qmyi.edit_mode = mode
+        changed = True
+    if sub_mode is not None and qmyi.edit_sub_mode != sub_mode:
+        qmyi.edit_sub_mode = sub_mode
+        changed = True
+    return changed
+
+
 def register():
     register_class(QianyiProps)
     bpy.types.Scene.qmyi = PointerProperty(type=QianyiProps)

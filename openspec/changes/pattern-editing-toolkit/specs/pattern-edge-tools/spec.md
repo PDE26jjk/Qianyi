@@ -1,30 +1,100 @@
 ## Purpose
 
 Gives the pattern editor the edge commands a pattern maker drafts with -
-dividing an edge, rounding a corner, extending an edge by an arc and editing an
-arc - so panels can be built and corrected inside the add-on.
+dividing an edge, reshaping a corner, opening a fan, and dragging a curve - so
+panels can be built and corrected inside the add-on instead of being drafted
+elsewhere and imported.
 
 ## ADDED Requirements
 
-### Requirement: An edge or an edge chain can be divided into equal parts
+### Requirement: A curve is measured by arc length and written back as points
 
-The editor SHALL divide a selected edge, or a chain of consecutive edges, into
-a requested number of equal-length parts, inserting the joining points without
-changing the shape of the divided curve. A two-point Bezier SHALL stay a Bezier
-and a spline SHALL keep its interpolation points, so dividing a curve twice
-gives the same shape as dividing it once.
+Every command in this capability SHALL measure positions along the sampled
+curve, so dividing an edge into equal parts produces parts of equal arc length
+whatever the curve looks like. Each resulting piece SHALL be written back
+through one rule: a straight piece stays a straight two-point edge, a piece that
+reproduces a circle exactly keeps the Bezier form that describes it, and every
+other piece becomes a cubic spline fitted through control points within the
+project's fitting tolerance. The written geometry SHALL stay within that
+tolerance of the geometry that was there before the command ran, and the
+command SHALL report when no fit reached the tolerance within the control point
+cap, keeping the closest fit it found.
 
 #### Scenario: Divide a straight edge into four
 
-- **WHEN** a straight edge is divided into four parts
-- **THEN** three vertices are added at the quarter points, the outline's shape
-  and area are unchanged, and the panel meshes at the same granularity
+- **WHEN** a straight edge of 100 mm is divided into four parts
+- **THEN** four straight pieces of 25 mm are written, the outline's shape and
+  area are unchanged, and the panel meshes at the same granularity
 
-#### Scenario: Divide a curved edge
+#### Scenario: Divide a curved edge by arc length
 
-- **WHEN** a Bezier edge is divided into three parts
-- **THEN** the sampled points of the three resulting edges lie on the original
-  curve within the panel's sampling tolerance
+- **WHEN** a curved edge is divided into three equal parts
+- **THEN** the three pieces are within the fitting tolerance of the original
+  curve and their arc lengths are equal within the same tolerance
+
+#### Scenario: A Bezier piece becomes a spline
+
+- **WHEN** a Bezier edge is divided
+- **THEN** each piece is written as a spline fitted to its share of the original
+  curve, unless that piece is exactly a circular arc
+
+#### Scenario: The fit cannot reach the tolerance
+
+- **WHEN** a curve is divided and no fit within the control point cap reaches
+  the tolerance
+- **THEN** the closest fit is written and the report says the tolerance was not
+  reached
+
+### Requirement: Points closer than the merge threshold are merged
+
+The project SHALL carry one merge threshold, independent of any panel's
+granularity, and a command SHALL merge a point it produced with an existing
+point when the two are closer than that threshold instead of creating a second
+point there. A division whose pieces would be shorter than the threshold SHALL
+reduce its part count instead, and every such reduction SHALL be in the report.
+Existing panels SHALL NOT be repaired by this rule; it applies only to the
+geometry a command is producing.
+
+#### Scenario: A cut point lands on a vertex
+
+- **WHEN** a division's cut point falls within the merge threshold of a vertex
+  that already exists
+- **THEN** no second vertex is created, the existing vertex is used, and the
+  report names the merge
+
+#### Scenario: Too many parts for the edge
+
+- **WHEN** a division is requested whose pieces would be shorter than the merge
+  threshold
+- **THEN** the part count is reduced to what fits, the division is applied with
+  that count, and the report says the count was reduced
+
+### Requirement: An edge or an edge chain can be divided into equal parts
+
+The editor SHALL divide a selected edge, or a chain of consecutive edges, into a
+requested number of equal-length parts by arc length, inserting the joining
+points without changing the shape of the divided curve beyond the fitting
+tolerance. Dividing the same curve twice SHALL give the same shape as dividing
+it once, within the same tolerance.
+
+#### Scenario: Divide into four
+
+- **WHEN** an edge is divided into four parts
+- **THEN** three vertices are added at the quarter points of its arc length, the
+  outline's shape and area are unchanged, and the panel meshes at the same
+  granularity
+
+#### Scenario: Divide a chain
+
+- **WHEN** three consecutive edges of an outline are divided into five parts
+- **THEN** the cuts are placed at equal arc length along the whole chain, an
+  edge that a cut falls inside is divided at that point, and no other edge moves
+
+#### Scenario: Divide a whole closed outline
+
+- **WHEN** the whole outline is selected and divided into ten parts
+- **THEN** the ten parts are equal in arc length and the outline stays a single
+  closed loop
 
 #### Scenario: Instance chain follows
 
@@ -32,92 +102,163 @@ gives the same shape as dividing it once.
 - **THEN** every member of the instance chain receives the same division and
   stays index-aligned with its source
 
-### Requirement: An edge can be divided by a target segment length
+### Requirement: A division can be driven by a target length and a cut count
 
-The editor SHALL divide a selected edge or chain into parts of a requested
-target length, producing as many whole parts as fit and one remainder part, and
-SHALL report the number of parts, the achieved lengths and the remainder. It
-SHALL refuse a target length that would produce fewer than two parts, naming
-the minimum length for the selection.
+The editor SHALL offer division by a target length, where the user gives the
+distance and the number of cuts, the number of cuts defaulting to one and being
+capped at what the selection can hold. It SHALL insert a point every target
+length along the arc length until the requested number of cuts is reached or the
+remaining length can no longer hold another piece, and the last piece SHALL
+absorb the remainder. It SHALL report the number of pieces, the achieved lengths
+and the remainder, and SHALL name the cap when the requested cut count exceeded
+it.
 
-#### Scenario: Target length that does not divide evenly
+#### Scenario: One cut at a target length
 
-- **WHEN** a 100 mm edge is divided with a 30 mm target
-- **THEN** four parts are created (30, 30, 30 and 10 mm) and the report names
-  the 10 mm remainder
+- **WHEN** a 100 mm edge is cut once at a target length of 30 mm
+- **THEN** the edge becomes 30 mm and 70 mm, and the report names the 70 mm
+  remainder
 
-#### Scenario: Impossible target
+#### Scenario: Three cuts at a target length
 
-- **WHEN** a 20 mm edge is divided with a 30 mm target
-- **THEN** the command is refused with the minimum length for the selection and
-  the panel is unchanged
+- **WHEN** a 100 mm edge is cut three times at a target length of 30 mm
+- **THEN** the edge becomes 30, 30, 30 and 10 mm, and the report names the 10 mm
+  remainder
 
-### Requirement: A vertex can be filleted into an arc between two points
+#### Scenario: More cuts than fit
 
-The editor SHALL replace a selected vertex with two points joined by an arc of
-a requested radius, tangent to both adjacent edges, and SHALL remove the corner
-material the fillet cuts away. It SHALL refuse a radius that does not fit the
-two adjacent edges, naming the largest radius that fits.
+- **WHEN** a 20 mm edge is asked for three cuts of 30 mm
+- **THEN** the cut count is capped, the cap is reported as the maximum for that
+  selection, and the edge is cut as many times as the length allows
+
+### Requirement: A corner can be rounded, chamfered or hollowed
+
+The editor SHALL treat a corner when one vertex of the outline is selected - a
+point in the middle of an edge is not a corner - and SHALL place two points on
+the adjacent edges at the tangent length for the requested radius, joined by a
+tangent arc in `ROUND`, by a straight edge in `CHAMFER`, and by the mirrored arc
+in `CONCAVE`. `ROUND` and `CHAMFER` SHALL remove the corner material and
+`CONCAVE` SHALL add it. The editor SHALL refuse a radius whose tangent length
+does not fit the adjacent edges, naming the largest radius that fits, and SHALL
+keep the outline a single closed loop.
 
 #### Scenario: Fillet a corner
 
-- **WHEN** a right-angle corner with 50 mm edges is filleted with a 10 mm
-  radius
+- **WHEN** a right-angle corner with 50 mm edges is rounded with a 10 mm radius
 - **THEN** the corner is replaced by an arc of that radius tangent to both
   edges, the panel area decreases by the corner area, and the outline is still
   a single closed loop
 
+#### Scenario: Chamfer the same corner
+
+- **WHEN** the same corner is chamfered with the same radius
+- **THEN** the corner is replaced by the straight edge between the same two
+  tangent points
+
+#### Scenario: Hollow the same corner
+
+- **WHEN** the same corner is hollowed with the same radius
+- **THEN** an arc is inserted on the other side of the chord and the panel area
+  increases
+
 #### Scenario: Radius too large
 
-- **WHEN** a fillet radius larger than an adjacent edge allows is requested
+- **WHEN** a radius larger than the adjacent edges allow is requested
 - **THEN** the command is refused, the largest fitting radius is reported, and
   the panel is unchanged
 
-### Requirement: An edge can be extended by an arc that follows its neighbours
+#### Scenario: Several corners in one run
 
-The editor SHALL extend a selected edge by adding an arc whose start direction
-continues the edge's tangent and whose sweep follows the angle of the
-neighbouring edges, with the sweep available as an explicit override. The
-extension SHALL be inserted as a new edge rather than by moving existing
-vertices.
+- **WHEN** several vertices of the outline are selected and their tangent
+  lengths do not overlap
+- **THEN** each selected vertex is treated in one undo step
 
-#### Scenario: Extend a hem by a measured arc
+#### Scenario: Overlapping corners are refused
 
-- **WHEN** an edge is extended by an arc with an explicit sweep of 30 degrees
-  and a radius
-- **THEN** a new arc edge is appended at that end, tangent-continuous with the
-  edge it extends, and the panel's other edges are unchanged
+- **WHEN** several vertices are selected and two tangent lengths would overlap
+  on the edge between them
+- **THEN** the command is refused and names the vertex whose radius does not fit
 
-#### Scenario: Self-intersection is refused
+### Requirement: An edge can be extended by rotating one half of the panel about a pivot
 
-- **WHEN** an extension makes the outline cross itself and interactive checking
-  is on
-- **THEN** the command is refused with the crossing point and no vertex is
-  added
+The editor SHALL take a pivot point and a target point on the outline, the
+distance between them being the radius, and SHALL divide the panel by the chord
+between them. It SHALL rotate the half on the chosen side of the radius rigidly
+about the pivot by a requested angle that starts at zero and never closes, and
+SHALL fill what opens with the sector that has the pivot as its apex, the radius
+as its radius and the requested angle as its angle. The resulting outline SHALL
+be the stationary half's outline, the rotated half's outline and a new arc edge
+centred on the pivot with the radius, running from the target point to its
+rotated image. The area SHALL increase by the sector's area. No internal line
+SHALL be created for either radius.
 
-### Requirement: An arc is a first-class curve
+#### Scenario: Open a measured fan
 
-An arc SHALL be creatable as its own edge, either through three points or
-through a centre, a radius and a sweep, and SHALL be editable afterwards by
-dragging its points and by changing its radius and sweep. An arc SHALL mesh,
-sew, render and export like any other edge: the sampling and the engine payload
-see only points.
+- **WHEN** the pivot is at the corner of a panel, the target is 60 mm along one
+  edge and the fan is opened by 30 degrees
+- **THEN** a new arc edge of radius 60 mm and 30 degrees is added, the half on
+  the rotating side moves rigidly with it, no other vertex of that half is
+  moved relative to its neighbours, and the report names the added area
 
-#### Scenario: Create an arc through three points
+#### Scenario: Zero angle
 
-- **WHEN** an arc is created through three points on a panel
-- **THEN** the arc passes through all three within the sampling tolerance and
-  its radius and sweep are reported
+- **WHEN** the fan is opened by zero degrees
+- **THEN** the panel is unchanged, other than being resewn where the split
+  changed an edge
 
-#### Scenario: Editing keeps it an arc
+#### Scenario: Refusals
 
-- **WHEN** the radius of an existing arc is changed
-- **THEN** the arc is redrawn with the new radius and its end points stay
-  attached to the neighbouring edges
+- **WHEN** the pivot or the target is not on the outline, or the chord between
+  them crosses the outline, or the result crosses itself
+- **THEN** the command is refused with the reason and the panel is unchanged
 
-#### Scenario: Scripts use the same commands
+#### Scenario: The angle is adjustable afterwards
 
-- **WHEN** a script divides an edge by target length and then reads the panel
-  back
-- **THEN** the read reports the same vertices and edge lengths the editor's
-  command produces for the same input
+- **WHEN** the angle is changed in Blender's adjust-last-operation panel after a
+  fan was opened
+- **THEN** the panel is rebuilt from its pre-operation state with the new angle,
+  rather than a second sector being added
+
+### Requirement: A curve can be edited through points
+
+The editor SHALL offer a tool that reshapes one edge by dragging it, where the
+edge is fitted through the dragged position instead of the drag being a fixed
+circle. The tool SHALL keep the two ends attached to their neighbouring edges,
+and it SHALL store no centre, radius or sweep on the edge.
+
+#### Scenario: Drag a straight edge into a curve
+
+- **WHEN** a straight edge is dragged off its line
+- **THEN** the edge becomes a curve through the dragged position, its ends stay
+  where they were, and the panel area changes with the curve
+
+#### Scenario: Drag an existing curve
+
+- **WHEN** a curve is dragged near its middle
+- **THEN** the curve follows the pointer and stays within the fitting tolerance
+  of the shape the pointer described
+
+#### Scenario: No arc parameters are stored
+
+- **WHEN** an edge was created by a command that produced an exact arc
+- **THEN** dragging it afterwards leaves it a spline through the dragged points,
+  with no residual radius or sweep
+
+### Requirement: A curve produced exactly keeps its exact form
+
+A command SHALL write an edge as a Bezier when that Bezier reproduces the
+intended curve exactly - a tangent arc from a corner, the outer arc of a fan -
+and SHALL otherwise write a spline. A straight piece SHALL always stay a
+straight two-point edge.
+
+#### Scenario: Fillet keeps its circle
+
+- **WHEN** a corner is rounded
+- **THEN** the inserted edge is a Bezier that reproduces the requested circle
+  within the sampling tolerance, not a spline approximation of it
+
+#### Scenario: Fan keeps its circle
+
+- **WHEN** a fan is opened
+- **THEN** the outer arc edge reproduces the requested circle within the
+  sampling tolerance

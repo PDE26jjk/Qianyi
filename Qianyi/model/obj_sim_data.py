@@ -141,7 +141,7 @@ class ObjectSimulationProperties(PropertyGroup):
             obj.shape_key_add(name=sim_name, from_mix=False)
             keys[sim_name].value = 1.0
             keys[sim_name].relative_key = keys[base_name]
-        console.info("active_shape_key_index", obj.active_shape_key_index)
+        # console.info("active_shape_key_index", obj.active_shape_key_index)
         obj.active_shape_key_index = keys.find(sim_name)
 
         color_attributes = mesh.color_attributes

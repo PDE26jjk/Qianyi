@@ -12,6 +12,7 @@ from ..declarations import Operators
 from ..gizmos.moving_curve import MovingCurve
 from ..model.pattern import interactive_edit_allowed
 from ..utilities.node_tree import get_active_node_tree
+from ..model.qianyi_data import ensure_edit_mode
 
 
 class NODE_OT_pattern_create_by_pen(Operator2DBase, StateOperator):
@@ -21,12 +22,13 @@ class NODE_OT_pattern_create_by_pen(Operator2DBase, StateOperator):
 
     @classmethod
     def poll(cls, context: Context):
-        if not context.scene.qmyi.edit_mode == "PATTERN":
-            return False
+        # The mode is not part of the poll: `setup_state_machine` puts the
+        # editor into this tool's mode, so picking the tool is enough to use it.
         project = get_active_node_tree(context)
         return project is not None
 
     def setup_state_machine(self, context):
+        ensure_edit_mode(context, "PATTERN")
         # console.success("setup_state_machine")
         context.window_manager.modal_handler_add(self)
         # self.draw_manager: TempDrawManager = global_data.temp_draw_manager

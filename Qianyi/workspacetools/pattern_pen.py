@@ -3,6 +3,7 @@ from bpy.types import WorkSpaceTool
 
 from ..keymaps import tool_generic
 from ..declarations import GizmoGroups, Operators, WorkSpaceTools
+from ..model.qianyi_data import ensure_edit_mode
 
 
 class NODE_T_qmyi_pattern_pen(WorkSpaceTool):
@@ -20,7 +21,7 @@ class NODE_T_qmyi_pattern_pen(WorkSpaceTool):
                  ),
                  )
 
-    # def draw_settings(context, layout, tool):
-    #     # 工具设置
-    #     layout.label(text="连接设置:")
-    #     layout.label(text="?????")
+    def draw_cursor(context, tool, xy):
+        # Picking the tool puts the editor into the mode this tool works in, so
+        # the first click draws a panel instead of doing nothing.
+        ensure_edit_mode(context, "PATTERN")

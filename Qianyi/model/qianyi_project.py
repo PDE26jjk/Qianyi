@@ -15,6 +15,33 @@ from .sewing import Sewing, calc_sewing_sections
 from ..declarations import Panels
 
 
+def section_grid(pattern):
+    """A cheap signature of the piece grid the mesh is sampled from.
+
+    Every piece's boundaries and segment count decide the sampled points, so
+    two equal signatures mean the same mesh. Used to tell whether a linking run
+    actually changed a panel before spending a triangulation on it.
+    """
+    grid = []
+    groups = [pattern.edges]
+    groups.extend(line.edges for line in pattern.internal_lines)
+    for edges in groups:  # loop: the outline first, then the internal lines
+        for edge in edges:
+            # The geometry counts too: a moved vertex or handle changes the
+            # samples even when the piece grid stays as it is.
+            grid.append(("edge", int(edge.vertex_index[0]), int(edge.vertex_index[1]),
+                         round(float(edge.length or 0.0), 6)))
+            section = edge.section_start
+            guard = 0
+            while (section is not None and section is not edge.section_end
+                   and guard < 100000):
+                grid.append((round(section.start_pos, 6), round(section.end_pos, 6),
+                             section.seg))
+                section = section.next
+                guard += 1
+    return tuple(grid)
+
+
 def library_category_items(self=None, context=None):
     """Categories offered by the panel library, evaluated when the UI asks."""
     from ..panellib import registry
@@ -383,13 +410,27 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         for pattern in self.patterns:
             if pattern.need_sewing_update:
                 connected_patterns, involved_sewings = pattern.get_connected_patterns_and_sewings()
+                grids = {}
                 for p in connected_patterns:
                     p.recreate_sections()
                     p.forced_update()
+                    # The mesh is sampled from the piece grid, so this is what
+                    # says whether a panel has to be triangulated again. It is
+                    # taken after the resample and compared after the link, so
+                    # a panel the linking run did not cut keeps its mesh -
+                    # `generate_pattern_mesh` is the single most expensive step
+                    # here (about 90 ms per panel).
+                    grids[p] = section_grid(p)
                 self.calc_sewings_sections(involved_sewings)
                 for p in connected_patterns:
                     p.need_sewing_update = False
-                    p.generate_mesh()
+                    rebuild = p.mesh_object is None or section_grid(p) != grids[p]
+                    if global_data.renderers_enabled and p.mesh_renderer is None:
+                        # A panel that lost its render batch (reload, undo) has
+                        # to go through `generate_mesh` again to get one.
+                        rebuild = True
+                    if rebuild:
+                        p.generate_mesh()
 
         sewings = [sewing.get_stitch_data() for sewing in self.sewings]
         return sewings

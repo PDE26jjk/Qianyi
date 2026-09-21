@@ -323,6 +323,56 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
             return new_sec
         return None
 
+    def boundary_section(self, pos, reverse=False) -> Section:
+        """The section a sewing walk starts on, or stops at, for `pos`.
+
+        `find_or_add_section` is the linking-time lookup: it cuts the edge so a
+        boundary sits exactly on `pos` and hands back the piece above it. This
+        is the same lookup for consumers that must not change the geometry -
+        the stitch walk uses it instead of a stored pair of sections, so no
+        later split can leave it pointing at the wrong piece.
+
+        `reverse` asks for the piece *below* the boundary, which is where a
+        walk against the chain starts (and stops). A sewing only has an exact
+        boundary here once it has been linked, so a missing one is reported
+        rather than silently walking a longer range.
+        """
+        eps = 1e-5
+        if pos >= 1 - eps:
+            # None on an open line: nothing follows its last piece, which is
+            # where a walk ends anyway.
+            section = self.section_end
+        else:
+            section = None
+            sec = self.section_start
+            guard = 0
+            while sec is not None and sec is not self.section_end and guard < 10000:
+                if abs(sec.start_pos - pos) <= eps:
+                    section = sec
+                    break
+                sec = sec.next
+                guard += 1
+            if section is None:
+                raise ValueError(
+                    f"edge {self.get_index()} has no section boundary at "
+                    f"{pos:.4f}: the sewing that ends there has not been linked")
+        if reverse:
+            if section is None:
+                # The chain has no piece after the last one, so the piece
+                # ending at the end of the edge is that last piece.
+                section = self.section_start
+                guard = 0
+                while section is not None and section.next is not None and guard < 10000:
+                    section = section.next
+                    guard += 1
+            else:
+                section = section.prev
+            if section is None:
+                raise ValueError(
+                    f"edge {self.get_index()} has nothing before position "
+                    f"{pos:.4f}, so a reversed sewing cannot start there")
+        return section
+
     # def try_regain_self(self):
     #     if self.pattern is not None and self.pattern.global_uuid != -1:
     #         self.pattern.forced_update()

@@ -104,7 +104,7 @@ class NODE_OT_divide_edge(Operator2DBase):
             return {'CANCELLED'}
         if refuse_generated_edit(self, project, pattern):
             return {'CANCELLED'}
-        print_sewings(project, "before")
+        # print_sewings(project, "before")
         try:
             report = geometry.divide_edges(pattern, indices, **self.arguments())
         except geometry.GeometryRefused as refused:
@@ -112,7 +112,7 @@ class NODE_OT_divide_edge(Operator2DBase):
             for hint in refused.hints:  # loop: one report line per hint
                 self.report({'INFO'}, hint)
             return {'CANCELLED'}
-        print_sewings(get_active_node_tree(context) or project, "after")
+        # print_sewings(get_active_node_tree(context) or project, "after")
         select_pieces(project, report)
         self.report({'INFO'}, describe(report))
         return {'FINISHED'}

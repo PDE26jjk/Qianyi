@@ -12,6 +12,11 @@ class DirSection:
 # Doubly linked list node, --> next in CCW
 class Section:
     link_sections: List[List[DirSection]] = []  # [[sec1,sec2,...],[sec3,...],...] sec1 link to sec2 etc.
+    # Bumped by every linking run. `link_map_id` is only an index into
+    # `link_sections`, and that table is rebuilt per run, so without this a
+    # section linked in an earlier run would read whatever group happens to sit
+    # at that index now - another component's pieces, or nothing at all.
+    link_run = 0
 
     def __init__(self, edge, start_pos, end_pos):
         self.start_pos = start_pos
@@ -32,57 +37,62 @@ class Section:
         self.continuous = False
 
     def split(self, radio, reverse=False, check_link=True):
-        # sections = self.edge.sections
-        # index = self.edge.find_section_index(self.start_pos)
-        # next_pos = 1. if index == len(sections) - 1 else sections[index + 1].start_pos
-        # split_pos = (next_pos - self.start_pos) * radio + self.start_pos
-        # new_section = self.edge.add_section(split_pos)
-        # if new_section is None:
-        #     raise ValueError("new_section is None")
-        # return self, new_section
+        """Cut this section in two and return `(the lower half, the upper half)`
+        in chain order.
+
+        `self` is always the lower half and always keeps its `start_pos`; only
+        its end moves. That is the whole point: the two places that store an
+        edge's head (`edge.section_start`, and the previous edge's
+        `section_end`) can never go stale, because the head piece is never
+        replaced.
+
+        `radio` says where the cut is, measured from the end a walk of this side
+        starts at: from `start_pos` when `reverse` is False, from `end_pos` when
+        it is True. Which half a caller wants is the caller's business - a walk
+        starts on the lower half going forward and on the upper half going
+        back, so the direction decides which of the two it takes.
+        """
         self.seg = -1  # need to be recalculated.
         length = self.end_pos - self.start_pos
-        if not reverse:
-            split_pos = self.start_pos + length * radio
-            new_sec = Section(self.edge, split_pos, self.end_pos)
-            self.end_pos = split_pos
-            new_sec.prev = self
-            new_sec.next = self.next
-            if self.next is not None:
-                # Keep the chain doubly linked: the section after this one
-                # still points back at it, so a walk the other way would skip
-                # the new one.
-                self.next.prev = new_sec
-            self.next = new_sec
-        else:
-            split_pos = self.end_pos - length * radio
-            new_sec = Section(self.edge, self.start_pos, split_pos)
-            self.start_pos = split_pos
-            new_sec.next = self
-            new_sec.prev = self.prev
-            if self.prev is not None:
-                self.prev.next = new_sec
-            self.prev = new_sec
-            if self.edge.section_start is self:
-                # The new section holds the beginning of the edge now, so it is
-                # the head. `Edge2D.sections()` walks from here while it is not
-                # `section_end`, so a head left in the middle of the edge hides
-                # every section before it - and those sections never get their
-                # mesh points, which is what made one side of a seam stitch half
-                # as many times as the other.
-                self.edge.section_start = new_sec
-        if check_link and self.link_map_id != -1:
-            new_link_sections = [DirSection(new_sec, False)]
+        cut = length * radio
+        split_pos = self.end_pos - cut if reverse else self.start_pos + cut
+        new_sec = Section(self.edge, split_pos, self.end_pos)
+        self.end_pos = split_pos
+        # One splice for both directions: the new piece takes over the upper
+        # half, this one keeps the lower half.
+        new_sec.prev = self
+        new_sec.next = self.next
+        if self.next is not None:
+            # Keep the chain doubly linked: the section after the new one still
+            # points at this piece, so a walk the other way would skip it.
+            self.next.prev = new_sec
+        self.next = new_sec
+        group = self.linked_group() if check_link else None
+        if group is not None:
             new_sec.link_map_id = len(Section.link_sections)
-            im_reverse = self.is_reverse() ^ reverse
-            for sec in Section.link_sections[self.link_map_id]:
+            new_sec.link_run = Section.link_run
+            new_link_sections = [DirSection(new_sec, False)]
+            im_self_reverse = self.is_reverse()
+            im_reverse = im_self_reverse ^ reverse
+            for sec in group:
                 if sec.section is not self:
                     its_reverse = im_reverse ^ sec.reverse
-                    _, its_new_sec = sec.section.split(radio, its_reverse, check_link=False)
+                    head, tail = sec.section.split(radio, its_reverse, check_link=False)
+                    # A partner running the other way along the seam has its
+                    # halves swapped relative to this one, so which half goes
+                    # where is decided by the relative direction: this group
+                    # keeps the halves that match `self`, the new group takes
+                    # the halves that match `new_sec`.
+                    opposite = sec.reverse ^ im_self_reverse
+                    its_kept_sec = tail if opposite else head
+                    its_new_sec = head if opposite else tail
+                    sec.section = its_kept_sec
                     its_new_sec.link_map_id = new_sec.link_map_id
-                    new_link_sections.append(its_new_sec)
+                    its_new_sec.link_run = Section.link_run
+                    new_link_sections.append(DirSection(its_new_sec, opposite))
             Section.link_sections.append(new_link_sections)
         new_sec.outsize = self.outsize
+        new_sec.io_state = self.io_state
         return self, new_sec
 
     def split_pending(self):
@@ -105,9 +115,16 @@ class Section:
             split_pos = start_pos + length * r
             new_sec = Section(self.edge, split_pos, end_pos)
             new_sec.io_state = state
+            new_sec.outsize = sec.outsize
             sec.end_pos = split_pos
             new_sec.next = sec.next
             new_sec.prev = sec
+            if new_sec.next is not None:
+                # Same rule as `split`: the section after the new one used to
+                # point at the piece we just cut, so a walk the other way
+                # (a reversed seam, or `calc_sewing_side_sections`) would skip
+                # the new piece.
+                new_sec.next.prev = new_sec
             sec.next = new_sec
             sec = new_sec
             last_r = r
@@ -115,37 +132,51 @@ class Section:
         self.pending_split.clear()
 
     def is_reverse(self):
-        if self.link_map_id == -1:
+        group = self.linked_group()
+        if group is None:
             return False
-        # console.warning("is_reverse", Section.link_sections,self.link_map_id )
-        for sec in Section.link_sections[self.link_map_id]:
-            if sec.section is self:
-                return sec.reverse
+        for entry in group:
+            if entry.section is self:
+                return entry.reverse
         raise ValueError("Section.is_reverse: Something Wrong!!!")
+
+    def linked_group(self):
+        """The group this section belongs to in the current linking run.
+
+        Linking happens per run (`calc_sewing_sections` clears the table and
+        fills it again), so an id that survives from an older run says nothing
+        about the sections in memory now. Such a section counts as unlinked and
+        is re-linked by the run that needs it.
+        """
+        if self.link_map_id == -1 or self.link_run != Section.link_run:
+            return None
+        if not 0 <= self.link_map_id < len(Section.link_sections):
+            return None
+        return Section.link_sections[self.link_map_id]
 
     def link_to(self, other: 'Section', reverse=False):
         if self is other:
             raise ValueError("Sewing overlap!!!")
-        # console.warning("link_to", Section.link_sections, self.link_map_id, other.link_map_id)
-        if self.link_map_id == -1 or other.link_map_id == -1:
-            if self.link_map_id == -1 and other.link_map_id == -1:
+        mine = self.linked_group()
+        theirs = other.linked_group()
+        if mine is None or theirs is None:
+            if mine is None and theirs is None:
                 index = len(Section.link_sections)
-                other.link_map_id = self.link_map_id = index
                 Section.link_sections.append([DirSection(self, False), DirSection(other, reverse)])
-            elif self.link_map_id == -1:
+                other.link_map_id = self.link_map_id = index
+            elif mine is None:
                 its_reverse = other.is_reverse()
-                Section.link_sections[other.link_map_id].append(DirSection(self, its_reverse ^ reverse))
+                theirs.append(DirSection(self, its_reverse ^ reverse))
                 self.link_map_id = other.link_map_id
             else:
                 im_reverse = self.is_reverse()
-                Section.link_sections[self.link_map_id].append(DirSection(other, im_reverse ^ reverse))
+                mine.append(DirSection(other, im_reverse ^ reverse))
                 other.link_map_id = self.link_map_id
+            self.link_run = other.link_run = Section.link_run
         else:
-            if self.link_map_id == other.link_map_id:
+            if mine is theirs:
                 raise ValueError("Sewing overlap!!!")
-            link_sections = Section.link_sections[self.link_map_id]
-            other_link_sections = Section.link_sections[other.link_map_id]
-            all_sections = link_sections + other_link_sections
+            all_sections = mine + theirs
             im_reverse = self.is_reverse()
             for sec in all_sections:
                 sec.section.count = 0
@@ -155,12 +186,13 @@ class Section:
                 if sec.section.count > 1:
                     raise ValueError("Sewing overlap!!!")
             reverse ^= im_reverse
-            for sec in other_link_sections:
+            for sec in theirs:
                 sec.section.link_map_id = self.link_map_id
+                sec.section.link_run = Section.link_run
                 sec.reverse ^= reverse
 
-            Section.link_sections[self.link_map_id].extend(other_link_sections)
-            other_link_sections.clear()
+            mine.extend(theirs)
+            theirs.clear()
 
     def absolute_length(self):
         return (self.end_pos - self.start_pos) * self.edge.length

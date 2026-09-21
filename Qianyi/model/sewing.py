@@ -128,10 +128,28 @@ class Sewing(PropertyGroup, ModelData, Selectable):
         patterns = (pattern1.mesh_object.qmyi_simulation_props.simulation_index,
                     pattern2.mesh_object.qmyi_simulation_props.simulation_index)
 
-        start1, end1 = self.sections1
-        start2, end2 = self.sections2
+        # The walk boundaries are read from the sewing's own parameters, not
+        # from a stored pair of sections: a pair of objects cannot survive a
+        # later split, while the two pieces the stitches run between can always
+        # be found again from `pos1` / `pos2` and the direction.
+        start1 = ss1.line1.boundary_section(ss1.pos1, ss1.reverse)
+        end1 = ss1.line2.boundary_section(ss1.pos2, ss1.reverse)
+        start2 = ss2.line1.boundary_section(ss2.pos1, ss2.reverse)
+        end2 = ss2.line2.boundary_section(ss2.pos2, ss2.reverse)
         stitches1 = get_stitches_by_sections(start1, end1, ss1.reverse)
         stitches2 = get_stitches_by_sections(start2, end2, ss2.reverse)
+        # A side that runs outside its panel has no vertices there, so those
+        # pairs cannot be stitched. Dropping the same positions on both sides
+        # keeps every remaining stitch paired the way it was.
+        inside = (stitches1 >= 0) & (stitches2 >= 0)
+        if not inside.all():
+            # Back to the map's own dtype: the walk uses a signed placeholder,
+            # and the engine has always been handed the deduplicated index
+            # dtype.
+            stitches1 = stitches1[inside].astype(
+                pattern1.mesh_edge_index_map.dtype, copy=False)
+            stitches2 = stitches2[inside].astype(
+                pattern2.mesh_edge_index_map.dtype, copy=False)
         stitches = np.column_stack((stitches1, stitches2))
 
         return {'patterns': patterns, 'stitches': stitches, 'angle': 0.}
@@ -154,15 +172,40 @@ def get_stitches_by_sections(start_section, end_section, reverse):
     while (sec is not end_section or not start) and max_sec > 0:
         point_size = sec.seg
         next = sec.prev if reverse else sec.next
-        if next is end_section and not is_loop:
+        # The seam's far end point lives one sample above the highest piece the
+        # walk visits, and the walk never visits the piece that owns it. A
+        # forward walk reaches that piece last, a reversed walk reaches it
+        # first (`start` is still False). A loop walks back into its own start
+        # section, which is the same rule with the closing sample on top.
+        if reverse:
+            if not start:  # 反向走查的第一个段就是最高那段
+                point_size += 1
+        elif next is end_section:
             point_size += 1
 
+        if sec.outsize or sec.mesh_start_point < 0:
+            # The piece lies outside its panel, so the sampler skipped it and
+            # left its mesh offset at -1: there is nothing to stitch here. The
+            # placeholder keeps the two sides the same length. It has to be
+            # signed - the mesh index map itself is unsigned, where -1 would
+            # read back as 4294967295 and pass the "inside" test below.
+            stitches_list.append(np.full(point_size, -1, dtype=np.int64))
+            sec = next
+            max_sec -= 1
+            start = True
+            continue
         stitches_index = pattern.mesh_edge_index_map[sec.mesh_start_point: sec.mesh_start_point + point_size]
         if point_size - len(stitches_index) == 1:
             stitches_index = np.append(stitches_index, pattern.mesh_edge_index_map[0])
         if point_size != len(stitches_index):
             raise IndexError("Something went wrong")
-        if sec.mesh_end_point != -1:
+        if sec.mesh_end_point != -1 and not is_loop and next is end_section:
+            # `mesh_end_point` is the panel's own first sample, which is the
+            # seam's end point only when this piece is the last one the walk
+            # visits. A piece sitting in the middle of the walk (a seam that
+            # wraps past the panel's start) already carries that sample as its
+            # own, and overwriting the last one would drop a point and repeat
+            # another.
             stitches_index[-1] = pattern.mesh_edge_index_map[sec.mesh_end_point]
         stitches_list.append(stitches_index)
         sec = next
@@ -181,12 +224,27 @@ def calc_sewing_side_sections(ss, sections_start_end, reverse=False):
     sections: List[Section] = []
     sec_start = ss.line1.find_or_add_section(ss.pos1)
     sec_end = ss.line2.find_or_add_section(ss.pos2)
-    assert sec_start is not None, "sec_start is None!!!"
+    if sec_start is None:
+        raise ValueError(
+            f"a sewing side at {ss.pos1:.4f} -> {ss.pos2:.4f} (reverse={reverse}) "
+            f"has no section at its start: the edge it sits on cannot be sewn there")
     if reverse:
+        if sec_end is None:
+            raise ValueError(
+                f"a reversed sewing side cannot end at the far end of an open "
+                f"edge (pos1={ss.pos1:.4f}, pos2={ss.pos2:.4f})")
         sec_start, sec_end = sec_start.prev, sec_end.prev
+        if sec_start is None or sec_end is None:
+            raise ValueError(
+                f"a reversed sewing side at {ss.pos1:.4f} -> {ss.pos2:.4f} runs "
+                f"past the start of its edge: pos1 has to be the far end")
     sections_start_end[0] = sec_start
     sections_start_end[1] = sec_end
     sec = sec_start
+    # loop
+    if sec is sec_end:
+        sections.append(sec)
+        sec = sec.next if not reverse else sec.prev
     while sec != sec_end and max_sec > 0:
         sections.append(sec)
         sec = sec.next if not reverse else sec.prev
@@ -196,6 +254,10 @@ def calc_sewing_side_sections(ss, sections_start_end, reverse=False):
 
     lengths = np.fromiter((obj.absolute_length() for obj in sections), dtype=np.float64)
     scans = np.cumsum(lengths)
+    if scans[-1] <= 0:
+        raise ValueError(
+            f"a sewing side at {ss.pos1:.4f} -> {ss.pos2:.4f} covers no length, "
+            f"so there is nothing to sew")
     lengths /= scans[-1]
     scans /= scans[-1]
 
@@ -205,37 +267,135 @@ def calc_sewing_side_sections(ss, sections_start_end, reverse=False):
 # Create sections and calculate intersections before call it.
 def calc_sewing_sections(sewings):
     link_sections = Section.link_sections
+    # Start a new linking run: the ids in the table are only meaningful for the
+    # run that wrote them, and the sections on this run's sides are the ones
+    # that are about to be registered.
+    Section.link_run += 1
     link_sections.clear()
 
+    for sewing in sewings:
+        check_sewing_sides(sewing)
+
+    try:
+        link_sewings(sewings, link_sections)
+    except Exception:
+        # A run that failed halfway left a table that describes only part of
+        # the alignment: the sections in it would take part in later splits as
+        # if their partners were in step. Drop it and move the run on so those
+        # sections count as unlinked until a run completes.
+        link_sections.clear()
+        Section.link_run += 1
+        raise
+
+    # The recorded pair is what the editor and diagnostics read; the stitch
+    # walk looks the boundaries up again from the sewing's parameters. Refresh
+    # it here so the two agree after every cut the merge made.
+    for sewing in sewings:
+        for side, holder in ((sewing.side1, sewing.sections1),
+                             (sewing.side2, sewing.sections2)):
+            try:
+                holder[0] = side.line1.boundary_section(side.pos1, side.reverse)
+                holder[1] = side.line2.boundary_section(side.pos2, side.reverse)
+            except ValueError as error:
+                console.warning(f"sewing {sewing.name or '(unnamed)'}: {error}")
+
+
+def check_sewing_sides(sewing):
+    """Refuse a seam whose sides cannot be resolved, naming the seam.
+
+    `SewingOneSide.line1` answers None while a panel is being rebuilt, and the
+    sections lookups further down would raise an AttributeError without saying
+    which seam or which side was at fault.
+    """
+    for label in ("side1", "side2"):
+        side = getattr(sewing, label)
+        for field in ("line1", "line2"):
+            if getattr(side, field) is None:
+                raise ValueError(
+                    f"sewing {sewing.name or '(unnamed)'}: {label}.{field} points "
+                    f"at no edge (the panel it was sewn onto was rebuilt)")
+
+
+def link_sewings(sewings, link_sections):
+    """Split and link the sections of every side of every seam."""
     # Split and link sections by sewings.
-    blur_factor = 0.05
     for sewing in sewings:
         ss1, ss2 = sewing.side1, sewing.side2
         sections1, lengths1, scans1 = calc_sewing_side_sections(ss1, sewing.sections1, ss1.reverse)
         sections2, lengths2, scans2 = calc_sewing_side_sections(ss2, sewing.sections2, ss2.reverse)
         i = j = 0
         n1, n2 = len(sections1), len(sections2)
-        reverse = ss1.reverse ^ ss2.reverse
+        not_same_dir = ss1.reverse ^ ss2.reverse
+        # The merge aligns the two sides by normalized progress, so a seam that
+        # stretches one edge onto a much longer one still cuts at matching
+        # fractions. `tolerance` is how far apart two boundaries may be before
+        # they count as different - one mesh step on the shorter side, in
+        # fractions, instead of the fixed 5% of the range that used to be here
+        # (5% is 1 mm on a 20 mm seam and 100 mm on a 2 m one).
+        total1 = sum(section.absolute_length() for section in sections1)
+        total2 = sum(section.absolute_length() for section in sections2)
+        granularity = min(ss1.line1.pattern.granularity,
+                          ss2.line1.pattern.granularity)
+        shortest = min(total1, total2)
+        if shortest <= 0:
+            raise ValueError(
+                f"sewing {sewing.name or '(unnamed)'}: one side covers no length")
+        # One mesh step on the shorter side, in fractions, with a ceiling: a
+        # seam shorter than a mesh step would otherwise get a tolerance above 1,
+        # which makes every boundary "close" and hides real mismatches.
+        tolerance = min(0.1, granularity / shortest)
         while i < n1 and j < n2:
-            if abs(scans1[i] - scans2[j]) <= blur_factor:
-                sections1[i].link_to(sections2[j])
+            # Boundaries closer than `tolerance` count as the same one, but only
+            # when linking them swallows no further boundary: the two pieces
+            # would otherwise cover different progress and the rest of the merge
+            # would stay one piece behind, leaving pieces unlinked (their `seg`
+            # stays -1 and the two sides end up with different stitch counts).
+            close = abs(float(scans1[i]) - float(scans2[j])) <= tolerance
+            if close:
+                if float(scans1[i]) < float(scans2[j]):
+                    close = i + 1 >= n1 or float(scans1[i + 1]) > float(scans2[j])
+                else:
+                    close = j + 1 >= n2 or float(scans2[j + 1]) > float(scans1[i])
+            if close:
+                sections1[i].link_to(sections2[j], not_same_dir)
                 i += 1
                 j += 1
                 continue
             if scans1[i] <= scans2[j]:
                 cut_length = scans1[i] - (scans2[j] - lengths2[j])
+                if cut_length <= 0:
+                    # Rounding left the two pieces starting on top of each
+                    # other: pair them and carry on rather than writing an empty
+                    # piece (a zero-length piece makes the sampler divide by
+                    # zero).
+                    sections1[i].link_to(sections2[j], not_same_dir)
+                    i += 1
+                    j += 1
+                    continue
                 radio = cut_length / lengths2[j]
-                s1, s2 = sections2[j].split(radio, reverse)
-                sections1[i].link_to(s1)
-                sections2[j] = s2
+                head, tail = sections2[j].split(radio, ss2.reverse)
+                # A walk starts on the low half going forward and on the high
+                # half going back; the other half is what it still has to
+                # cover.
+                leading, continuation = ((head, tail) if not ss2.reverse
+                                         else (tail, head))
+                sections1[i].link_to(leading, not_same_dir)
+                sections2[j] = continuation
                 lengths2[j] -= cut_length
                 i += 1
             else:
                 cut_length = scans2[j] - (scans1[i] - lengths1[i])
+                if cut_length <= 0:
+                    sections1[i].link_to(sections2[j], not_same_dir)
+                    i += 1
+                    j += 1
+                    continue
                 radio = cut_length / lengths1[i]
-                s1, s2 = sections1[i].split(radio)
-                sections2[j].link_to(s1, reverse)
-                sections1[i] = s2
+                head, tail = sections1[i].split(radio, ss1.reverse)
+                leading, continuation = ((head, tail) if not ss1.reverse
+                                         else (tail, head))
+                sections2[j].link_to(leading, not_same_dir)
+                sections1[i] = continuation
                 lengths1[i] -= cut_length
                 j += 1
 
@@ -252,7 +412,7 @@ def calc_sewing_sections(sewings):
                     sec.seg = max_seg
                     sec.edge.need_update_points = True
                     sec.edge.pattern.need_geo_update = True
-            console.warning(i, sections, max_seg)
+            # console.warning(i, sections, max_seg)
 
 
 def calc_sewing_side_edges_index(ss, parent):

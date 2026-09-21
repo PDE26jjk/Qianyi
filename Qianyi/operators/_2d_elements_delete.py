@@ -174,6 +174,7 @@ class NODE_OT_elements_delete(Operator2DBase):
                         if len(sps) > 0:
                             for j in sorted(sps, reverse=True):
                                 e.spline_points.remove(j)
+                            e.refresh_collection_uuid(e.spline_points)
                 # The sewings that lost a line have to go before the pattern is
                 # refreshed: `forced_update` walks every sewing in the project
                 # and a deleted edge no longer resolves.

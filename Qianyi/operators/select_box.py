@@ -194,10 +194,11 @@ class NODE_OT_qmyi_select_box(Operator):
                     update_selection_cache(
                         project.selected_vertices, obj, mode, is_replace
                     )
-                elif "Edge" in type_name:
-                    update_selection_cache(
-                        project.selected_edges, obj, mode, is_replace
-                    )
+                # box select not handle edges
+                # elif "Edge" in type_name:
+                #     update_selection_cache(
+                #         project.selected_edges, obj, mode, is_replace
+                #     )
             elif edit_mode == "SEWING":
                 update_selection_cache(
                     project.selected_sewings, obj, mode, is_replace

@@ -321,20 +321,37 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         # for p in self.patterns:
         #     p.forced_update()
 
-    def get_selected_objects_by_mode(self, mode, submode=None):
-        selected_objects = []
+    def get_selected_objects_by_mode(self, mode, submode=None, strict=True):
+        """Every object selected in `mode`, whatever mode the editor is in.
+
+        The selection is kept per mode, so a caller that asks for a mode other
+        than the current one gets the elements that mode left selected - which
+        is what lets a selection outlive a mode switch. `submode` only narrows
+        the edge mode further; leaving it out returns its edges and vertices.
+
+        An entry whose data is gone is skipped rather than returned as None.
+        `strict` decides what a shifted identity does: the editing callers keep
+        seeing it as an error, while the drawing path asks for the tolerant
+        lookup, because a selection that outlived the element it names must not
+        fail a redraw.
+        """
         if mode == "PATTERN":
-            for uuid in self.selected_patterns:
-                selected_objects.append(global_data.get_obj_by_uuid(uuid.uuid, check_uuid=True))
+            uuids = [entry.uuid for entry in self.selected_patterns]
         elif mode == "EDGE":
-            if submode == "EDGE_VERTEX":
-                for uuid in self.selected_edges:
-                    selected_objects.append(global_data.get_obj_by_uuid(uuid.uuid, check_uuid=True))
-                for uuid in self.selected_vertices:
-                    selected_objects.append(global_data.get_obj_by_uuid(uuid.uuid, check_uuid=True))
+            if submode not in (None, "EDGE_VERTEX"):
+                return []
+            uuids = [entry.uuid for entry in self.selected_edges]
+            for entry in self.selected_vertices:  # loop: one RNA read per item
+                uuids.append(entry.uuid)
         elif mode == "SEWING":
-            for uuid in self.selected_sewings:
-                selected_objects.append(global_data.get_obj_by_uuid(uuid.uuid, check_uuid=True))
+            uuids = [entry.uuid for entry in self.selected_sewings]
+        else:
+            return []
+        selected_objects = []
+        for uuid in uuids:  # loop: one identity lookup per selected element
+            obj = global_data.get_obj_by_uuid(uuid, check_uuid=strict)
+            if obj is not None:
+                selected_objects.append(obj)
         return selected_objects
 
     def clear_selected_objects_by_mode(self, mode):

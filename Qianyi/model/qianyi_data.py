@@ -52,12 +52,43 @@ class QianyiProps(PropertyGroup, ModelData):
         description="Display the grain direction arrow in the pattern editor",
         default=False,
     )
+    corner_mode: EnumProperty(
+        name="Corner",
+        description="Which corner treatment the corner tool applies: a round, "
+                    "a chamfer, or a hollow cut into the panel",
+        items=[
+            ("ROUND", "Round", "Replace the corner with an arc tangent to both "
+                               "edges",),
+            ("CHAMFER", "Chamfer", "Replace the corner with a straight edge "
+                                   "between the same two points",),
+            ("CONCAVE", "Hollow",
+             "Put the arc on the other side of the chord, cutting a hollow "
+             "into the panel",),
+        ],
+        default='ROUND',
+    )
     sync_selection: BoolProperty(
         name="Sync Selection",
         description="Keep the 3D selection and the pattern editor's selection in "
                     "step: selecting a panel's mesh selects that panel (and its "
                     "instance copies) in the pattern editor, and the other way "
                     "round. Works the way the UV editor's sync selection does",
+        default=False,
+    )
+    triangulator: EnumProperty(
+        name="Triangulator",
+        description="Which triangulator the mesh sampler runs: gDel2D is the "
+                    "mature one, gCDT the newer and faster one that is still "
+                    "unstable on some inputs",
+        items=[
+            ('0', "gDel2D", "The mature triangulator (default)",),
+            ('1', "gCDT", "The newer, faster triangulator; still unstable",),
+        ],
+        default='0',
+    )
+    mesh_profile: BoolProperty(
+        name="Profile Mesh Build",
+        description="Print what every phase of a mesh rebuild cost, in seconds",
         default=False,
     )
     pattern_display_mode: EnumProperty(

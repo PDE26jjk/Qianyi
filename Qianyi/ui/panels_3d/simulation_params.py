@@ -104,6 +104,26 @@ class QY_PT_solver_custom(VIEW_3D_PT_qmyi_base):
         layout.label(text="Unknown keys are passed to the engine as-is", icon='INFO')
 
 
+class QY_PT_solver_debug(VIEW_3D_PT_qmyi_base):
+    """Debug switches for the mesh path: a panel of its own, next to Solver."""
+
+    bl_category = "Qianyi"
+    bl_label = "Debug"
+    bl_idname = "QY_PT_mesh_debug"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.scene.qmyi.solver.developer_mode
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(context.scene.qmyi, "triangulator")
+        if context.scene.qmyi.triangulator == '1':
+            layout.label(text="gCDT is not stable on every input yet", icon='ERROR')
+        layout.prop(context.scene.qmyi, "mesh_profile")
+
+
 class QY_PT_capture(VIEW_3D_PT_qmyi_base):
     bl_category = "Qianyi"
     bl_label = "Capture"
@@ -196,6 +216,7 @@ classes = (
     QY_PT_solver,
     *GROUP_PANELS,
     QY_PT_solver_custom,
+    QY_PT_solver_debug,
     QY_PT_capture,
     QY_UL_custom_parameter,
     ApplySolverParametersOperator,

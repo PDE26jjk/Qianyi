@@ -160,7 +160,34 @@ class ObjectSimulationProperties(PropertyGroup):
         if self.attach_pin_group_name not in obj.vertex_groups:
             obj.vertex_groups.new(name=self.attach_pin_group_name)
 
-    def get_vertex_group_weight(self, key):  # TODO make it faster
+    def _weight_cache(self, key):
+        """The weights this add-on last wrote for one group, or None.
+
+        Reading a vertex group means visiting every vertex through RNA, which
+        costs tens of milliseconds on a fine panel, and the only writer of these
+        groups is this add-on (`set_vertex_group_weight`, called after a rebuild
+        restored them). The array it wrote is kept here and handed back while the
+        vertex count still matches; anything else falls back to reading the group.
+        """
+        cache = getattr(self, "weight_cache", None)
+        if cache is None:
+            return None
+        entry = cache.get(key)
+        if entry is None or entry[0] != len(self.id_data.data.vertices):  # ??? vertices position ???
+            return None
+        return entry[1]
+
+    def _store_weight_cache(self, key, weights_np) -> None:
+        cache = getattr(self, "weight_cache", None)
+        if cache is None:
+            cache = {}
+            self.weight_cache = cache
+        cache[key] = (len(self.id_data.data.vertices), weights_np)
+
+    def get_vertex_group_weight(self, key):
+        cached = self._weight_cache(key)
+        if cached is not None:
+            return cached.copy()
         obj = self.id_data
         weights_np = np.zeros(len(obj.data.vertices), dtype=np.float32)
         vg_index = -1
@@ -174,6 +201,7 @@ class ObjectSimulationProperties(PropertyGroup):
                 if g.group == vg_index:
                     weights_np[i] = g.weight
                     break
+        self._store_weight_cache(key, weights_np)
         return weights_np
 
     def set_vertex_group_weight(self, group_name, weights_np):
@@ -184,9 +212,15 @@ class ObjectSimulationProperties(PropertyGroup):
             vg = obj.vertex_groups[group_name]
 
         vg.remove(range(len(obj.data.vertices)))
-        for i, w in enumerate(weights_np):
-            if w != 0.0:
-                vg.add([i], w, 'REPLACE')
+        weights_np = np.asarray(weights_np, dtype=np.float32)
+        # One `add` per distinct weight instead of one per vertex: pin weights
+        # are normally just 0 and 1, so this is a couple of calls rather than one
+        # call per vertex, which is what made a rebuild of a fine panel slow.
+        for value in np.unique(weights_np):
+            if value == 0.0:
+                continue
+            vg.add(np.flatnonzero(weights_np == value).tolist(), float(value), 'REPLACE')
+        self._store_weight_cache(group_name, weights_np)
 
     def init_simulation(self, obj):
         if not obj or obj.type != 'MESH' or not self.is_pattern_mesh:

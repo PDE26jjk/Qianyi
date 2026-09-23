@@ -23,6 +23,8 @@ modules = [
     '_2d_add_vertex',
     '_2d_add_spline_point',
     '_2d_divide_edge',
+    '_2d_corner',
+    '_2d_fan',
     '_2d_add_sewing_1to1',
     '_3d_pick_mesh',
     'capture_scene',

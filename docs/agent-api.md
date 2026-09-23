@@ -346,6 +346,12 @@ step.
   that is the next change. `components.build()` is what to use meanwhile.
 * No m-to-n sewing: a seam joins one edge of one panel to one edge of another.
 * No measurement source: every parameter is a number the caller supplies.
+* No gesture tool: the pattern pen, the internal-line pen, the sewing tool, box
+  select and the 3D pick are drawn interactions rather than calls with
+  parameters, so nothing here opens one. That is also why the editor documents
+  them as the exception to Blender's adjust-last-operation panel - a gesture has
+  no number to adjust, while a geometry command (a division, a corner, a fan)
+  shows its numbers there and can be re-run from them.
 * No MCP protocol layer: this surface is plain Python for a client that already
   knows how to run a statement inside Blender.
 

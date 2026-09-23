@@ -22,6 +22,8 @@ GRAIN_DISPLAY_ROTATION = math.pi / 2
 
 
 class PatternRenderer(BaseRenderer):
+    identity_attribute = "pattern_uuid"
+
     def __init__(self, pattern):
         super().__init__()
         self.batch_edge = None
@@ -34,7 +36,7 @@ class PatternRenderer(BaseRenderer):
 
     @property
     def pattern(self):
-        return global_data.get_obj_by_uuid(self.pattern_uuid)
+        return global_data.get_obj_by_uuid(self.pattern_uuid, False)
 
     def update_batch_edge(self, render_points):
         # 创建批次
@@ -169,7 +171,9 @@ class PatternRenderer(BaseRenderer):
         transform_matrix = self.pattern.calc_matrix()
         self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", color)
+        gpu.state.point_size_set(8)
         self.batch_vertex.draw(self.shader)
 
         self.shader.uniform_float("color", (1, 0.2, 0., 0.8))
+        gpu.state.point_size_set(5)
         self.batch_spline_point.draw(self.shader)

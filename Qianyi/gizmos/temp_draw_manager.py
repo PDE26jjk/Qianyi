@@ -30,6 +30,23 @@ INVALID_PATTERN_COLOR = (1.0, 0.25, 0.2, 1.0)
 # for all panels, which makes a selection impossible to read.
 SELECTED_PATTERN_COLOR = (1.0, 0.62, 0.12, 1.0)
 SELECTED_PATTERN_LINE_WIDTH = 3.0
+# A selected edge or vertex, and the alpha the same element is drawn with while
+# its own mode is not the active one.
+SELECTED_EDGE_COLOR = (1.0, 1.0, 0.0, 1.0)
+SELECTED_VERTEX_COLOR = (1.0, 1.0, 0.0, 1.0)
+DIMMED_SELECTION_ALPHA = 0.35
+# The point a tool would act on, drawn under the pointer while the tool is
+# active: the same idea as the add-vertex tool's preview, for the tools that
+# pick a point of the outline instead of an edge.
+TOOL_POINT_COLOR = (0.2, 1.0, 1.0, 1.0)
+TOOL_PIVOT_COLOR = (1.0, 0.55, 0.1, 1.0)
+TOOL_TARGET_COLOR = (0.3, 1.0, 0.3, 1.0)
+TOOL_LINE_COLOR = (1.0, 0.65, 0.15, 0.9)
+
+
+def dimmed_selection_color(color):
+    """`color` at the alpha a selection of another mode is drawn with."""
+    return (color[0], color[1], color[2], DIMMED_SELECTION_ALPHA)
 
 
 def fabric_fill_color(pattern, alpha=0.5):
@@ -55,6 +72,16 @@ class TempDrawManager:
         self.region_width = 0
         self.region_height = 0
         self.mouse_location = None
+        # Points a tool wants drawn: (panel uuid, point in that panel's space).
+        self.tool_points = []
+        # Line segments a tool wants drawn, in view space.
+        self.tool_lines: List[Line] = []
+        # One polyline a tool wants drawn, in view space: a whole outline is one
+        # batch this way instead of a segment per pair of samples.
+        self.tool_polyline = None
+        # Set while a tool's modal gesture owns the preview: the tool's own
+        # cursor preview then leaves it alone.
+        self.preview_locked = False
         # Projection of the project's silhouette objects, drawn behind the
         # panels. Built lazily: a GPU shader cannot be created before the draw
         # callback has a context.
@@ -88,6 +115,43 @@ class TempDrawManager:
         self.points.clear()
         self.lines.clear()
         self.moving_curves.clear()
+        self.tool_points.clear()
+        self.tool_lines.clear()
+        self.tool_polyline = None
+
+    def set_tool_points(self, entries) -> None:
+        """Show the points a tool is working with.
+
+        `entries` is a list of ``(pattern, point, kind)``, where the kind picks
+        the colour the point is drawn in: ``"hover"`` for what a click would
+        take, ``"pivot"`` and ``"target"`` for the points a gesture has taken.
+        """
+        self.tool_points = [(pattern.global_uuid,
+                             (float(point[0]), float(point[1])), kind)
+                            for pattern, point, kind in entries if pattern is not None]
+
+    def set_tool_point(self, pattern, point, kind="hover") -> None:
+        """Show one point of a panel as what the tool would act on."""
+        if pattern is None or point is None:
+            self.tool_points = []
+            return
+        self.set_tool_points([(pattern, point, kind)])
+
+    def add_tool_line(self, point1, point2) -> None:
+        """Add one view-space segment to the tool's own preview."""
+        line = Line()
+        line.set_points(point1, point2)
+        self.tool_lines.append(line)
+
+    def clear_tool_preview(self) -> None:
+        """Drop everything a tool drew: its points and its lines."""
+        self.tool_points = []
+        self.tool_lines.clear()
+        self.tool_polyline = None
+
+    def set_tool_polyline(self, points) -> None:
+        """Show one polyline as the tool's preview, in view space."""
+        self.tool_polyline = [tuple(point) for point in points]
 
     @staticmethod
     def get_v2d_cur(region):
@@ -411,6 +475,10 @@ class TempDrawManager:
         # start_time = time.time()
 
         display_mode = qmyi.pattern_display_mode
+        # Whether the panel selection is the active one: it is drawn dimmed in
+        # every other mode. Read once, so the loop cannot depend on a branch
+        # that a panel without a mesh does not take.
+        in_pattern_mode = qmyi.edit_mode == "PATTERN"
 
         shader.bind()
         gpu.state.line_width_set(1.0)
@@ -431,11 +499,12 @@ class TempDrawManager:
             if p.mesh_renderer is not None:
                 if p.mesh_renderer.obj != p.mesh_object:
                     p.mesh_renderer.start_rendering(p.mesh_object)
-                is_selected = qmyi.edit_mode == "PATTERN" and p.is_selected
+                is_selected = in_pattern_mode and p.is_selected
                 # The display mode only chooses what is drawn: no branch here
                 # resamples a panel, rebuilds a mesh or touches a sewing.
                 if display_mode == 'MESH':
-                    p.mesh_renderer.draw_mesh_lines(is_selected)
+                    p.mesh_renderer.draw_mesh_lines(
+                        is_selected, dim=p.is_selected and not in_pattern_mode)
                 elif display_mode in ('SOLID', 'STRESS', 'DEBUG'):
                     # Stress and debug need an applied frame; without one the
                     # panel keeps the solid fill and the header says why.
@@ -456,8 +525,15 @@ class TempDrawManager:
             for il in p.internal_lines:
                 il.renderer.draw_edges(color=line_color)
             if p.is_selected:
-                p.line_renderer.draw_edges(color=SELECTED_PATTERN_COLOR,
-                                           thickness=SELECTED_PATTERN_LINE_WIDTH)
+                # A panel selected in the pattern mode keeps its selection
+                # outline in the other modes - dimmed, so the mode the user is
+                # in is still the one that reads as active.
+                selection_color = (SELECTED_PATTERN_COLOR if in_pattern_mode
+                                   else dimmed_selection_color(SELECTED_PATTERN_COLOR))
+                p.line_renderer.draw_edges(
+                    color=selection_color,
+                    thickness=(SELECTED_PATTERN_LINE_WIDTH if in_pattern_mode
+                               else SELECTED_PATTERN_LINE_WIDTH - 1.0))
                 # The next panel draws its own lines; leave the width as the
                 # loop set it.
                 gpu.state.line_width_set(1.0)
@@ -478,20 +554,30 @@ class TempDrawManager:
         # console.info(f"main: {(time.time() - start_time) * 1000}")
         # start_time = time.time()
 
+        # The selection belongs to the mode it was made in and outlives a mode
+        # switch: here it is drawn in its own colour while its mode is active
+        # and dimmed and thin while another mode is, so what is selected stays
+        # readable and is still selected when its mode comes back.
+        in_edge_mode = qmyi.edit_mode == "EDGE"
         points_renderer = PointsRenderer()
-        if qmyi.edit_mode == "EDGE":
-            for obj in project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX"):
-                if isinstance(obj, Edge2D):
-                    pass
-                    obj.renderer.draw((1, 1, 0, 1), 3)
+        dimmed_points_renderer = PointsRenderer()
+        edge_selection_color = (SELECTED_EDGE_COLOR if in_edge_mode
+                                else dimmed_selection_color(SELECTED_EDGE_COLOR))
+        for obj in project.get_selected_objects_by_mode("EDGE", strict=False):
+            if isinstance(obj, Edge2D):
+                obj.renderer.draw(edge_selection_color, 3 if in_edge_mode else 2)
+                if in_edge_mode:
                     obj.renderer.draw_handles((0, 1, 0, 1), 2)
-                elif isinstance(obj, Vertex2D):
+            elif isinstance(obj, Vertex2D):
+                if in_edge_mode:
                     points_renderer.add_point(obj.pattern, obj)
-                    pass
-            if qmyi.edit_sub_mode in ("ADD_VERTEX", "ADD_SPLINE_POINT"):
-                if project.nearest_point is not None:
-                    points_renderer.add_point(project.patterns[project.nearest_pattern], project.nearest_point)
-        elif qmyi.edit_mode == "SEWING":
+                else:
+                    dimmed_points_renderer.add_point(obj.pattern, obj)
+        if in_edge_mode and qmyi.edit_sub_mode in ("ADD_VERTEX", "ADD_SPLINE_POINT"):
+            if project.nearest_point is not None:
+                points_renderer.add_point(project.patterns[project.nearest_pattern], project.nearest_point)
+
+        if qmyi.edit_mode == "SEWING":
             sewings = project.sewings
             gpu.state.line_width_set(5.0)
             for s in sewings:
@@ -505,9 +591,66 @@ class TempDrawManager:
                 if project.selected_sewing_edge1 is not None:
                     project.selected_sewing_edge1.renderer.draw(color=(0.2, 0.8, 0.8, 1), thickness=10.0)
                     self.draw_sewing_direction_preview(context, project)
+        else:
+            # The seams selected in the sewing mode are still selected here:
+            # draw those chains dimmed instead of hiding them.
+            selected_sewings = project.get_selected_objects_by_mode("SEWING",
+                                                                    strict=False)
+            if selected_sewings and self.last_edit_mode != qmyi.edit_mode:
+                for s in selected_sewings:
+                    s.need_render_update = True
+            gpu.state.line_width_set(3.0)
+            for s in selected_sewings:
+                s.update()
+                s.renderer.draw(alpha=DIMMED_SELECTION_ALPHA)
         # console.info(f"mode_collect_points: {(time.time() - start_time) * 1000}")
         # start_time = time.time()
-        points_renderer.draw((1, 1, 0, 1), 10)
+        if dimmed_points_renderer.points:
+            dimmed_points_renderer.draw(dimmed_selection_color(SELECTED_VERTEX_COLOR), 10)
+        points_renderer.draw(SELECTED_VERTEX_COLOR, 10)
+
+        if self.tool_polyline and len(self.tool_polyline) > 1:
+            # One polyline, one batch: an outline has a sample per few
+            # millimetres and drawing it a segment at a time is what made the
+            # preview slow.
+            polyline_batch = batch_for_shader(
+                shader, 'LINE_STRIP', {"pos": self.tool_polyline})
+            shader.bind()
+            shader.uniform_float("color", TOOL_LINE_COLOR)
+            gpu.state.line_width_set(2.5)
+            polyline_batch.draw(shader)
+
+        if self.tool_lines:
+            # The tool's own preview: the radius it is measuring, the arc it
+            # would add. Drawn in its own colour so it is not mistaken for the
+            # selection or for a panel edge.
+            coords = []
+            for line in self.tool_lines:  # loop: one previewed segment per entry
+                coords.append(line.p1)
+                coords.append(line.p2)
+            tool_batch = batch_for_shader(shader, 'LINES', {"pos": coords})
+            shader.bind()
+            shader.uniform_float("color", TOOL_LINE_COLOR)
+            gpu.state.line_width_set(2.5)
+            tool_batch.draw(shader)
+
+        if self.tool_points:
+            # What the active tool would act on: drawn over the panel so the
+            # point a click lands on is visible before the click happens.
+            for kind, color, size in (("hover", TOOL_POINT_COLOR, 12.0),
+                                      ("pivot", TOOL_PIVOT_COLOR, 16.0),
+                                      ("target", TOOL_TARGET_COLOR, 16.0)):
+                # loop: one kind of tool point per pass
+                chosen = [(uuid_value, point) for uuid_value, point, point_kind
+                          in self.tool_points if point_kind == kind]
+                if not chosen:
+                    continue
+                tool_renderer = PointsRenderer()
+                for uuid_value, point in chosen:  # loop: one tool point
+                    pattern = global_data.get_obj_by_uuid(uuid_value, check_uuid=False)
+                    if pattern is not None:
+                        tool_renderer.add_point(pattern, point)
+                tool_renderer.draw(color, size)
 
         if self.moving_curves:
             for mc in self.moving_curves:

@@ -14,6 +14,8 @@ from ..utilities.coords_transform import create_2d_matrix
 
 
 class CurveRenderer(BaseRenderer):
+    identity_attribute = "edge_uuid"
+
     def __init__(self, edge):
         super().__init__()
         self.batch = None
@@ -27,7 +29,9 @@ class CurveRenderer(BaseRenderer):
 
     @property
     def edge(self):
-        e = global_data.get_obj_by_uuid(self.edge_uuid, True)
+        # Tolerant lookup: drawing must never be what fails when an edge the
+        # renderer was made for is gone, it must simply draw nothing.
+        e = global_data.get_obj_by_uuid(self.edge_uuid, False)
         if e is None:
             console.warning(f"edge {self.edge_uuid} not found")
         return e

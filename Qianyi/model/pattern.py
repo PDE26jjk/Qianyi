@@ -209,6 +209,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         """
         self.validity_state = VALIDITY_UNKNOWN
         self.invalid_point = None
+        # A shape change earns a new mesh attempt: the reason the last one was
+        # refused no longer describes what the panel is now.
+        self.mesh_error = None
 
     def get_boundary_points(self):
         """The closed outline as one (N, 2) float32 array in pattern space.
@@ -252,8 +255,8 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
     @property
     def is_invalid(self):
-        """The cached answer, for the draw loop: never runs the test."""
-        return self.validity_state == VALIDITY_INVALID
+        """The cached answer, for the draw loop: never runs a test or a mesh."""
+        return bool(self.mesh_error) or self.validity_state == VALIDITY_INVALID
 
     def get_connected_patterns_and_sewings(self):
         # 1. 构建邻接表：记录每个 pattern 连接的 sewing 对象
@@ -477,7 +480,30 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
         edge_indices = self.calculate_edge_indices_by_sections(edge_sections)
         # console.info("edge_indices",edge_indices,mesh_edge_index_map,len(mesh_edge_points))
-        self.mesh_edge_point_indices = mesh_edge_index_map[edge_indices].astype(np.int32)
+        mapped = mesh_edge_index_map[edge_indices].astype(np.int32)
+        # `deduplicate_points` merges samples that sit closer than the threshold,
+        # so a segment whose ends were merged lands on `(i, i)`: it is not a
+        # segment any more, and the engine refuses it by name instead of
+        # sampling it. Dropping one compacts the list and, per curve, the counts
+        # the engine checks against it - so the common case, where nothing was
+        # merged away, keeps the array it already has.
+        keep = mapped[:, 0] != mapped[:, 1]
+        if keep.all():
+            self.mesh_edge_point_indices = mapped
+        else:
+            sizes = [self.mesh_edge_point_outer_size,
+                     *[il.mesh_edge_inner_point_size for il in self.internal_lines]]
+            kept, offset = [], 0
+            for index, size in enumerate(sizes):
+                block = mapped[offset:offset + size]
+                block = block[block[:, 0] != block[:, 1]]
+                sizes[index] = len(block)
+                kept.append(block)
+                offset += size
+            self.mesh_edge_point_outer_size = sizes[0]
+            for line, size in zip(self.internal_lines, sizes[1:]):
+                line.mesh_edge_inner_point_size = size
+            self.mesh_edge_point_indices = np.concatenate(kept).astype(np.int32)
         # self.mesh_edge_sizes = edge_points
         self.need_geo_update = False
 
@@ -687,11 +713,27 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             console.warning(f"pattern {self.name or '(unnamed)'}: mesh not regenerated, "
                             f"the outline is invalid")
             return
+        if self.mesh_error:
+            # The sampler already refused this exact shape: asking again on every
+            # update pass would only repeat the error until the outline changes.
+            return
         start = time.time()
-        if self.need_geo_update:
-            self.calc_mesh_edge_points()
-        self.mesh_object = generate_pattern_mesh(self, granularity, self.mesh_object,
-                                                 scale_data)
+        try:
+            if self.need_geo_update:
+                self.calc_mesh_edge_points()
+            self.mesh_object = generate_pattern_mesh(self, granularity, self.mesh_object,
+                                                     scale_data)
+        except Exception as error:
+            # The sampler refuses geometry it cannot triangulate - a panel thinner
+            # than one sampling cell, samples that merged onto each other, a
+            # section chain that does not add up. The panel is left invalid with
+            # the reason kept, so the editor stays alive and a simulation will not
+            # start on it, instead of the error escaping into an operator.
+            self.mesh_error = str(error) or error.__class__.__name__
+            self.validity_state = VALIDITY_INVALID
+            console.warning(f"pattern {self.name or '(unnamed)'}: no mesh: {self.mesh_error}")
+            return
+        self.mesh_error = None
         if self.name:
             self.mesh_object.name = self.name
             self.mesh_object.data.name = self.name
@@ -740,11 +782,11 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return pos[0], pos[1]
 
     def _copy_geometry_from(self, source):
-        """Copy vertices, edges, handles and spline points, index for index.
+        """Copy vertices, edges, handles, spline points and internal lines.
 
-        Copies stay index-aligned with their source, which is what lets an edit
-        be written to the whole instance list by index. Internal lines are not
-        copied, matching what the editor's copy has always done.
+        Copies stay index-aligned with their source - the outline and the
+        internal lines alike - which is what lets an edit be written to the
+        whole instance list by index.
         """
         for vertex in source.vertices:  # loop: one vertex object per point
             self.add_vertex((vertex.co[0], vertex.co[1]))
@@ -763,6 +805,27 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             new_edge.name = edge.name
             new_edge.pattern = self
         self.refresh_collection_uuid(self.edges)
+        # The internal lines come along in the same order. Their edges index
+        # the vertices copied above, so the indices carry over unchanged.
+        for source_line in source.internal_lines:  # loop: one line per line
+            line: InternalLine = self.internal_lines.add()
+            line.is_loop = source_line.is_loop
+            line.is_hole = source_line.is_hole
+            line.name = source_line.name
+            line.pattern = self
+            for edge in source_line.edges:  # loop: one edge object per line edge
+                new_edge: Edge2D = line.edges.add()
+                new_edge.vertex_index[0] = edge.vertex_index[0]
+                new_edge.vertex_index[1] = edge.vertex_index[1]
+                handle1 = edge.handle1.co[:] if len(edge.handles) > 0 else (0.0, 0.0)
+                handle2 = edge.handle2.co[:] if len(edge.handles) > 1 else (0.0, 0.0)
+                new_edge.set_curve(edge.kind, handle1, handle2,
+                                   [(point.co[0], point.co[1])
+                                    for point in edge.spline_points],
+                                   edge.handle1_type, edge.handle2_type)
+                new_edge.name = edge.name
+                new_edge.pattern = self
+            self.refresh_collection_uuid(line.edges)
 
     def copy_pattern(self, as_instance=False, mirror=False, project=None, anchor=None):
         """Copy this panel and return the copy.
@@ -831,10 +894,16 @@ define_temp_prop(Pattern, "impacted", False)
 define_temp_prop(Pattern, "mesh_edge_points", None)
 define_temp_prop(Pattern, "mesh_edge_index_map", None)
 define_temp_prop(Pattern, "mesh_point_indices", None)
+# The triangles the last mesh build wrote, for the next build's attribute
+# mapping: reading them back from Blender re-tessellates the old mesh first.
+define_temp_prop(Pattern, "mesh_triangles", None)
 define_temp_prop(Pattern, "mesh_edge_point_outer_size", -1)
 # Outline validity. A temp prop on purpose: it is a cache of an engine answer,
 # so it is never written to the file and a reopened scene starts as unknown.
 define_temp_prop(Pattern, "validity_state", VALIDITY_UNKNOWN)
 define_temp_prop(Pattern, "invalid_point", None)
+# Why the last mesh attempt was refused, or None. Kept as text so the panel can
+# show what the engine said instead of only that something is wrong.
+define_temp_prop(Pattern, "mesh_error", None)
 
 register, unregister = register_classes_factory((Pattern,))

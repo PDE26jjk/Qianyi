@@ -135,8 +135,10 @@ a corner). With `theta` the interior angle between the two adjacent edges and
 corner vertex moves `t` along the first adjacent edge, a new vertex is placed `t`
 along the second, and the two are joined by an edge. `ROUND` joins them with the
 tangent arc (the corner material is removed), `CHAMFER` with a straight edge, and
-`CONCAVE` with the arc mirrored to the other side of the chord, which adds
-material instead. The largest radius is the one whose tangent length still fits
+`CONCAVE` with the arc mirrored to the other side of the chord, which cuts a
+hollow into the panel: the mirrored arc lies between the chord and the panel, so
+the corner loses the whole circular sector rather than only the sliver outside
+the tangent arc. The largest radius is the one whose tangent length still fits
 both adjacent edges - half of an edge when both of its ends are being treated -
 and a radius beyond it is refused with that limit named.
 
@@ -144,6 +146,35 @@ The radius is dragged interactively and can be changed afterwards in Blender's
 adjust-last-operation panel. Several selected vertices are treated in one run
 when their tangent lengths do not overlap; when they would, the command refuses
 and names the vertex, so a run never produces a degenerate edge.
+
+The command is a toolbar tool as well as a menu entry: the tool clicks the
+corner under the pointer, shows that vertex while the pointer is over it, and
+carries its own setting for which of the three treatments a click applies. A
+click that lands on a vertex already in the selection treats that whole
+selection; a click on another vertex treats just that one.
+
+A reflex corner is treated by the same rule: the two tangent points sit the same
+tangent length along the two edges, and the arc between them is the one on the
+notch's side, so the panel gains the figure a convex corner would have lost. The
+smallest radius is the one whose tangent length still clears the merge
+threshold. The largest is what the two adjacent edges allow, cut back to the
+largest one whose outline stays simple - found by bisection, because the
+crossing test samples the candidate outline - and cut back again so each trimmed
+edge keeps an edge margin at the end the tangent point reaches. The margin is
+5 mm, or the panel's own sampling size when that is longer.
+
+The command performs no merge, and that is deliberate. Two measurements say why.
+A tangent point that reaches the far vertex of its edge has nothing left of that
+edge, so the old behaviour deleted the vertex and one edge; every reference the
+app caches - the uuid map the commands and the drawing resolve objects through,
+the renderers, the selection, the hover - is keyed to the collection entries such
+a removal shifts, and the editor then reads data that moved: the session logs
+`obj.global_uuid != uuid` on every draw, and a read through a wrapper whose
+storage is gone is the `EXCEPTION_ACCESS_VIOLATION` the maintainer hit. A piece
+below the margin is not something the rest of the pipeline can take either: the
+engine's sampler never returned on the outline a 3 mm piece produced, while 4 mm
+was the shortest that did. The command therefore stops short of both, leaves the
+outline's topology alone, and reports the radius it wrote.
 
 *Alternative:* allow only one vertex per run. Rejected as the fallback, not as
 the behaviour: it is what happens when the overlap check fails, not what the
@@ -164,6 +195,10 @@ area grows by `r^2 * theta / 2`.
 The two radii are construction lines, not drawing elements: no internal line is
 created for them. The command is refused when `A` or `B` is not on the outline,
 when the chord crosses the outline, or when the result crosses itself.
+
+The two points are taken by a toolbar tool - nothing is selected first, because
+the gesture names its own targets - and the tool draws the point a click would
+take, snapping to a vertex within a few pixels so a pivot on a corner is exact.
 
 *Alternative:* extend by a tangent arc whose sweep follows the neighbouring
 edges. Rejected: the maintainer's description of the tool is the pivot fan, and
@@ -301,6 +336,46 @@ So a command is written to satisfy three things:
 The pen tools, the sewing tool, box select and the 3D pick are exceptions: their
 "parameters" are the gesture itself, so there is nothing for a redo panel to
 adjust. They keep working as they do today.
+
+A tool click is the second exception, and it needs the identity the first rule
+avoids: the operator runs before any selection step exists, so it takes the
+element under the pointer and carries it in its own properties - the panel and
+the vertex for the corner, the panel and the two points for the fan. Blender
+rolls the operator's own undo step back before a re-run, and that step includes
+the selection the operator made, so the selection cannot be the target: the
+stored identity is what the redo panel re-runs from. The gesture itself is
+press, drag, release - the drag sets the number, the release applies it, and a
+click that never moved applies the value the drag started from.
+
+The redo panel cannot know what range a corner accepts, so a value dragged past
+the top is clamped to it and written back to the operator's own property: the
+panel ends up showing the radius that was applied, and no run of the command
+reports a radius that does not fit. A value below what the corner can take is
+not clamped up but read as zero - there is nothing to treat - so the run does
+nothing and reports nothing rather than failing.
+
+A gesture draws what it has as it goes. The tool's own cursor preview answers
+"what would a click take"; once the gesture is running it owns the preview and
+draws the points it has taken, the radius it is measuring (with an arrowhead)
+and **the outline the command would leave behind**, taken from the same
+candidate the self-crossing test uses. The arc on its own does not say what the
+panel becomes; the resulting outline does, and it is the same assembly for every
+command, so the preview cannot drift away from what is written.
+
+The click that activates a tool is the first step of its gesture rather than a
+click spent starting it: for the fan, the click that picks the tool is the
+pivot, so the gesture reads pivot, target, angle. Only the step that needs the
+pointer to itself is modal - for the fan that is the angle, which starts on the
+click that took the target and applies when the drag is released - so the view
+can still be orbited and panned while the points are being chosen.
+
+A renderer is kept in the temp data of the object it draws, and Blender hands
+that data to the next object added over a removed one. A renderer therefore
+carries the identity it was made for and is checked against its owner before it
+is used; one that was inherited is replaced rather than used, which is what a
+fan run crashed on in a windowed session (the strict identity lookup inside the
+renderer raised) while a background session never reached it, because a
+background session has no renderers at all.
 
 *Alternative:* a custom "last operation" panel with the parameters and target
 uuids kept as scene state and a manual undo-and-replay. Rejected: it would not

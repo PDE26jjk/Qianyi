@@ -15,6 +15,8 @@ from ..utilities.coords_transform import create_2d_matrix, create_2d_matrix_inve
 
 
 class InternalLineRenderer(BaseRenderer):
+    identity_attribute = "line_uuid"
+
     def __init__(self, line):
         super().__init__()
         self.batch_edge = None
@@ -28,7 +30,7 @@ class InternalLineRenderer(BaseRenderer):
 
     @property
     def line(self):
-        return global_data.get_obj_by_uuid(self.line_uuid)
+        return global_data.get_obj_by_uuid(self.line_uuid, False)
 
     def update_batch_edge(self, render_points):
         self.batch_edge = batch_for_shader(

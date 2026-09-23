@@ -195,3 +195,6 @@ cython_debug/
 # Scene capture packages (scene.json + scene.npz written by qmyi.capture_scene)
 captures/
 .agents/
+
+# Machine-local notes: paths, Blender build and engine build of this checkout
+LOCAL_DEV.md

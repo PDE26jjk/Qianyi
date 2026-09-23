@@ -663,5 +663,11 @@ define_temp_prop(QianyiProject, "edge_point_offset", None)
 define_temp_prop(QianyiProject, "selected_sewing_edge1", None)
 define_temp_prop(QianyiProject, "selected_sewing_point1", None)
 define_temp_prop(QianyiProject, "last_sewing_error", "")
+# The fan tool's gesture, built one click at a time: the pivot, then the target,
+# then the click that opens the angle. It lives on the project because the tool,
+# the operator and the drawing code all have to see the same thing, and because
+# nothing about it is a modal: the view stays usable between the clicks.
+define_temp_prop(QianyiProject, "fan_pivot", None)
+define_temp_prop(QianyiProject, "fan_target", None)
 
 register, unregister = register_classes_factory((UuidType, QianyiProject))

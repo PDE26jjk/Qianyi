@@ -412,7 +412,7 @@ def scenario_plain(project):
 
 
 def scenario_divide_every_side(project):
-    from qmyi.model import pattern_geometry
+    from qmyi.operators import _2d_divide_edge as divide_tools
 
     for parts in (2, 4):
         for sewing in list(project.sewings):
@@ -420,7 +420,7 @@ def scenario_divide_every_side(project):
                 panel = side.line1.pattern
                 index = side.line1.get_index()
                 if index < len(panel.edges):
-                    pattern_geometry.divide_edges(panel, [index], parts=parts)
+                    divide_tools.divide_edges(panel, [index], parts=parts)
     for pattern in project.patterns:
         pattern.need_sewing_update = True
     project.setup_sewings_for_simulation()

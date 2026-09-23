@@ -56,6 +56,11 @@ class NODE_OT_qmyi_context_menu(Operator):
                 # menu's default call context is not something to rely on here.
                 row.operator_context = 'INVOKE_DEFAULT'
                 row.operator(Operators.DivideEdge2D, text="divide")
+                row = col.row()
+                row.operator_context = 'INVOKE_DEFAULT'
+                row.operator(Operators.Corner2D, text="round").mode = "ROUND"
+                row.operator(Operators.Corner2D, text="chamfer").mode = "CHAMFER"
+                row.operator(Operators.Corner2D, text="hollow").mode = "CONCAVE"
 
         # if not element:
         #     bpy.ops.wm.call_menu(name="NODE_MT_selected_menu")

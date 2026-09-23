@@ -10,6 +10,8 @@ from ..utilities.console import console
 from ..utilities.node_tree import get_active_node_tree
 from .add_poly import NODE_T_qmyi_add_poly
 from .select import NODE_T_qmyi_select
+from .corner import NODE_T_qmyi_corner
+from .fan import NODE_T_qmyi_fan
 from ._3d import register as register_3d_tool
 from ._3d import unregister as unregister_3d_tool
 from bl_ui.space_toolsystem_toolbar import NODE_PT_tools_active
@@ -20,6 +22,8 @@ tools = (
     (NODE_T_qmyi_add_poly, {"separator": True, "group": False}),
     (NODE_T_qmyi_add_vertex, {}),
     (NODE_T_qmyi_add_spline_point, {}),
+    (NODE_T_qmyi_corner, {}),
+    (NODE_T_qmyi_fan, {}),
     (NODE_T_qmyi_add_sewing1, {}),
     (NODE_T_qmyi_pattern_pen, {}),
     (NODE_T_qmyi_internal_line_pen, {}),

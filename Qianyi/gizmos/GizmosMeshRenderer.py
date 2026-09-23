@@ -168,6 +168,15 @@ class MeshRenderer:
     def pattern(self):
         return global_data.get_obj_by_uuid(self.pattern_uuid, False)
 
+    def bound_to(self, pattern) -> bool:
+        """Whether this renderer was made for `pattern`, by its identity.
+
+        Blender reuses the memory of a removed pattern for the next one, temp
+        data included, so a renderer found on a pattern has to say which
+        identity it belongs to before it is used.
+        """
+        return self.pattern_uuid == pattern.global_uuid
+
     def create_batch(self, obj):
         """创建网格批次（只调用一次）"""
         if not obj or obj.type != 'MESH':
@@ -175,8 +184,18 @@ class MeshRenderer:
 
         mesh = obj.data
 
-        # 确保 loop_triangles 数据是最新的 (通常很快)
-        mesh.calc_loop_triangles()
+        pattern = self.pattern
+        stored = getattr(pattern, "mesh_triangles", None) if pattern is not None else None
+        # The triangles this mesh was built from are kept on the panel: asking
+        # Blender for them tessellates every polygon first, which costs about as
+        # much as the whole mesh write on a fine panel.
+        if stored is not None and len(stored) == len(mesh.polygons):
+            triangles = np.asarray(stored, dtype=np.int32)
+        else:
+            # 确保 loop_triangles 数据是最新的 (通常很快)
+            mesh.calc_loop_triangles()
+            triangles = np.empty((len(mesh.loop_triangles), 3), dtype=np.int32)
+            mesh.loop_triangles.foreach_get("vertices", triangles.ravel())
 
         # --- 1. 获取顶点坐标 (Nx3) ---
         # 创建一个空的 numpy 数组，形状为 (顶点数, 3)
@@ -188,10 +207,6 @@ class MeshRenderer:
         # --- 2. 获取边索引 (Nx2) ---
         edges = np.empty((len(mesh.edges), 2), dtype=np.int32)
         mesh.edges.foreach_get("vertices", edges.ravel())
-
-        # --- 3. 获取三角形索引 (Nx3) ---
-        triangles = np.empty((len(mesh.loop_triangles), 3), dtype=np.int32)
-        mesh.loop_triangles.foreach_get("vertices", triangles.ravel())
 
         if self.shader is None:
             self.setup_shader()
@@ -311,7 +326,14 @@ class MeshRenderer:
         self.shader.uniform_float("color", color)
         self.batch_triangle.draw(self.shader)
 
-    def draw_mesh_lines(self, selected=False):
+    def draw_mesh_lines(self, selected=False, dim=False):
+        """Draw the sampled mesh lines.
+
+        `selected` is the selection made in the pattern mode while that mode is
+        active, `dim` is the same selection while another mode is active: the
+        same colour, transparent, so a selection that outlives a mode switch
+        stays visible without competing with the mode being edited.
+        """
         if not self.obj or not self.batch_line or not self.shader or not self.pattern:
             return
 
@@ -322,7 +344,9 @@ class MeshRenderer:
 
         transform_matrix = self.pattern.calc_matrix()
         self.shader.uniform_float("ModelMatrix", transform_matrix)
-        if selected:
+        if dim:
+            self.shader.uniform_float("color", (0.843, 0.596, 0.153, 0.35))
+        elif selected:
             self.shader.uniform_float("color", (0.843, 0.596, 0.153, 1.0))
         else:
             self.shader.uniform_float("color", (1.0, 1.0, 1.0, 0.5))

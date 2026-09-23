@@ -71,6 +71,7 @@ def stitch_connector_points(pattern1, points1, pattern2, points2):
 
 
 class SewingRenderer(BaseRenderer):
+    identity_attribute = "sewing_uuid"
 
     def __init__(self, sewing):
         super().__init__()
@@ -81,7 +82,7 @@ class SewingRenderer(BaseRenderer):
 
     @property
     def sewing(self):
-        return global_data.get_obj_by_uuid(self.sewing_uuid)
+        return global_data.get_obj_by_uuid(self.sewing_uuid, False)
 
     def update_batch_edge(self, render_points1, render_points2):
         # console.info('update_batch_edge')
@@ -107,7 +108,13 @@ class SewingRenderer(BaseRenderer):
             {"pos": stitch_connector_points(p1, render_points1, p2, render_points2)},
         )
 
-    def draw(self, dashed_line=False):
+    def draw(self, dashed_line=False, alpha=1.0):
+        """Draw both halves of this seam in the seam's own colour.
+
+        `alpha` below 1 is how a seam selected in the sewing mode is drawn
+        while another mode is active: the same chain, dimmed, so the selection
+        stays visible.
+        """
         if not self.shader:
             return
         if self.batch_edge1 is None:
@@ -115,7 +122,7 @@ class SewingRenderer(BaseRenderer):
             self.sewing.update()
         gpu.state.blend_set('ALPHA')
         self.shader.bind()
-        self.shader.uniform_float("color", (*self.sewing.color, 1))
+        self.shader.uniform_float("color", (*self.sewing.color, alpha))
         p1 = self.sewing.side1.line1.pattern
         p2 = self.sewing.side2.line1.pattern
         transform_matrix = p1.calc_matrix()
@@ -133,7 +140,7 @@ class SewingRenderer(BaseRenderer):
             previous_width = gpu.state.line_width_get()
             gpu.state.line_width_set(STITCH_LINE_WIDTH)
             self.update_model_matrix(Matrix.Identity(4))
-            self.shader.uniform_float("color", (*self.sewing.color, 1.0))
+            self.shader.uniform_float("color", (*self.sewing.color, alpha))
             self.batch_stitch_lines.draw(self.shader)
             gpu.state.line_width_set(previous_width)
 

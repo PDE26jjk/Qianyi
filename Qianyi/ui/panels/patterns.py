@@ -111,9 +111,13 @@ class QY_PT_patternProperty(NODE_PT_qmyi_base):
         if not context.scene.qmyi.interactive_self_intersection_check:
             box.label(text="interactive edits are not checked")
         if pattern.is_invalid:
-            box.label(text="this outline crosses itself" if pattern.invalid_point is not None
-                      else "this outline is not a closed loop", icon="ERROR")
-            box.label(text="a simulation will not start while it does")
+            if pattern.mesh_error:
+                box.label(text=pattern.mesh_error, icon="ERROR")
+                box.label(text="no mesh could be built for this panel")
+            else:
+                box.label(text="this outline crosses itself" if pattern.invalid_point is not None
+                          else "this outline is not a closed loop", icon="ERROR")
+                box.label(text="a simulation will not start while it does")
         elif pattern.validity_state == VALIDITY_UNKNOWN:
             box.label(text="not checked yet")
 

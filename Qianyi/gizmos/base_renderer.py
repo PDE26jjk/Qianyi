@@ -31,6 +31,10 @@ void main()
 class BaseRenderer:
     shader = None
     ubo = None
+    # The attribute holding the identity this renderer was made for; a subclass
+    # that binds to a model object sets it, and `bound_to` then answers whether
+    # this renderer still belongs to the object that carries it.
+    identity_attribute = None
 
     def __init__(self):
         if self.shader is None:
@@ -72,3 +76,18 @@ class BaseRenderer:
         # 更新并绑定 UBO
         self.ubo.update(np.array(matrix, dtype=np.float32).T.tobytes())
         self.shader.uniform_block("ubo_buf", self.ubo)
+
+    def bound_to(self, obj) -> bool:
+        """Whether this renderer was made for `obj`, by its identity.
+
+        A renderer is kept in the model object's temp data, and Blender reuses
+        the memory of a removed object for the next one that is added: the temp
+        data comes with it, so a new edge can inherit a renderer that is bound
+        to the identity of the object that used to be there. Reading the
+        identity is what tells the two apart, and a renderer that is not bound
+        to its owner is replaced rather than used.
+        """
+        attribute = self.identity_attribute
+        if attribute is None:
+            return False
+        return getattr(self, attribute, None) == obj.global_uuid

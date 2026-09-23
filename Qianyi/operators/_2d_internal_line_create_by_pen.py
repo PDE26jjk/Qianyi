@@ -98,6 +98,20 @@ class NODE_OT_internal_line_create_by_pen(Operator2DBase, StateOperator):
             return
         pattern = self.pattern
         collect_unique_instances({pattern})
+        # The line goes to every panel of the instance list, by index - which
+        # only means the same line while the chain's lines have not drifted.
+        # A copy that lost a line would take this one at a different index.
+        drifted = [ins.name for ins in pattern.instances
+                   if len(ins.internal_lines) != len(pattern.internal_lines)]
+        if drifted:
+            self.report(
+                {'ERROR'},
+                f"{', '.join(drifted)} "
+                f"{'does not share' if len(drifted) == 1 else 'do not share'} "
+                f"{pattern.name}'s internal lines - detach or rebuild "
+                f"{'it' if len(drifted) == 1 else 'them'} before drawing one")
+            self.return_state = ReturnState.CANCELLED
+            return
         # View coordinates to pattern space once, then let the model layer write
         # the same line into every panel of the instance list.
         segments = []

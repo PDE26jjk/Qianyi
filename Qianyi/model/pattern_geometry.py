@@ -17,7 +17,7 @@ from .. import global_data
 from ..utilities.curve_fit import (cumulative_length, fit_control_points,
                                    polyline_length, resample_by_arc_length,
                                    slice_by_arc_length)
-from .generator import instance_chain
+
 from .geometry import Edge2D, Vertex2D
 from .model_data import refresh_all_uuids
 from .pattern import boundary_self_intersection
@@ -48,42 +48,29 @@ class GeometryRefused(ValueError):
 # ------------------------------------------------------------------- shared
 
 def _chain_members(pattern) -> list:
-    """The panel and its linked copies, refusing a chain whose shapes drifted.
+    """The panel and the copies that share its Sketch.
 
-    The outline and the internal lines are both written to every member by
-    index, so a copy that lost a line - or whose line holds a different number
-    of edges - would be written with pieces that do not fit it.
+    There is nothing to compare: a chain holds one Sketch, so its members cannot
+    hold different geometry, and a copy that needs a shape of its own is
+    detached first. `members` is still the list the commands need, because the
+    derived work - the samples, the mesh - is each member's own.
     """
-    members = instance_chain(pattern)
-    primary = members[0]
-    for member in members:
-        if (len(member.vertices) != len(primary.vertices)
-                or len(member.edges) != len(primary.edges)
-                or len(member.internal_lines) != len(primary.internal_lines)):
-            raise GeometryRefused(
-                f"{member.name!r} is a copy of {primary.name!r} with a different shape",
-                "copies are edited together; detach or rebuild before editing one")
-        for line_index, line in enumerate(primary.internal_lines):
-            if len(member.internal_lines[line_index].edges) != len(line.edges):
-                raise GeometryRefused(
-                    f"{member.name!r} is a copy of {primary.name!r} with a different "
-                    f"internal line {line_index}",
-                    "copies are edited together; detach or rebuild before editing one")
-    return members
+    return pattern.sketch_members()
 
 
 def _ensure_shape(pattern, indices, edges=None) -> None:
-    """Rebuild the sampled points when one of these edges has none.
+    """Rebuild the drawn points when one of these edges has none.
 
     A re-run from the redo panel starts from a state Blender has just rolled
-    back to, where the samples may not have been built again yet. `edges` is
-    the collection the edges live in - the outline, or one internal line's
-    edges; the samples are rebuilt for the whole panel either way.
+    back to, where the points may not have been built again yet, and the
+    commands below measure the curve as it is drawn. `edges` is the collection
+    the edges live in - the outline, or one internal line's edges; the stage is
+    rebuilt for the whole Sketch either way.
     """
     edges = pattern.edges if edges is None else edges
     for index in indices:
         if edges[index].render_points is None:
-            pattern.forced_update()
+            pattern.sketch.update()
             return
 
 
@@ -154,14 +141,13 @@ def _split_edge(pattern, index, cuts, table, edges=None) -> list:
             pattern.vertices[next_index].get_temp_data()
         if position:
             target = edges.add()
-            target.pattern = pattern
             target.get_temp_data()
         else:
             target = edge
         target.vertex_index[0] = vertex
         target.vertex_index[1] = next_index
         reached, error = _write_piece(target, piece)
-        target.update(pattern)
+        target.update()
         if not reached:
             warnings.append({"edge": index, "piece": position, "error_mm": error})
         if position:
@@ -179,7 +165,7 @@ def _resample(pattern) -> None:
     """
     for edge in pattern.edges:
         edge.need_update_points = True
-        edge.update(pattern)
+        edge.update()
 
 
 def _sewing_end_at(points, pos) -> tuple:

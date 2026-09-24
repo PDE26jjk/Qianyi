@@ -96,8 +96,12 @@ class SewingRenderer(BaseRenderer):
             self.shader, 'LINE_STRIP',
             {"pos": render_points2},
         )
-        p1 = self.sewing.side1.line1.pattern
-        p2 = self.sewing.side2.line1.pattern
+        p1 = self.sewing.pattern1
+        p2 = self.sewing.pattern2
+        if p1 is None or p2 is None:
+            # A seam whose panel is gone has nothing to draw; the seam is what
+            # the editor drops, this only keeps the frame alive until it does.
+            return
         # Both halves are drawn as their polylines whatever their direction:
         # calc_sewing_side_render_points normalises the sampling order, so the
         # drawn polyline cannot carry the direction. The correspondence is
@@ -123,8 +127,10 @@ class SewingRenderer(BaseRenderer):
         gpu.state.blend_set('ALPHA')
         self.shader.bind()
         self.shader.uniform_float("color", (*self.sewing.color, alpha))
-        p1 = self.sewing.side1.line1.pattern
-        p2 = self.sewing.side2.line1.pattern
+        p1 = self.sewing.pattern1
+        p2 = self.sewing.pattern2
+        if p1 is None or p2 is None:
+            return
         transform_matrix = p1.calc_matrix()
         self.update_model_matrix(transform_matrix)
         self.batch_edge1.draw(self.shader)
@@ -155,13 +161,17 @@ class SewingRenderer(BaseRenderer):
         gpu.state.depth_test_set('NONE')
 
         self.shader.bind()
-        p1 = self.sewing.side1.line1.pattern
+        p1 = self.sewing.pattern1
+        if p1 is None:
+            return
         transform_matrix = p1.calc_matrix()
         self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", global_data.temp_draw_manager.index_to_rgb(sewing.side1.global_uuid))
         self.batch_edge1.draw(self.shader)
 
-        p2 = self.sewing.side2.line1.pattern
+        p2 = self.sewing.pattern2
+        if p2 is None:
+            return
         transform_matrix = p2.calc_matrix()
         self.update_model_matrix(transform_matrix)
         self.shader.uniform_float("color", global_data.temp_draw_manager.index_to_rgb(sewing.side2.global_uuid))

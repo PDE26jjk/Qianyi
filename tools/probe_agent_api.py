@@ -474,7 +474,7 @@ def _refusal_check(qyapi):
         for vertex, co in zip(pattern.vertices, bowtie):
             vertex.co[0] = co[0]
             vertex.co[1] = co[1]
-        pattern.forced_update()
+        pattern.mark_geometry_changed()
         error = _raise(lambda: qyapi.sim.prepare())
         return {
             "pattern": pattern.name,

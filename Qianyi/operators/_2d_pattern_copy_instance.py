@@ -90,8 +90,7 @@ class NODE_OT_pattern_copy_instance(Operator2DBase, StateOperator):
             # and this operator produce the same panel.
             new_pat = src.copy_pattern(as_instance=True, mirror=self.mirror,
                                        anchor=new_anchor)
-            console.info(f"{src.global_uuid}->{src.instance_next_uuid}")
-            console.info(f"{new_pat.global_uuid}->{new_pat.instance_next_uuid}")
+            console.info(f"{src.name} -> {new_pat.name}")
 
         self.return_state = ReturnState.FINISHED
 

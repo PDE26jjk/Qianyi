@@ -100,8 +100,7 @@ def build_square(project, name, size, origin=(0.0, 0.0)):
         pattern.add_vertex(point)
     for index in range(len(points)):
         pattern.add_edge(index, (index + 1) % len(points), update=False)
-    pattern.recreate_sections()
-    pattern.forced_update()
+    pattern.mark_geometry_changed()
     return pattern
 
 
@@ -128,8 +127,7 @@ def build_curved_panel(project, name, size, bulge1, bulge2=None, origin=(0.0, 0.
                              handle1_type="FREE", handle2_type="FREE", update=False)
         else:
             pattern.add_edge(start, end, update=False)
-    pattern.recreate_sections()
-    pattern.forced_update()
+    pattern.mark_geometry_changed()
     return pattern
 
 
@@ -311,7 +309,7 @@ def main():
 
     skew = build_square(project, "skew_merge", 40.0, origin=(1675.0, 0.0))
     skew.vertices[1].co = (1685.0, -20.0)
-    skew.forced_update()
+    skew.mark_geometry_changed()
     refresh_all_uuids()
     report = corner_tools.corner_vertices(skew, [1], radius=45.0,
                                           mode="ROUND", merge=True)
@@ -375,8 +373,7 @@ def main():
     # the point in the middle of a two-edge line: the edge before it carries on
     # to the point after it, so the two edges become one
     delete_tools.delete_line_elements(del_panel, 0, [del_panel.vertices[5]])
-    del_panel.recreate_sections()
-    del_panel.forced_update()
+    del_panel.mark_geometry_changed()
     check("deleting a middle point bridges the line through it",
           len(del_line.edges) == 1 and del_line.edges[0].kind == "straight"
           and len(del_panel.vertices) == 6,
@@ -384,8 +381,7 @@ def main():
     # the point the line ends on now: it has no point after it to carry on to,
     # so the edge that ran to it goes too and the line is empty
     delete_tools.delete_line_elements(del_panel, 0, [del_panel.vertices[5]])
-    del_panel.recreate_sections()
-    del_panel.forced_update()
+    del_panel.mark_geometry_changed()
     check("deleting the last point removes the empty line",
           len(del_panel.internal_lines) == 0 and len(del_panel.vertices) == 4,
           f"lines={len(del_panel.internal_lines)} vertices={len(del_panel.vertices)}")
@@ -406,8 +402,7 @@ def main():
     delete_tools.delete_line_elements(edge_del_panel, 0,
                                       [edge_del_panel.vertices[5],
                                        edge_del_panel.vertices[6]])
-    edge_del_panel.recreate_sections()
-    edge_del_panel.forced_update()
+    edge_del_panel.mark_geometry_changed()
     check("deleting a middle edge bridges the chain over it",
           len(edge_line.edges) == 1 and len(edge_del_panel.vertices) == 6
           and edge_line.edges[0].vertex0.get_index() == 4
@@ -423,8 +418,7 @@ def main():
     delete_tools.delete_line_elements(far_edge_panel, 0,
                                       [far_edge_panel.vertices[6],
                                        far_edge_panel.vertices[7]])
-    far_edge_panel.recreate_sections()
-    far_edge_panel.forced_update()
+    far_edge_panel.mark_geometry_changed()
     check("deleting the far edge takes the edge it leaves hanging",
           len(far_edge_line.edges) == 1 and len(far_edge_panel.vertices) == 6
           and far_edge_line.edges[0].vertex0.get_index() == 4

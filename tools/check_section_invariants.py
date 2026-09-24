@@ -56,14 +56,19 @@ def import_addon(path, module_name):
 
 
 def edge_groups(pattern):
-    """Every edge collection of a pattern: the outline first, then the lines."""
-    groups = [pattern.edges]
-    groups.extend(line.edges for line in pattern.internal_lines)
+    """Every edge of a pattern, with the key its chain is named by.
+
+    `None` is the outline, an integer is that internal line's index: the same key
+    the panel uses for its own copy of the Sketch's first stage.
+    """
+    groups = [(None, pattern.edges)]
+    groups.extend((index, line.edges)
+                  for index, line in enumerate(pattern.internal_lines))
     return groups
 
 
-def chain_of(edge):
-    """The sections of one edge, walked from its head."""
+def raw_chain_of(edge):
+    """The Sketch's own raw pieces of one edge, walked from its head."""
     sections = []
     section = edge.section_start
     guard = 0
@@ -75,12 +80,13 @@ def chain_of(edge):
 
 
 def check_chain(project):
+    """The Sketch's first stage: one chain per curve, linked both ways."""
     problems = []
     total = 0
     for pattern in project.patterns:
-        for edges in edge_groups(pattern):
+        for _key, edges in edge_groups(pattern):
             for edge in edges:
-                for section in chain_of(edge):
+                for section in raw_chain_of(edge):
                     total += 1
                     if section.next is not None and section.next.prev is not section:
                         problems.append(f"{pattern.name}[{edge.get_index()}] "
@@ -94,12 +100,14 @@ def check_chain(project):
 
 
 def check_sampling(project):
+    """The panel's own pieces: each has a segment count and the samples agree."""
     problems = []
     checked = 0
     for pattern in project.patterns:
-        for edges in edge_groups(pattern):
+        for key, edges in edge_groups(pattern):
             for edge in edges:
-                sections = chain_of(edge)
+                index = edge.get_index()
+                sections = pattern.sections_for_edge(key, index)
                 if not sections:
                     problems.append(f"{pattern.name}[{edge.get_index()}] has no sections")
                     continue
@@ -109,15 +117,15 @@ def check_sampling(project):
                                     f"{len(negative)} section(s) without a segment count")
                     continue
                 checked += 1
-                sampled = (len(edge.geo_points_temp) - 1
-                           if edge.geo_points_temp is not None else -1)
+                samples = pattern.sample_points.get((key, index))
+                sampled = len(samples) - 1 if samples is not None else -1
                 if sum(section.seg for section in sections) != sampled:
                     problems.append(
                         f"{pattern.name}[{edge.get_index()}] segments "
                         f"{sum(section.seg for section in sections)} != samples {sampled}")
         if pattern.mesh_edge_index_map is not None and len(pattern.internal_lines) == 0:
             outer = sum(section.seg for edge in pattern.edges
-                        for section in chain_of(edge))
+                        for section in pattern.sections_for_edge(None, edge.get_index()))
             if outer != len(pattern.mesh_edge_index_map):
                 problems.append(f"{pattern.name} outline segments {outer} != "
                                 f"mesh_edge_index_map {len(pattern.mesh_edge_index_map)}")
@@ -133,9 +141,9 @@ def check_link_ids(project):
     linked = 0
     stale = 0
     for pattern in project.patterns:
-        for edges in edge_groups(pattern):
+        for key, edges in edge_groups(pattern):
             for edge in edges:
-                for section in chain_of(edge):
+                for section in pattern.sections_for_edge(key, edge.get_index()):
                     if section.link_map_id == -1:
                         continue
                     if section.link_run != Section.link_run:
@@ -188,6 +196,7 @@ def point_at_fraction(edge, fraction):
 
 
 def check_stitches(project):
+    from qmyi.model.model_data import owner_pattern
     from qmyi.model.sewing import get_stitches_by_sections
 
     problems = []
@@ -212,7 +221,7 @@ def check_stitches(project):
                 # would read that back as its maximum value.
                 stitches = stitches.astype(np.int64)
             walks.append((label, side, stitches, pair[0] is pair[1]))
-            points = side.line1.pattern.mesh_edge_points
+            points = owner_pattern(side.line1).mesh_edge_points
             inside = stitches[stitches >= 0]
             if len(inside) and (inside.max() >= len(points) or inside.min() < 0):
                 problems.append(f"sewing[{index}] {label}: stitch index outside "
@@ -254,14 +263,14 @@ def check_stitches(project):
             if positions[0] == 0:
                 # Nothing was dropped at the start, so the first stitch still
                 # has to sit on the sewing's own endpoint.
-                points = side.line1.pattern.mesh_edge_points
+                points = owner_pattern(side.line1).mesh_edge_points
                 start = point_at_fraction(side.line1, side.pos1)
                 first = float(np.linalg.norm(points[expected_first] - start))
                 if first > ENDPOINT_TOLERANCE_MM:
                     problems.append(f"sewing[{index}] {label}: first stitch is "
                                     f"{first:.3f} mm off the sewing start")
             if positions[-1] == len(stitches) - 1:
-                points = side.line1.pattern.mesh_edge_points
+                points = owner_pattern(side.line1).mesh_edge_points
                 end = point_at_fraction(side.line2, side.pos2)
                 last = float(np.linalg.norm(points[expected_last] - end))
                 if last > ENDPOINT_TOLERANCE_MM:
@@ -298,14 +307,18 @@ def check_grouping(project):
     A wrong half (a group that pairs a low half with a high one) shows up here
     even when the stitch counts still happen to match.
     """
+    from qmyi.model.model_data import owner_pattern
+
     problems = []
     checked = 0
     for index, sewing in enumerate(project.sewings):
         fractions = []
         for side in (sewing.side1, sewing.side2):
             try:
-                start = side.line1.boundary_section(side.pos1, side.reverse)
-                end = side.line2.boundary_section(side.pos2, side.reverse)
+                # The pieces are the panel's own copy of the Sketch's stage.
+                panel = owner_pattern(side.line1)
+                start = panel.boundary_section(side.line1, side.pos1, side.reverse)
+                end = panel.boundary_section(side.line2, side.pos2, side.reverse)
             except ValueError as error:
                 problems.append(f"sewing[{index}]: {error}")
                 fractions.append(None)
@@ -329,14 +342,17 @@ def check_grouping(project):
 
 def check_recorded_pair(project):
     """`sewing.sectionsX` is a record: it must match the derived boundaries."""
+    from qmyi.model.model_data import owner_pattern
+
     problems = []
     checked = 0
     for index, sewing in enumerate(project.sewings):
         for label, side, holder in (("side1", sewing.side1, sewing.sections1),
                                     ("side2", sewing.side2, sewing.sections2)):
             try:
-                start = side.line1.boundary_section(side.pos1, side.reverse)
-                end = side.line2.boundary_section(side.pos2, side.reverse)
+                panel = owner_pattern(side.line1)
+                start = panel.boundary_section(side.line1, side.pos1, side.reverse)
+                end = panel.boundary_section(side.line2, side.pos2, side.reverse)
             except ValueError as error:
                 problems.append(f"sewing[{index}] {label}: {error}")
                 continue
@@ -413,11 +429,12 @@ def scenario_plain(project):
 
 def scenario_divide_every_side(project):
     from qmyi.operators import _2d_divide_edge as divide_tools
+    from qmyi.model.model_data import owner_pattern
 
     for parts in (2, 4):
         for sewing in list(project.sewings):
             for side in (sewing.side1, sewing.side2):
-                panel = side.line1.pattern
+                panel = owner_pattern(side.line1)
                 index = side.line1.get_index()
                 if index < len(panel.edges):
                     divide_tools.divide_edges(panel, [index], parts=parts)
@@ -485,6 +502,7 @@ def scenario_two_components(project):
 
 
 def scenario_loop_seam(project):
+    """One side walks the whole outline, forwards."""
     sewing = project.sewings[0]
     side = sewing.side1
     edge = project.patterns[0].edges[0]
@@ -493,6 +511,17 @@ def scenario_loop_seam(project):
     side.pos1 = 0.0
     side.pos2 = 0.0
     side.reverse = False
+    for pattern in project.patterns:
+        pattern.need_sewing_update = True
+    project.setup_sewings_for_simulation()
+
+
+def scenario_loop_seam_reversed(project):
+    """The same whole-outline walk, backwards: the closing sample moves to the
+    other end of the walk, so the endpoint rule has to follow it there."""
+    scenario_loop_seam(project)
+    sewing = project.sewings[0]
+    sewing.side1.reverse = True
     for pattern in project.patterns:
         pattern.need_sewing_update = True
     project.setup_sewings_for_simulation()
@@ -530,6 +559,7 @@ SCENARIOS = (
     ("as saved", scenario_plain),
     ("every sewing side divided into 2 and 4", scenario_divide_every_side),
     ("side wrapping a whole outline", scenario_loop_seam),
+    ("side wrapping a whole outline, walked backwards", scenario_loop_seam_reversed),
     ("internal line crossing the outline", scenario_internal_line),
     ("sewing on an internal line", scenario_sewing_on_internal_line),
     ("stretched seam (one side 5x shorter)", scenario_stretched_seam),

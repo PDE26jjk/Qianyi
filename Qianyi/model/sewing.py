@@ -27,13 +27,34 @@ class SewingOneSide(PropertyGroup, ModelData, Selectable):
     line2_uuid: IntProperty(name="line2_id")
     pos2: FloatProperty(name="position2", min=0.0, max=1.0, default=1.0)
     reverse: BoolProperty(name="reverse", default=False)  # False for ccw, True for not ccw
+    # The panel this side was made on. An edge is shared by its whole instance
+    # chain, so the edge alone cannot say which member a side belongs to: it
+    # answers the chain's owner, which is a different panel as soon as a chain
+    # has a copy.
+    pattern_uuid: IntProperty(name="pattern_id", default=-1)
 
-    def update_data(self, line1, pos1, line2, pos2, reverse):
+    def update_data(self, line1, pos1, line2, pos2, reverse, pattern=None):
         self.line1_uuid = line1.global_uuid
         self.pos1 = pos1
         self.line2_uuid = line2.global_uuid
         self.pos2 = pos2
         self.reverse = reverse
+        self.pattern_uuid = pattern.global_uuid if pattern is not None else -1
+
+    @property
+    def pattern(self):
+        """The panel this side was made on.
+
+        The record is the side's own: the panel it was made on, by identity. A
+        seam side names its panel or nothing - it never reaches back into the
+        geometry it runs along, because an edge is shared by its whole instance
+        chain and answers a different panel than the one the seam was made on.
+        The lookup answers None for a panel an editor removed, and the seam then
+        has no side rather than silently becoming the owner of the edge.
+        """
+        if self.pattern_uuid == -1:
+            return None
+        return global_data.get_obj_by_uuid(self.pattern_uuid, check_uuid=False)
 
     @property
     def line1(self):
@@ -46,8 +67,32 @@ class SewingOneSide(PropertyGroup, ModelData, Selectable):
     def line2(self):
         return global_data.get_obj_by_uuid(self.line2_uuid, check_uuid=False)
 
+    @property
+    def sewing(self):
+        """The seam this side belongs to, or None.
 
-define_temp_prop(SewingOneSide, "sewing", None)
+        A seam records its own two sides when it is updated, so that answer is
+        used when it is there; a side that nothing has updated yet - a file just
+        opened - is found by walking the project's sewings. Every caller that
+        holds a side and needs the seam asks here, and none of them has to know
+        which of the two answered.
+        """
+        remembered = self.sewing_temp
+        if remembered is not None:
+            return remembered
+        for candidate in getattr(self.id_data, "sewings", ()):  # loop: one seam
+            for index in range(len(candidate.sides)):  # loop: its two sides
+                if candidate.sides[index].global_uuid == self.global_uuid:
+                    self.sewing_temp = candidate
+                    return candidate
+        return None
+
+    @sewing.setter
+    def sewing(self, value):
+        self.sewing_temp = value
+
+
+define_temp_prop(SewingOneSide, "sewing_temp", None)
 
 
 class Sewing(PropertyGroup, ModelData, Selectable):
@@ -74,13 +119,11 @@ class Sewing(PropertyGroup, ModelData, Selectable):
 
     @property
     def pattern1(self):
-        line = self.side1.line1
-        return line.pattern if line is not None else None
+        return self.side1.pattern
 
     @property
     def pattern2(self):
-        line = self.side2.line1
-        return line.pattern if line is not None else None
+        return self.side2.pattern
 
     @property
     def side1(self):
@@ -112,9 +155,15 @@ class Sewing(PropertyGroup, ModelData, Selectable):
     def get_stitch_data(self):
         ss1 = self.side1
         ss2 = self.side2
-        pattern1 = ss1.line1.pattern
-        pattern2 = ss2.line1.pattern
+        # The panels the sides were made on, not the owners of the edges they
+        # run along: those edges serve the whole instance chain.
+        pattern1 = ss1.pattern
+        pattern2 = ss2.pattern
         for pattern in (pattern1, pattern2):
+            if pattern is None:
+                raise ValueError(f"sewing {self.name or '(unnamed)'} has no panel on "
+                                 f"one of its sides: it was saved before a side "
+                                 f"recorded one, or that panel was removed")
             if pattern.mesh_object is None:
                 # A crossing outline is not meshed at all, so a sewing that
                 # ends on it has no vertices to pair. Say that instead of
@@ -132,10 +181,12 @@ class Sewing(PropertyGroup, ModelData, Selectable):
         # from a stored pair of sections: a pair of objects cannot survive a
         # later split, while the two pieces the stitches run between can always
         # be found again from `pos1` / `pos2` and the direction.
-        start1 = ss1.line1.boundary_section(ss1.pos1, ss1.reverse)
-        end1 = ss1.line2.boundary_section(ss1.pos2, ss1.reverse)
-        start2 = ss2.line1.boundary_section(ss2.pos1, ss2.reverse)
-        end2 = ss2.line2.boundary_section(ss2.pos2, ss2.reverse)
+        # The pieces are each panel's own copy of the Sketch's stage, so the walk
+        # reads the cuts that panel was given by the linking run.
+        start1 = pattern1.boundary_section(ss1.line1, ss1.pos1, ss1.reverse)
+        end1 = pattern1.boundary_section(ss1.line2, ss1.pos2, ss1.reverse)
+        start2 = pattern2.boundary_section(ss2.line1, ss2.pos1, ss2.reverse)
+        end2 = pattern2.boundary_section(ss2.line2, ss2.pos2, ss2.reverse)
         stitches1 = get_stitches_by_sections(start1, end1, ss1.reverse)
         stitches2 = get_stitches_by_sections(start2, end2, ss2.reverse)
         # A side that runs outside its panel has no vertices there, so those
@@ -163,10 +214,18 @@ define_temp_prop(Sewing, "impacted", False)
 
 
 def get_stitches_by_sections(start_section, end_section, reverse):
+    """Every stitch one side of a sewing makes, as mesh index-map entries.
+
+    The side is evaluated on the panel the walk's pieces came from, which is the
+    same panel `get_stitch_data` reads the payload's index from - that is what
+    keeps the indices and the mesh they index together.
+    """
     sec = start_section
-    pattern = sec.edge.pattern
+    pattern = section_panel(sec)
+    if pattern is None:
+        raise ValueError("a sewing side runs on a panel that is no longer in "
+                         "the scene, so it has no panel to stitch")
     start = False
-    is_loop = sec is end_section
     stitches_list = []
     max_sec = 10000
     while (sec is not end_section or not start) and max_sec > 0:
@@ -199,13 +258,15 @@ def get_stitches_by_sections(start_section, end_section, reverse):
             stitches_index = np.append(stitches_index, pattern.mesh_edge_index_map[0])
         if point_size != len(stitches_index):
             raise IndexError("Something went wrong")
-        if sec.mesh_end_point != -1 and not is_loop and next is end_section:
-            # `mesh_end_point` is the panel's own first sample, which is the
-            # seam's end point only when this piece is the last one the walk
-            # visits. A piece sitting in the middle of the walk (a seam that
-            # wraps past the panel's start) already carries that sample as its
-            # own, and overwriting the last one would drop a point and repeat
-            # another.
+        # The walk's far end carries one extra sample above the piece that ends
+        # it, and that read is one past the piece's own run: on the piece that
+        # wraps the panel's sample array it lands on the first sample of the
+        # next curve, where the panel recorded its own first sample instead
+        # (`mesh_end_point`). Forward the piece that ends the walk is the last
+        # one visited, reversed it is the first one - the piece the `+1` above
+        # went to - and any other piece already carries that sample as its own.
+        ends_the_walk = not start if reverse else next is end_section
+        if sec.mesh_end_point != -1 and ends_the_walk:
             stitches_index[-1] = pattern.mesh_edge_index_map[sec.mesh_end_point]
         stitches_list.append(stitches_index)
         sec = next
@@ -219,11 +280,25 @@ def get_stitches_by_sections(start_section, end_section, reverse):
     return stitches
 
 
+def section_panel(section):
+    """The panel a piece of a walk belongs to, or None when it is gone.
+
+    A piece is one panel's own copy of the stage and carries that panel by
+    identity (`Section.panel`), which is why this is the panel the walk speaks
+    about and not the owner of the edges it was cut from.
+    """
+    return section.panel
+
+
 def calc_sewing_side_sections(ss, sections_start_end, reverse=False):
     max_sec = 10000
     sections: List[Section] = []
-    sec_start = ss.line1.find_or_add_section(ss.pos1)
-    sec_end = ss.line2.find_or_add_section(ss.pos2)
+    pattern = ss.pattern
+    if pattern is None:
+        raise ValueError("a sewing side has no panel: it was saved before a side "
+                         "recorded one, or that panel was removed")
+    sec_start = pattern.find_or_add_section(ss.line1, ss.pos1)
+    sec_end = pattern.find_or_add_section(ss.line2, ss.pos2)
     if sec_start is None:
         raise ValueError(
             f"a sewing side at {ss.pos1:.4f} -> {ss.pos2:.4f} (reverse={reverse}) "
@@ -292,10 +367,13 @@ def calc_sewing_sections(sewings):
     # it here so the two agree after every cut the merge made.
     for sewing in sewings:
         for side, holder in ((sewing.side1, sewing.sections1),
-                             (sewing.side2, sewing.sections2)):
+            (sewing.side2, sewing.sections2)):
             try:
-                holder[0] = side.line1.boundary_section(side.pos1, side.reverse)
-                holder[1] = side.line2.boundary_section(side.pos2, side.reverse)
+                pattern = side.pattern
+                if pattern is None:
+                    continue
+                holder[0] = pattern.boundary_section(side.line1, side.pos1, side.reverse)
+                holder[1] = pattern.boundary_section(side.line2, side.pos2, side.reverse)
             except ValueError as error:
                 console.warning(f"sewing {sewing.name or '(unnamed)'}: {error}")
 
@@ -334,8 +412,7 @@ def link_sewings(sewings, link_sections):
         # (5% is 1 mm on a 20 mm seam and 100 mm on a 2 m one).
         total1 = sum(section.absolute_length() for section in sections1)
         total2 = sum(section.absolute_length() for section in sections2)
-        granularity = min(ss1.line1.pattern.granularity,
-                          ss2.line1.pattern.granularity)
+        granularity = min(ss1.pattern.granularity, ss2.pattern.granularity)
         shortest = min(total1, total2)
         if shortest <= 0:
             raise ValueError(
@@ -401,18 +478,30 @@ def link_sewings(sewings, link_sections):
 
     # Linked sections should have same segments.
     for i, dir_sections in enumerate(link_sections):
-        if dir_sections:
-            sections = [d.section for d in dir_sections]
-            max_seg = -1
-            for sec in sections:
-                seg = max(math.ceil(sec.absolute_length() / sec.edge.pattern.granularity), 1)
-                max_seg = max(max_seg, seg)
-            for sec in sections:
-                if sec.seg != max_seg:
-                    sec.seg = max_seg
-                    sec.edge.need_update_points = True
-                    sec.edge.pattern.need_geo_update = True
-            # console.warning(i, sections, max_seg)
+        if not dir_sections:
+            continue
+        # A piece whose edge an editor replaced is left over from a panel copy
+        # that was never rebuilt; its edge and its panel resolve to None and the
+        # piece is skipped rather than touched.
+        sections = [entry.section for entry in dir_sections
+                    if entry.section.edge is not None
+                    and section_panel(entry.section) is not None]
+        if not sections:
+            continue
+        max_seg = -1
+        for sec in sections:
+            granularity = section_panel(sec).granularity
+            seg = max(math.ceil(sec.absolute_length() / granularity), 1)
+            max_seg = max(max_seg, seg)
+        for sec in sections:
+            if sec.seg != max_seg:
+                sec.seg = max_seg
+                sec.edge.need_update_points = True
+                # The pieces are one panel's own copy, so it is that panel whose
+                # samples and mesh have to follow; the edge answers with the
+                # owner of the whole chain instead.
+                section_panel(sec).need_geo_update = True
+        # console.warning(i, sections, max_seg)
 
 
 def calc_sewing_side_edges_index(ss, parent):
@@ -425,12 +514,12 @@ def calc_sewing_side_edges_index(ss, parent):
         if e1_index != -1 and e2_index != -1:
             break
     if e1_index == -1 or e2_index == -1:
-        raise ValueError("sewing side in different pattern!!", ss.line1.pattern, ss.line2.pattern)
+        raise ValueError("sewing side in different pattern!!",
+                         owner_pattern(ss.line1), owner_pattern(ss.line2))
     return e1_index, e2_index
 
 
 def calc_sewing_side_edges(ss):
-    # p = ss.line1.pattern
     parent = ss.line1.get_parent()
     e1_i, e2_i = calc_sewing_side_edges_index(ss, parent)
     e_i = e1_i

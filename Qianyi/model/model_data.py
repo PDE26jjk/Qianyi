@@ -86,11 +86,14 @@ def register_uuid(obj):
 
 
 def _register_edge(edge):
-    """An edge owns the control handles and the sampled geometry points."""
+    """An edge owns its control handles, its spline points and its samples.
+
+    A panel's own copy of the samples it meshed with lives on the pattern (see
+    `Pattern.geo_points`); it is a read-only mirror, so it is deliberately not
+    part of the identity map a pick or a lookup walks.
+    """
     count = register_uuid(edge)
     for vertex in edge.handles:
-        count += register_uuid(vertex)
-    for vertex in edge.geo_points:
         count += register_uuid(vertex)
     for vertex in edge.spline_points:
         count += register_uuid(vertex)
@@ -118,16 +121,22 @@ def refresh_all_uuids():
             count += register_uuid(fabric)
         for sewing in project.sewings:
             count += register_uuid(sewing)
-        for pattern in project.patterns:
-            count += register_uuid(pattern)
-            for vertex in pattern.vertices:
+        # The geometry is the Sketches': a pattern reads it through the Sketch it
+        # names, so registering the patterns' elements here would register the
+        # same objects twice - and would ask a pattern for a Sketch before the
+        # Sketch has an identity.
+        for sketch in project.sketches:
+            count += register_uuid(sketch)
+            for vertex in sketch.vertices:
                 count += register_uuid(vertex)
-            for edge in pattern.edges:
+            for edge in sketch.edges:
                 count += _register_edge(edge)
-            for line in pattern.internal_lines:
+            for line in sketch.internal_lines:
                 count += register_uuid(line)
                 for edge in line.edges:
                     count += _register_edge(edge)
+        for pattern in project.patterns:
+            count += register_uuid(pattern)
     return count
 
 
@@ -143,6 +152,75 @@ def define_temp_prop(cls, name, default=None):
         self.set_temp_data_item(name, value)
 
     setattr(cls, name, setter)
+
+
+def resolve_sketch(element):
+    """The Sketch a geometry element is stored in, or None.
+
+    A point, an edge, a control point and an internal line all live in a Sketch,
+    and never anywhere else: an edge is shared by every member of its instance
+    chain, so the panel is not what holds it. The element's own path says which
+    Sketch - its first segment is "sketches[3]" for a point, for an edge of the
+    outline, for a control point and for an edge of an internal line alike - so
+    the answer is that one collection entry.
+
+    The answer is kept on the element because a redraw asks for it dozens of
+    times, and it is checked against the uuid it was resolved from: a wrapper a
+    removal left behind reads back as a default (uuid -1) or as whatever item
+    shifted onto it, and neither may pass for the Sketch the element lives in.
+    """
+    cached = element.sketch_temp
+    if cached is not None:
+        try:
+            if cached.global_uuid == element.sketch_uuid:
+                return cached
+        except Exception:
+            pass
+        element.sketch_temp = None
+        element.sketch_uuid = -1
+    try:
+        path = element.path_from_id()
+    except Exception:
+        # A wrapper the collection retired when another item was added: it can
+        # no longer read its own path, and the map holds the wrapper that is in
+        # the collection now. A wrapper of something that was removed answers
+        # None - there is no Sketch left to name.
+        live = global_data.get_obj_by_uuid(int(element.global_uuid), check_uuid=False)
+        if live is not None and live != element:
+            return live.sketch
+        return None
+    segments = re.findall(r'(\w+)\[(-?\d+)\]', path)
+    if not segments or segments[0][0] != "sketches":
+        return None
+    sketches = getattr(element.id_data, "sketches", None)
+    index = int(segments[0][1])
+    if sketches is None or not 0 <= index < len(sketches):
+        return None
+    sketch = sketches[index]
+    element.sketch_temp = sketch
+    element.sketch_uuid = sketch.global_uuid
+    return sketch
+
+
+def owner_pattern(element):
+    """The panel that owns the Sketch an element lives in, or None.
+
+    A geometry element - a point, an edge, a control point, an internal line -
+    is stored in a Sketch, and a Sketch belongs to the panel that made it, which
+    is the first member of the instance chain. The element has no panel of its
+    own: an edge is shared by every member of its chain. A caller that holds
+    only the element and needs the panel asks here, and this answers the one
+    thing it can answer - the owner of the Sketch - rather than letting the
+    element pretend to be a panel.
+
+    `Sketch.owner` resolves the panel through the uuid map, which already
+    answers None for a panel that is no longer there, so nothing here has to
+    re-check the wrapper.
+    """
+    sketch = getattr(element, "sketch", None)
+    if sketch is None:
+        return None
+    return sketch.owner
 
 
 class Selectable:

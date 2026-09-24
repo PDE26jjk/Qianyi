@@ -95,12 +95,12 @@ def check_state_machine(pattern):
     unknown = pattern.validity_state
     before = pattern.validate(force=True)
     after_edit = pattern.validity_state
-    pattern.forced_update()
+    pattern.mark_geometry_changed()
     marked = pattern.validity_state
     pattern.validate()
     checked = pattern.validity_state
     log(f"    mark_shape_changed -> {unknown}, checked -> {before}, "
-        f"after an edit -> {after_edit} -> forced_update -> {marked} -> validate -> {checked}")
+        f"after an edit -> {after_edit} -> mark_geometry_changed -> {marked} -> validate -> {checked}")
     if unknown != "UNKNOWN" or marked != "UNKNOWN":
         log("        an edit did not mark the outline unknown")
         failures += 1
@@ -144,7 +144,7 @@ def reshape(pattern, corners):
     for vertex, co in zip(pattern.vertices, corners):
         vertex.co[0] = float(co[0])
         vertex.co[1] = float(co[1])
-    pattern.forced_update()
+    pattern.mark_geometry_changed()
 
 
 def check_simulation_gate(manager, project):

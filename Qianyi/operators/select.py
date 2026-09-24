@@ -126,6 +126,12 @@ class NODE_OT_qmyi_select(Operator):
 
                 elif "Edge" in type_name:
                     update_selection_cache(project.selected_edges, hover_object, mode, is_replace)
+                # One Sketch element is on screen in every member of its chain,
+                # so the click's member becomes the active panel: the tools that
+                # work in pattern space then work where the click was made.
+                pick = global_data.temp_draw_manager.hover_pick
+                if pick is not None:
+                    project.set_active_pattern(pick[0])
             elif edit_mode == "SEWING":
                 update_selection_cache(project.selected_sewings, hover_object, mode, is_replace)
 

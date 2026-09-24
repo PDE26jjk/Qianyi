@@ -278,7 +278,9 @@ def add_internal_line(name, points, is_hole=False, closed=False, project=None):
     def write(member):
         line = member.add_internal_line(segments, is_loop=bool(closed))
         line.is_hole = bool(is_hole)
-        member.generate_mesh()
+        # The line lives in the panel's Sketch, so one call wrote it for the
+        # whole instance chain; the Sketch builds each member's mesh.
+        member.require_sketch().rebuild_meshes()
 
     _write_all(members, write)
     address.write_done(f"add an internal line to {pattern.name}")
@@ -360,6 +362,21 @@ def remove(names, project=None):
                             "panels_left": len(project.patterns)})
 
 
+def detach(name, project=None):
+    """Give one panel a Sketch of its own, leaving the other members together.
+
+    A chain reads one Sketch, so its members cannot hold different geometry; a
+    panel that is to be edited on its own is detached first. The panel keeps the
+    shape the chain has now, and the members that stayed linked keep reading the
+    Sketch they had.
+    """
+    project = address.project_or_refuse(project)
+    pattern = address.pattern_or_refuse(project, name)
+    report = pattern.detach()
+    address.write_done(f"detach panel {pattern.name}")
+    return address.jsonify(report)
+
+
 def validate(names=None, project=None):
     """Test the outlines now and report the ones that cross themselves."""
     project = address.project_or_refuse(project)
@@ -404,9 +421,14 @@ def assign_fabric(name, fabric, project=None):
 
 def _summary(pattern, position):
     mesh = pattern.mesh_object
+    sketch = pattern.sketch
     entry = {
         "name": pattern.name,
         "index": position,
+        # The two layers: the Sketch a panel reads its geometry from, and this
+        # panel's own derived state. A chain reports one Sketch and one entry
+        # per member.
+        "sketch": sketch.name if sketch is not None else None,
         "vertices": len(pattern.vertices),
         "edges": len(pattern.edges),
         "internal_lines": len(pattern.internal_lines),
@@ -472,26 +494,28 @@ def _proposed_vertices(pattern, index, point):
 
 
 def _chain_members(pattern):
-    """The panel and its copies, refusing a chain whose copies have drifted."""
-    members = address.chain_of(pattern)
-    for member in members:  # loop: one shape comparison per copy
-        if (len(member.vertices) != len(pattern.vertices)
-                or len(member.edges) != len(pattern.edges)):
-            raise QyapiError(
-                f"{member.name!r} is a copy of {pattern.name!r} with a different shape",
-                ("copies are edited together; detach or rebuild before editing one",
-                 "qyapi.patterns.get() shows the chain of a panel"))
-    return members
+    """The panel and the copies that share its Sketch.
+
+    There is nothing to compare: a chain holds one Sketch, so its members cannot
+    hold different geometry. `members` is still the list every caller needs, for
+    the derived work each member does for itself.
+    """
+    return address.chain_of(pattern)
 
 
 def _write_all(members, write):
-    for member in members:  # loop: the same edit in every copy of the chain
-        write(member)
+    """Write one chain's edit - once.
+
+    Every member reads the same Sketch, so one write reaches all of them. The
+    name is kept because the callers read as "this edit reaches the whole
+    chain", which is what it does; the members rebuild their own samples and
+    meshes afterwards, in `_finish`.
+    """
+    write(members[0])
 
 
 def _refresh(pattern):
-    pattern.recreate_sections()
-    pattern.forced_update()
+    pattern.mark_geometry_changed()
 
 
 def _outline_error(pattern):
@@ -553,9 +577,9 @@ def _split_edge(pattern, edge_index, point):
     new_index = pattern.add_vertex(point)
     edge.vertex_index[1] = new_index
     new_edge = pattern.edges.add()
+    new_edge.get_temp_data()
     new_edge.vertex_index[0] = new_index
     new_edge.vertex_index[1] = end_index
-    new_edge.pattern = pattern
     new_edge.set_curve("straight")
     # Append then move: removing and rewriting the list would give every edge a
     # new identity and break the sewings that point at them.
@@ -610,8 +634,13 @@ def _add_spline_point(pattern, edge_index, point, at=None):
         control = edge.spline_points.add()
         position = len(edge.spline_points) - 1
         edge.spline_points.move(position, int(at))
+    control.get_temp_data()
     control.co = point
     edge.need_update_points = True
+    # Adding retires the wrappers the collection handed out before, so the map
+    # has to name the ones it holds now: a pick reads a control point back by
+    # its identity.
+    edge.refresh_collection_uuid(edge.spline_points)
 
 
 def _drop_spline_point(pattern, edge_index, index):
@@ -621,6 +650,7 @@ def _drop_spline_point(pattern, edge_index, index):
     if 0 <= index < len(edge.spline_points):
         edge.spline_points.remove(index)
     edge.need_update_points = True
+    edge.refresh_collection_uuid(edge.spline_points)
 
 
 def _drop_internal_line(pattern, index):
@@ -641,9 +671,10 @@ def _drop_internal_line(pattern, index):
                 _shift_index(edge, position)
     pattern.refresh_collection_uuid(pattern.vertices)
     pattern.refresh_collection_uuid(pattern.edges)
-    pattern.recreate_sections()
-    pattern.forced_update()
-    pattern.generate_mesh()
+    pattern.mark_geometry_changed()
+    # The line lived in the panel's Sketch, so its removal is one edit for the
+    # whole instance chain: the Sketch builds each member's mesh.
+    pattern.require_sketch().rebuild_meshes()
 
 
 def _vertex_is_orphan(pattern, index):

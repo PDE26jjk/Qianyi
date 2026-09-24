@@ -5,7 +5,6 @@ from bpy.utils import register_classes_factory
 
 from ..utilities.cubic_spline import get_handles_after_split
 from ..utilities.geometric_operation import sample_polyline
-from ..model.pattern_instance import collect_unique_instances
 from ..model.pattern import Pattern, interactive_edit_allowed
 from ..model.generator import refuse_generated_edit
 from ..model.qianyi_data import ensure_edit_mode
@@ -100,21 +99,30 @@ class NODE_OT_add_spline_point(Operator2DBase):
             return {'CANCELLED'}
 
         draw_manager.clear()
-        collect_unique_instances({pattern})
         insert_at_final = max(0, min(len(edge.spline_points), insert_at - 1))
-        for ins in pattern.instances:
-            e = ins.edges[edge_index]
-            sp = e.spline_points.add()
-            sp.co = temp_point.co
-            if insert_at_final != len(e.spline_points) - 1:
-                e.spline_points.move(len(e.spline_points) - 1, insert_at_final)
-            e.handle1.co = handle_a
-            e.handle2.co = handle_b
+        # One Sketch per instance chain: the control point is written once. This
+        # panel meshes from it now; the other readers were marked by the write.
+        e = pattern.edges[edge_index]
+        sp = e.spline_points.add()
+        sp.get_temp_data()
+        sp.co = temp_point.co
+        if insert_at_final != len(e.spline_points) - 1:
+            e.spline_points.move(len(e.spline_points) - 1, insert_at_final)
+        e.handle1.co = handle_a
+        e.handle2.co = handle_b
 
-            ins.refresh_collection_uuid(e.spline_points)
-            ins.recreate_sections()
-            ins.forced_update()
-            ins.generate_mesh()
+        pattern.refresh_collection_uuid(e.spline_points)
+        # The control point and the handles were written straight into the
+        # Sketch's own objects, so the write signal is sent here: the panels that
+        # read the Sketch are marked and their display is rebuilt.
+        sketch = pattern.sketch
+        if sketch is not None:
+            sketch.geometry_written()
+        # One Sketch serves the whole instance chain, so the control point is
+        # one edit for every member: the Sketch builds each of their meshes.
+        pattern.require_sketch().rebuild_meshes()
+        # The outline moved, so the finder the tools snap against is stale.
+        project.clear_edge_finder()
         sp = pattern.edges[edge_index].spline_points[insert_at_final]
         sp.get_temp_data()
         project.selected_vertices.clear()

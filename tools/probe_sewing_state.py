@@ -35,9 +35,14 @@ def import_addon(path, module_name):
 
 def link_state(project):
     from qmyi.model.section import Section
-
     return (f"patterns={len(project.patterns)} sewings={len(project.sewings)} "
             f"link_maps={len(Section.link_sections)}")
+
+
+def panel_of(element):
+    """The panel that owns the Sketch an element lives in, or None."""
+    from qmyi.model.model_data import owner_pattern
+    return owner_pattern(element)
 
 
 def edge_link_ids(pattern):
@@ -89,8 +94,8 @@ def check_colors_and_connectors(project, edges_random, edges_explicit):
             f"{tuple(round(float(v), 3) for v in explicit.color)}")
         side1 = calc_sewing_side_render_points(explicit.side1)
         side2 = calc_sewing_side_render_points(explicit.side2)
-        pattern1 = explicit.side1.line1.pattern
-        pattern2 = explicit.side2.line1.pattern
+        pattern1 = panel_of(explicit.side1.line1)
+        pattern2 = panel_of(explicit.side2.line1)
         positions = stitch_connector_points(pattern1, side1, pattern2, side2)
         length1 = polyline_length(side1)
         length2 = polyline_length(side2)
@@ -159,7 +164,7 @@ def stitch_end_positions(sewing, pattern_index):
 
 
 def project_pattern_of(sewing, index):
-    return (sewing.side1 if index == 0 else sewing.side2).line1.pattern
+    return panel_of((sewing.side1 if index == 0 else sewing.side2).line1)
 
 
 def check_stitch_order(project):
@@ -297,15 +302,15 @@ def check_preview_for_click_pair(project, edge1, edge2, label, fraction1, fracti
         return
     points1 = np.asarray(calc_sewing_side_render_points(sewing.side1), dtype=np.float64)
     points2 = np.asarray(calc_sewing_side_render_points(sewing.side2), dtype=np.float64)
-    connectors = stitch_connector_points(sewing.side1.line1.pattern, points1,
-                                         sewing.side2.line1.pattern, points2)
+    connectors = stitch_connector_points(panel_of(sewing.side1.line1), points1,
+                                         panel_of(sewing.side2.line1), points2)
     drawn_ends = [connectors[0], connectors[1], connectors[-2], connectors[-1]]
     first_half, second_half = sewing_half_directions(edge1, click1, edge2, click2)
     preview = [
-        edge1.pattern.pattern_to_view_pos(edge_point_at(edge1, first_half[0])),
-        edge2.pattern.pattern_to_view_pos(edge_point_at(edge2, second_half[0])),
-        edge1.pattern.pattern_to_view_pos(edge_point_at(edge1, first_half[1])),
-        edge2.pattern.pattern_to_view_pos(edge_point_at(edge2, second_half[1])),
+        panel_of(edge1).pattern_to_view_pos(edge_point_at(edge1, first_half[0])),
+        panel_of(edge2).pattern_to_view_pos(edge_point_at(edge2, second_half[0])),
+        panel_of(edge1).pattern_to_view_pos(edge_point_at(edge1, first_half[1])),
+        panel_of(edge2).pattern_to_view_pos(edge_point_at(edge2, second_half[1])),
     ]
     distances = [float(np.linalg.norm(np.array(drawn) - np.array(shown)))
                  for drawn, shown in zip(drawn_ends, preview)]
@@ -379,8 +384,8 @@ def check_click_crossing(project, edges):
             continue
         points1 = np.asarray(calc_sewing_side_render_points(sewing.side1), dtype=np.float64)
         points2 = np.asarray(calc_sewing_side_render_points(sewing.side2), dtype=np.float64)
-        connectors = stitch_connector_points(sewing.side1.line1.pattern, points1,
-                                             sewing.side2.line1.pattern, points2)
+        connectors = stitch_connector_points(panel_of(sewing.side1.line1), points1,
+                                             panel_of(sewing.side2.line1), points2)
         first_pair = (connectors[0][:2], connectors[1][:2])
         last_pair = (connectors[-2][:2], connectors[-1][:2])
         crosses = segment_crosses(first_pair[0], first_pair[1], last_pair[0], last_pair[1])

@@ -14,7 +14,7 @@ import numpy as np
 from mathutils import Vector
 
 from . import global_data
-from .model.generator import (PatternGenerator, generator_of_pattern, instance_chain,
+from .model.generator import (PatternGenerator, generator_of_pattern,
                               refresh_generators)
 from .model.pattern import VALIDITY_INVALID
 from .panellib import component, registry
@@ -114,7 +114,8 @@ def _create_internal_seams(project, generator) -> int:
         edge_b = _edge_named(second, seam.edge_b)
         if edge_a is None or edge_b is None:
             continue
-        if project.add_sewing1to1(edge_a, edge_b, reverse=seam.reverse) is not None:
+        if project.add_sewing1to1(edge_a, edge_b, reverse=seam.reverse,
+                                  pattern1=first, pattern2=second) is not None:
             created += 1
     if created:
         console.print(f"generator '{generator.name}': {created} internal seam(s)")
@@ -175,7 +176,7 @@ def apply_generator(project, generator) -> dict:
         written = []
         for landed in landed_panels:
             pattern, created = _ensure_output(project, generator, landed.name)
-            targets = instance_chain(pattern)
+            targets = pattern.sketch_members()
             in_place = (not created) and all(
                 topology_of(landed) == _pattern_topology(target) for target in targets)
             # Copies follow their source: mirrors are the same panel, so they are
@@ -306,7 +307,7 @@ def _snapshot_outputs(project, generator) -> dict:
     """
     snapshots = {}
     for pattern in panels_of(project, generator):
-        for member in instance_chain(pattern):
+        for member in pattern.sketch_members():
             entries = []
             # Deliberate Python loop: one entry per edge object.
             for edge in member.edges:
@@ -493,7 +494,7 @@ def _drop_stale_outputs(project, generator, keep: list[str]) -> int:
             continue
         pattern = live.get(output.pattern_uuid)
         if pattern is not None:
-            project.remove_patterns(instance_chain(pattern), expand_groups=False)
+            project.remove_patterns(pattern.sketch_members(), expand_groups=False)
             removed += 1
         generator.outputs.remove(index)
     return removed
@@ -522,8 +523,7 @@ def _write_pattern(pattern, landed: LandedPanel, in_place: bool) -> None:
             pattern.vertices.remove(len(pattern.vertices) - 1)
     _write_vertices(pattern, landed)
     _write_edges(pattern, landed)
-    pattern.recreate_sections()
-    pattern.forced_update()
+    pattern.mark_geometry_changed()
 
 
 def _write_vertices(pattern, landed: LandedPanel) -> None:
@@ -534,7 +534,7 @@ def _write_vertices(pattern, landed: LandedPanel) -> None:
             vertex = pattern.vertices[index]
         else:
             vertex = pattern.vertices.add()
-        vertex.pattern = pattern
+            vertex.get_temp_data()
         vertex.co = Vector((float(point[0]), float(point[1])))
 
 
@@ -550,7 +550,6 @@ def _write_edges(pattern, landed: LandedPanel) -> None:
                 edge.spline_points.remove(len(edge.spline_points) - 1)
         else:
             edge = pattern.add_edge(spec.v0, spec.v1, update=False)
-        edge.pattern = pattern
         if spec.kind == "bezier":
             edge.handle1.co = Vector((float(spec.points[1][0]), float(spec.points[1][1])))
             edge.handle2.co = Vector((float(spec.points[2][0]), float(spec.points[2][1])))
@@ -563,4 +562,7 @@ def _write_edges(pattern, landed: LandedPanel) -> None:
             edge.handle2_type = "VECTOR"
         edge.name = spec.name
         edge.need_update_points = True
+        # Removing a control point retires the wrappers the collection handed
+        # out before it, so the map is refreshed for the points it holds now.
+        edge.refresh_collection_uuid(edge.spline_points)
     pattern.refresh_collection_uuid(pattern.edges)

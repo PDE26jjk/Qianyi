@@ -10,8 +10,8 @@ from bpy.utils import register_classes_factory
 
 from ..declarations import Operators
 from ..model import pattern_geometry as geometry
-from ..model.generator import instance_chain, refuse_generated_edit
-from ..model.model_data import refresh_all_uuids
+from ..model.generator import refuse_generated_edit
+from ..model.model_data import owner_pattern, refresh_all_uuids
 from ..model.qianyi_data import ensure_edit_mode
 from ..utilities.console import console
 from ..utilities.node_tree import get_active_node_tree
@@ -187,12 +187,20 @@ def describe_sewing(project, index) -> str:
     for side in sewing.sides:  # loop: the two sides of one seam
         line1, line2 = side.line1, side.line2
         sides.append(
-            f"{line1.pattern.name if line1 else '?'}"
+            f"{_panel_name(line1)}"
             f"[{line1.get_index() if line1 else -1}]@{side.pos1:.4f} -> "
-            f"{line2.pattern.name if line2 else '?'}"
+            f"{_panel_name(line2)}"
             f"[{line2.get_index() if line2 else -1}]@{side.pos2:.4f} "
             f"rev={side.reverse}")
     return f"seam {index}: " + " | ".join(sides)
+
+
+def _panel_name(edge) -> str:
+    """The panel an edge is on, as text: the owner of the Sketch it lives in."""
+    if edge is None:
+        return "?"
+    panel = owner_pattern(edge)
+    return panel.name if panel is not None else "?"
 
 
 def print_sewings(project, label) -> None:
@@ -258,15 +266,15 @@ def selected_division_groups(project) -> list:
 def _group_of(groups, pattern) -> dict:
     """The group this panel's edges belong to: one it joined, or its own.
 
-    `instance_next_uuid` is a circular list, so any member of a chain names
-    all the others; a chain that does not resolve yields the panel alone, and
-    the panel then starts a group of its own.
+    A chain is what shares a Sketch, so the group is keyed by the panels that
+    read it: dividing through two members of one chain would cut one shape
+    twice.
     """
     for group in groups:
         if pattern.global_uuid in group["members"]:
             return group
     group = {"pattern": pattern,
-             "members": {member.global_uuid for member in instance_chain(pattern)},
+             "members": {member.global_uuid for member in pattern.sketch_members()},
              "edges": {}}
     groups.append(group)
     return group
@@ -275,23 +283,26 @@ def _group_of(groups, pattern) -> dict:
 def edge_target(obj) -> tuple:
     """Where a selected edge lives: (pattern, internal line index or None, index).
 
-    The property path decides - `patterns[1].edges[7]` is an outline edge and
-    `patterns[1].internal_lines[2].edges[7]` is the seventh edge of that line -
-    so an edge is placed by where it is stored, not by a check the model could
-    grow out of.
+    The property path decides - `<owner>.edges[7]` is an outline edge and
+    `<owner>.internal_lines[2].edges[7]` is the seventh edge of that line - so an
+    edge is placed by where it is stored, not by a check the model could grow out
+    of. The owner is the Sketch a panel draws through, or the panel itself when
+    something still stores its geometry there; the pattern the command names is
+    the one that owns that Sketch.
     """
     segments = re.findall(r"(\w+)\[(-?\d+)\]", obj.path_from_id())
-    if len(segments) < 2 or segments[0][0] != "patterns" or segments[-1][0] != "edges":
+    if (len(segments) < 2 or segments[0][0] not in ("patterns", "sketches")
+            or segments[-1][0] != "edges"):
         raise geometry.GeometryRefused(
             "that selection is not an edge of a panel or of an internal line",
             "select the edges to divide in the pattern editor")
     line_index = None
     if len(segments) >= 3 and segments[1][0] == "internal_lines":
         line_index = int(segments[1][1])
-    return obj.pattern, line_index, int(segments[-1][1])
+    return owner_pattern(obj), line_index, int(segments[-1][1])
 
 
-def _container(pattern, line_index):
+def _edge_collection(pattern, line_index):
     """The edge collection a target writes into: the outline, or one internal line."""
     if line_index is None:
         return pattern.edges
@@ -299,7 +310,7 @@ def _container(pattern, line_index):
 
 
 def _edge_index_list(edges, edge_indices, where) -> list:
-    """The edge indices to divide, out of one container's edges."""
+    """The edge indices to divide, out of one collection's edges."""
     count = len(edges)
     if count < 1:
         raise geometry.GeometryRefused(f"{where} has no edges to divide")
@@ -389,7 +400,7 @@ def divide_edges_on(groups, *, parts=None, distance=None, cuts=1, reverse=False)
                              for vertex in pattern.vertices], dtype=np.float64)
         plans = []
         for line_index in sorted(group["edges"], key=lambda line: (line is not None, line or 0)):
-            edges = _container(pattern, line_index)
+            edges = _edge_collection(pattern, line_index)
             where = (f"{pattern.name!r}" if line_index is None
                      else f"{pattern.name!r} internal line {line_index}")
             order = _edge_index_list(edges, group["edges"][line_index], where)
@@ -458,16 +469,14 @@ def divide_edges_on(groups, *, parts=None, distance=None, cuts=1, reverse=False)
 
 
 def _divide_group(entry) -> dict:
-    """Write one chain's cuts on every member, and return what happened.
+    """Write one chain's cuts once, and return what happened.
 
-    Every member is written; the report is the member the numbers were
-    measured on, since its pieces are the ones the selection names.
+    One Sketch serves the whole chain, so the cuts are written on the panel the
+    numbers were measured on - its pieces are the ones the selection names. That
+    panel meshes from the cut Sketch; the other readers of the Sketch were
+    marked by the write and rebuild when they are next needed.
     """
-    first = None
-    for member in entry["members"]:
-        report = _divide_member(member, entry["plans"])
-        if first is None:
-            first = report
+    first = _divide_member(entry["pattern"], entry["plans"])
     first["panel"] = entry["pattern"].name
     first["copies"] = len(entry["members"]) - 1
     first["capped"] = any((plan["wanted"] < plan["asked"]) or plan["short"]
@@ -492,14 +501,14 @@ def _divide_member(pattern, plans) -> dict:
                    key=lambda line: (line is not None, line or 0))
 
     def order(plan):
-        # Descending within a container: cutting an edge adds the pieces after
-        # it, so the indices of the edges still to be cut do not move. The
-        # containers leave each other's indices alone, so the order between
+        # Descending within one collection: cutting an edge adds the pieces
+        # after it, so the indices of the edges still to be cut do not move. The
+        # collections leave each other's indices alone, so the order between
         # them is free.
         return (plan["line"] if plan["line"] is not None else -1, plan["index"])
 
     for plan in sorted(plans, key=order, reverse=True):
-        edges = _container(pattern, plan["line"])
+        edges = _edge_collection(pattern, plan["line"])
         warnings.extend(geometry._split_edge(
             pattern, plan["index"], [cut for cut, _ in plan["cuts"]], plan["table"], edges))
         if plan["cuts"]:
@@ -508,17 +517,18 @@ def _divide_member(pattern, plans) -> dict:
     pattern.refresh_collection_uuid(pattern.edges)
     pattern.refresh_collection_uuid(pattern.vertices)
     for line in lines:
-        pattern.refresh_collection_uuid(_container(pattern, line))
-    pattern.forced_update()
+        pattern.refresh_collection_uuid(_edge_collection(pattern, line))
+    pattern.mark_geometry_changed()
     # A split rebuilds sections part-way through the writes, so the edges the
     # command did not touch can end up sampled against that middle state. The
     # sections are recreated the way the model layer does after a structural
     # write, and every edge is sampled against them again.
-    pattern.recreate_sections()
     geometry._resample(pattern)
     moved = geometry._remap_sewing_ends_on(pattern, ends, pieces)
     relinked = geometry._mark_sewings(pattern, ends)
-    pattern.generate_mesh()
+    # One Sketch serves the whole instance chain, so the cuts are one edit for
+    # every member: the Sketch builds each of their meshes.
+    pattern.require_sketch().rebuild_meshes()
     piece_uuids = []
     for plan in plans:
         table = pieces.get(plan["uuid"])

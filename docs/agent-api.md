@@ -264,14 +264,20 @@ this is the part that covers what the calls do not.
 PROJECT   one Blender node tree of type QianyiNodeTree (bpy.data.node_groups)
           .name, .patterns, .sewings, .fabrics, .generators
 
-PATTERN   one 2D outline in its own space, in metres
-          .name, .vertices, .edges, .internal_lines, .fabric, .granularity (mm),
-          .collision_layer, .mesh_object, .anchor, .rotation, .grain_dir,
+SKETCH    the drawn geometry of one instance chain, in the panel's own space
+          .vertices, .edges, .internal_lines
+          One Sketch serves every member of a chain; patterns.detach() gives one
+          panel a Sketch of its own.
+
+PATTERN   one panel: its own identity and settings, and the derived data taken
+          from the Sketch it reads
+          .name, .sketch, .fabric, .granularity (mm), .collision_layer,
+          .mesh_object, .anchor, .rotation, .grain_dir,
           .validity_state (unknown | valid | invalid)
     VERTEX         .co  (x, y)
     EDGE           .vertex_index (two indices), .handle1, .handle2,
                    .handle1_type, .handle2_type (VECTOR is a straight edge)
-    INTERNAL LINE  .edges, .pattern (a cut inside the outline)
+    INTERNAL LINE  .edges, .sketch, .is_hole (a cut inside the outline)
 
 SEWING    one seam between two pattern edges
           .side1 and .side2, each a (edge, position on that edge in 0..1) pair
@@ -297,9 +303,62 @@ add-on cannot stop a script from doing it - but it bypasses two things:
   `Qianyi.model.model_data.refresh_all_uuids()`. Skipping it gives
   `obj.global_uuid != uuid, -1062000418 != -945774949` and similar, and in this
   add-on that path ends in a crash rather than an exception.
+  An identity that names nothing is reported, loudly, with the call stack that
+  asked for it (`can not find uuid ...!`) - and the fix is always that whatever
+  removed the element dropped it from the selection that named it
+  (`QianyiProject.forget_selected`), never to silence the lookup.
 * **Derived data.** A pattern's sections, mesh and sewing stitches are derived;
   editing vertices, edges or handles directly leaves them stale until the next
-  `forced_update()` / `generate_mesh()`, which `prepare()` runs for you.
+  `mark_geometry_changed()` / `generate_mesh()`, which `prepare()` runs for you.
+
+### The two layers of a panel's data
+
+A panel's data is in two layers, and a script that reads or writes geometry
+should know which one it is touching:
+
+* the **Sketch** holds what a pattern maker drew - vertices, edges with their
+  handles and spline points, internal lines - and the first section stage built
+  from them: one section per edge, cut where the curves cross. An instance chain
+  shares **one** Sketch, so a copy and its source read the same geometry and
+  cannot drift apart. `patterns.list()` / `patterns.get()` report the Sketch a
+  panel reads, and `patterns.detach(name)` gives one panel a Sketch of its own;
+* the **Pattern** holds the panel's own identity and settings - name, placement,
+  granularity, fabric, collision layer, simulation state, its mesh - and the
+  derived data taken from the Sketch for *that* panel: its own copy of the
+  section stage, its samples, its mesh, and the walk its seams make.
+
+A chain is what shares a Sketch, and nothing else: there is no list of members
+to keep in step, `patterns.copy()` joins a chain by pointing the copy at the
+source's Sketch, and `patterns.detach()` leaves it by giving that panel a Sketch
+of its own. A geometry edit therefore reaches the whole chain by itself.
+
+Three rules follow from that:
+
+* a write goes through the Sketch, and the **Sketch marks the panels that read
+  it**: one write reaches every member of the chain, and each member's outline
+  state, its copy of the stage, its samples and its render line are marked with
+  it (`Pattern.mark_geometry_changed`). Placement, granularity, fabric and
+  collision layer are a panel's own fields and mark nothing;
+* a marked panel rebuilds when the next reader needs it - the mesh path, the
+  simulation prepare - and a topology edit meshes before it returns, for every
+  panel that reads the Sketch it wrote (`Sketch.rebuild_meshes`): the meshes
+  are not shared, so a member left marked would draw the shape that used to be
+  there. A seam edit only marks: the panels it reaches resample and remesh when
+  they are next needed. An outline that crosses itself is refused instead: the
+  panel keeps the mesh it had and records why in `mesh_error`;
+* a reload or an undo leaves no session data behind, so the first reader of a
+  reopened panel builds its copy of the stage and its samples again. Nothing
+  has to be trusted across a file.
+
+An older file is **not converted** when it is opened: a panel that names no
+Sketch reports no geometry, a seam side that names no panel has no side, and the
+file has to be converted by hand.
+
+What the editor draws follows the model: a topology edit marks the panels that
+read the Sketch, and the next draw rebuilds their lines, points and control
+points. A tool that writes into a Sketch's collections itself sends the same
+write signal, so a script that goes through the surface never has to ask for a
+redraw of its own.
 
 Deleting an element makes the wrappers of the following elements shift, so a
 uuid read before a delete cannot be used after it - resolve again.

@@ -12,7 +12,6 @@ from .states.PointSelectionState import PointPickState
 from .states.StatefulOperator import StateOperator, ReturnState
 from .. import global_data
 from ..declarations import Operators
-from ..model.pattern_instance import collect_unique_instances
 from ..model.generator import generation_lock
 from ..utilities.coords_transform import region2view_coord
 from ..utilities.node_tree import get_active_node_tree
@@ -62,14 +61,16 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
         if not self.pattern_set:
             self.return_state = ReturnState.CANCELLED
             return
-        # 获取所有关联的实例
-        self.pattern_set = collect_unique_instances(self.pattern_set)
+        # One Sketch serves a whole chain, so the panels are keyed by Sketch:
+        # scaling the same geometry twice would square the factor.
+        by_sketch = {}
+        for panel in self.pattern_set:
+            by_sketch.setdefault(int(panel.sketch_uuid), panel)
+        self.pattern_set = set(by_sketch.values())
         # 2. 计算缩放中心 (所有选中版片锚点的均值)
         center = np.array((0, 0), dtype=np.float32)
-        for p in self.pattern_set:
-            for ins in p.instances:
-                if ins.global_uuid in self.selected_uuids:
-                    center += ins.pattern_to_view_pos(ins.center)
+        for panel in self._selected_panels():
+            center += panel.pattern_to_view_pos(panel.center)
         self.pivot_location = center / len(self.selected_uuids)
         # 3. 设置状态机
         p1state = self.register_state(PointPickState())
@@ -95,6 +96,11 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
             _context.area.tag_redraw()
 
         p1state.data_change_cb.append(cb_scale)
+
+    def _selected_panels(self) -> list:
+        """The panels the user selected, in project order."""
+        return [panel for panel in self.project.patterns
+                if panel.global_uuid in self.selected_uuids]
 
     def setup_draw_handler(self, context):
         if self.draw_handler is not None:
@@ -133,8 +139,14 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
         # 2. 绘制缩放预览轮廓
         s = self.current_scale_factor
         pivot_location = Vector(self.pivot_location)
+        # The preview shows the whole chain: the geometry one member scales is
+        # the geometry every member reads.
+        seen = set()
         for p in self.pattern_set:
-            for ins in p.instances:
+            for ins in p.sketch_members():
+                if ins.global_uuid in seen:
+                    continue
+                seen.add(ins.global_uuid)
                 if ins.global_uuid in self.selected_uuids:
                     orig_anchor = Vector(ins.anchor)
                     new_anchor = pivot_location + (orig_anchor - pivot_location) * s
@@ -162,35 +174,45 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
         pivot_location = Vector(self.pivot_location)
         mesh_scale_center = Vector((0., 0, 0))
         mesh_scale_center_count = 0
+        # The panels the user selected move their anchors; the geometry they
+        # read is one Sketch per chain and is scaled once.
+        for ins in self._selected_panels():
+            orig_anchor = Vector(ins.anchor)
+            new_anchor = pivot_location + (orig_anchor - pivot_location) * s
+            ins.anchor = new_anchor
+            if ins.mesh_object is not None:
+                obj = ins.mesh_object
+                bbox_center = sum((obj.matrix_world @ Vector(corner) for corner in obj.bound_box),
+                                  Vector((0, 0, 0))) / 8
+                mesh_scale_center += bbox_center
+                mesh_scale_center_count += 1
         for p in self.pattern_set:
-            for ins in p.instances:
-                # TODO scale on center or anchor?
-                # 如果是被选中的版片，更新锚点位置
-                if ins.global_uuid in self.selected_uuids:
-                    orig_anchor = Vector(ins.anchor)
-                    new_anchor = pivot_location + (orig_anchor - pivot_location) * s
-                    ins.anchor = new_anchor
-                    if ins.mesh_object is not None:
-                        obj = ins.mesh_object
-                        bbox_center = sum((obj.matrix_world @ Vector(corner) for corner in obj.bound_box),
-                                          Vector((0, 0, 0))) / 8
-                        mesh_scale_center += bbox_center
-                        mesh_scale_center_count += 1
-                # 应用缩放到本地顶点
-                for v in ins.vertices:
-                    v.co = (v.co[0] * s, v.co[1] * s)
-                for e in ins.edges:
+            # The geometry is one Sketch for the whole chain: it is scaled once
+            # here, not once per member (the members share those points).
+            for v in p.vertices:
+                v.co = (v.co[0] * s, v.co[1] * s)
+            for e in p.edges:
+                e.handle1.co = (e.handle1.co[0] * s, e.handle1.co[1] * s)
+                e.handle2.co = (e.handle2.co[0] * s, e.handle2.co[1] * s)
+                for sp in e.spline_points:
+                    sp.co = (sp.co[0] * s, sp.co[1] * s)
+            for line in p.internal_lines:
+                for e in line.edges:
                     e.handle1.co = (e.handle1.co[0] * s, e.handle1.co[1] * s)
                     e.handle2.co = (e.handle2.co[0] * s, e.handle2.co[1] * s)
                     for sp in e.spline_points:
                         sp.co = (sp.co[0] * s, sp.co[1] * s)
         if mesh_scale_center_count > 0:
             mesh_scale_center /= mesh_scale_center_count
+        # Every panel that reads a scaled Sketch gets its mesh back: its
+        # placement did not move, and a panel left with the mesh it had would
+        # draw a surface the size it used to be.
         for p in self.pattern_set:
-            for ins in p.instances:
-                ins.recreate_sections()
-                ins.forced_update()
-                ins.generate_mesh(scale_data={"center": mesh_scale_center, "factor": s})
+            for member in p.sketch_members():
+                member.mark_geometry_changed()
+                member.generate_mesh(scale_data={"center": mesh_scale_center, "factor": s})
+        # The geometry was scaled, so the finder the tools snap against is stale.
+        self.project.clear_edge_finder()
         self.return_state = ReturnState.FINISHED
 
     def handle_failure(self, context, state):

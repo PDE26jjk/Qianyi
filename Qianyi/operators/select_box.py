@@ -176,7 +176,12 @@ class NODE_OT_qmyi_select_box(Operator):
                 _clear_selection(project.selected_sewings)
         # ── 逐个更新框内实体的选择状态 ──
         for uuid in unique_uuids:
-            obj = global_data.get_obj_by_uuid(uuid, check_uuid=False)
+            # The pass draws each (panel, element) pair with an id of its own, so
+            # the id is resolved through the table it left behind; the element's
+            # own uuid is the fallback for anything the table does not name.
+            picked = draw_manager.resolve(uuid)
+            obj = picked[2] if picked is not None else global_data.get_obj_by_uuid(
+                uuid, check_uuid=False)
             if obj is None or not hasattr(obj, "is_selected"):
                 continue
             if edit_mode == "PATTERN":
@@ -194,6 +199,10 @@ class NODE_OT_qmyi_select_box(Operator):
                     update_selection_cache(
                         project.selected_vertices, obj, mode, is_replace
                     )
+                # The box drew one id per (panel, element) pair, so the member
+                # the last one came from is the panel the tools then work in.
+                if picked is not None and obj.is_selected:
+                    project.set_active_pattern(picked[0])
                 # box select not handle edges
                 # elif "Edge" in type_name:
                 #     update_selection_cache(

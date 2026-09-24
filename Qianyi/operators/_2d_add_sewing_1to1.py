@@ -53,6 +53,10 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
             if hover_object is not None and hover_object.global_uuid != -1 and isinstance(hover_object, Edge2D):
                 if project.selected_sewing_edge1 is None:
                     project.selected_sewing_edge1 = hover_object
+                    # The panel is recorded with the first point, so the seam
+                    # names the member it was made on and the second click only
+                    # has to name its own.
+                    project.selected_sewing_pattern1 = self.click_pattern(project)
                     project.selected_sewing_point1 = self.click_pattern_point(context, hover_object)
                 else:
                     # The direction comes from where the two edges were clicked:
@@ -62,9 +66,12 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
                         edge1=project.selected_sewing_edge1,
                         point1=project.selected_sewing_point1,
                         edge2=hover_object,
-                        point2=self.click_pattern_point(context, hover_object))
+                        point2=self.click_pattern_point(context, hover_object),
+                        pattern1=project.selected_sewing_pattern1,
+                        pattern2=self.click_pattern(project))
                     project.selected_sewing_edge1 = None
                     project.selected_sewing_point1 = None
+                    project.selected_sewing_pattern1 = None
                     console.info("sewing", sw)
                     if sw is None:
                         reason = project.last_sewing_error or "sewing overlap!"
@@ -79,8 +86,26 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
         elif self.mode == "CANCEL":
             project.selected_sewing_edge1 = None
             project.selected_sewing_point1 = None
+            project.selected_sewing_pattern1 = None
         context.area.tag_redraw()
         return {"FINISHED"}
+
+    @staticmethod
+    def click_pattern(project):
+        """The panel the click was made on.
+
+        An edge is shared by every member of its instance chain, so the edge
+        itself names no panel. The id pass is what knows which member the
+        pointer is over - it drew that pair - and the selection has already made
+        that member the active panel; a click that resolves to nothing (the
+        pointer just off the panel) keeps the active one.
+        """
+        manager = global_data.temp_draw_manager
+        picked = manager.picked_pattern() if manager is not None else None
+        if picked is not None:
+            project.set_active_pattern(picked)
+            return picked
+        return project.active_pattern
 
     def click_pattern_point(self, context, edge):
         """The click position in the pattern space of the edge.
@@ -88,7 +113,9 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
         The pointer position comes from the preselection gizmo, which is also
         what decides which edge is hovered - so the point and the edge always
         belong to the same mouse event. The operator's own copy of the location
-        is only a fallback.
+        is only a fallback. The panel is the one the click was made on: an edge
+        serves its whole instance chain, so the edge's own panel would put the
+        position in the chain owner's space.
         """
         manager = global_data.temp_draw_manager
         location = None
@@ -97,7 +124,9 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
         else:
             location = self.origin_mouse_location
         view_position = region2view_coord(context, location)
-        point = edge.pattern.view_to_pattern_pos(view_position)
+        project = get_active_node_tree(context)
+        pattern = self.click_pattern(project)
+        point = pattern.view_to_pattern_pos(view_position)
         # Printed so a wrong direction can be traced: the fraction says which
         # end of the edge the click was near, and the two fractions of a sewing
         # decide whether the second half is flipped.

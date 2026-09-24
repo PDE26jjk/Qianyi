@@ -12,6 +12,7 @@ from ..declarations import Operators
 from ..model import pattern_geometry as geometry
 from ..model.generator import refuse_generated_edit
 from ..model.geometry import Edge2D, Vertex2D
+from ..model.model_data import owner_pattern
 from ..model.pattern import boundary_self_intersection
 from ..model.qianyi_data import ensure_edit_mode
 from ..utilities.coords_transform import region2view_coord
@@ -230,15 +231,15 @@ class NODE_OT_fan(Operator2DBase):
         location = getattr(manager, "mouse_location", None)
         if location is None:
             return False
-        if isinstance(hover, Vertex2D) and hover.pattern is not None:
+        if isinstance(hover, Vertex2D) and owner_pattern(hover) is not None:
             # The pointer is on a vertex, and the tool's own preview snaps to
             # vertices: a click there has to take it, or snapping would mean
             # that the point it snaps to is the one point that cannot be used.
-            panel = hover.pattern
+            panel = manager.picked_pattern() or project.active_pattern
             point = np.asarray(hover.co, dtype=np.float64)
             vertex = hover.get_index() if geometry.is_outline_vertex(hover) else None
-        elif isinstance(hover, Edge2D) and hover.pattern is not None:
-            panel = hover.pattern
+        elif isinstance(hover, Edge2D) and manager.picked_pattern() is not None:
+            panel = manager.picked_pattern()
             view = region2view_coord(context, location)
             point = np.asarray(panel.view_to_pattern_pos(view), dtype=np.float64)
             # A click close to a vertex lands on it: the pivot and the target are
@@ -427,7 +428,11 @@ def _outline_location(pattern, point, what) -> dict:
                     "arc": float(lengths[step] + fraction[step]
                                  * (lengths[step + 1] - lengths[step])),
                     "point": projected[step].copy(), "points": points,
-                    "length": float(lengths[-1])}
+                    "length": float(lengths[-1]),
+                    # The edge by identity, for a caller that writes later:
+                    # splitting an edge inserts a piece right after it, which
+                    # moves every index above it.
+                    "edge_uuid": pattern.edges[index].global_uuid}
     if best is None:
         raise geometry.GeometryRefused(f"{pattern.name!r} has no outline to measure")
     tolerance = max(float(pattern.granularity), geometry.MERGE_THRESHOLD_MM)
@@ -661,7 +666,7 @@ def _loop_edges(pattern, start_vertex, end_vertex) -> list:
 
 def _sewings_on(pattern, edge_indices) -> int:
     """How many seams have an endpoint on one of these edges."""
-    uuids = {pattern.edges[index].global_uuid for index in edge_indices}
+    uuids = set(edge_indices)
     count = 0
     for sewing in pattern.project.sewings:
         for side in sewing.sides:
@@ -669,6 +674,22 @@ def _sewings_on(pattern, edge_indices) -> int:
                 count += 1
                 break
     return count
+
+
+def _edge_index_of(pattern, edge_uuid) -> int:
+    """Where an edge sits in the outline now, found by its identity.
+
+    A plan's edge index is the outline as it was before anything was written,
+    and splitting an edge inserts its pieces right after it: every index above
+    it moves. The write therefore finds each edge again by identity, which is
+    what keeps the second of two cuts on the edge it was measured on.
+    """
+    for index in range(len(pattern.edges)):  # loop: one edge per look
+        if pattern.edges[index].global_uuid == edge_uuid:
+            return index
+    raise geometry.GeometryRefused(
+        f"the outline of {pattern.name!r} changed while the fan was written",
+        "run the command again")
 
 def _fan_member(pattern, plan) -> dict:
     """Write one member's fan, and return what happened."""
@@ -685,8 +706,11 @@ def _fan_member(pattern, plan) -> dict:
     # outline the splits produced, which is the outline a seam can point at. A
     # point that is already a vertex is not split again - a cut at either end of
     # an edge would leave a piece of no length behind.
+    # Each edge is found again by identity before it is cut, and the pieces are
+    # keyed the way the seam remap reads them: by the uuid of the edge that was
+    # split.
     if pivot_at["edge"] == target_at["edge"]:
-        index = pivot_at["edge"]
+        index = _edge_index_of(pattern, pivot_at["edge_uuid"])
         table = geometry._table(pattern, index)
         cuts = sorted({round(location["arc"], 9) for location in (pivot_at, target_at)
                        if not _at_vertex(location)})
@@ -694,18 +718,18 @@ def _fan_member(pattern, plan) -> dict:
             own_points[id(location)] = geometry._point_on(table["points"], location["arc"])
         if cuts:
             warnings.extend(geometry._split_edge(pattern, index, cuts, table))
-            pieces[index] = geometry._piece_table(pattern, index,
-                                         geometry._piece_lengths(table["length"], cuts))
+            pieces[pivot_at["edge_uuid"]] = geometry._piece_table(
+                pattern, index, geometry._piece_lengths(table["length"], cuts))
     else:
         for location in (pivot_at, target_at):
-            index = location["edge"]
+            index = _edge_index_of(pattern, location["edge_uuid"])
             table = geometry._table(pattern, index)
             own_points[id(location)] = geometry._point_on(table["points"], location["arc"])
             if _at_vertex(location):
                 continue
             warnings.extend(geometry._split_edge(pattern, index, [location["arc"]], table))
-            pieces[index] = geometry._piece_table(pattern, index,
-                                         geometry._piece_lengths(table["length"], [location["arc"]]))
+            pieces[location["edge_uuid"]] = geometry._piece_table(
+                pattern, index, geometry._piece_lengths(table["length"], [location["arc"]]))
     pattern.refresh_collection_uuid(pattern.edges)
     pattern.refresh_collection_uuid(pattern.vertices)
     pivot_vertex = _vertex_at(pattern, own_points.get(id(pivot_at), pivot_at["point"]))
@@ -737,6 +761,9 @@ def _fan_member(pattern, plan) -> dict:
             handle.co = _rotate_about(handle.co, pivot_at["point"], -angle)
         for point in edge.spline_points:
             point.co = _rotate_about(point.co, pivot_at["point"], -angle)
+    # Read the rotated edges now: adding the arc edge below inserts a piece and
+    # moves the indices above it.
+    rotated_uuids = [pattern.edges[index].global_uuid for index in rotating]
     pattern.refresh_collection_uuid(pattern.edges)
     arc_uuid = None
     if plan["arc"] is not None:
@@ -757,27 +784,29 @@ def _fan_member(pattern, plan) -> dict:
                               handle1=(float(handle1[0]), float(handle1[1])),
                               handle2=(float(handle2[0]), float(handle2[1])),
                               handle1_type="FREE", handle2_type="FREE")
-        target_edge.update(pattern)
+        target_edge.update()
         position = rotating[0] if detached_at_start else rotating[-1] + 1
         if target_edge.get_index() != position:
             pattern.edges.move(target_edge.get_index(), position)
         pattern.refresh_collection_uuid(pattern.edges)
     pattern.refresh_collection_uuid(pattern.vertices)
-    pattern.forced_update()
-    moved = geometry._remap_sewing_ends(pattern, ends, pieces, trimmed=True)
+    pattern.mark_geometry_changed()
+    moved = geometry._remap_sewing_ends_on(pattern, ends, pieces, trimmed=True)
     relinked = geometry._mark_sewings(pattern, ends)
     # The halves have been turned and the arc edge added, so build the samples
     # from the sections the outline has now before anything measures.
     geometry._resample(pattern)
-    pattern.generate_mesh()
+    # One Sketch serves the whole instance chain, so the fan is one edit for
+    # every member: the Sketch builds each of their meshes.
+    pattern.require_sketch().rebuild_meshes()
     return {
         "pivot_vertex": pivot_vertex, "target_vertex": target_vertex,
         "rotated_vertex": rotated_target,
-        "rotated_edges": [pattern.edges[index].global_uuid for index in rotating],
+        "rotated_edges": rotated_uuids,
         "arc_uuids": [] if arc_uuid is None else [arc_uuid],
         "stationary_edges": len(pattern.edges) - len(rotating),
         "warnings": warnings, "sewings_moved": moved, "sewings_marked": relinked,
-        "sewings_followed": _sewings_on(pattern, rotating),
+        "sewings_followed": _sewings_on(pattern, rotated_uuids),
     }
 
 def pivot_fan(pattern, pivot, target, *, angle) -> dict:
@@ -789,9 +818,9 @@ def pivot_fan(pattern, pivot, target, *, angle) -> dict:
     """
     plan = plan_fan(pattern, pivot, target, angle=angle)
     members = geometry._chain_members(pattern)
-    report = None
-    for member in members:
-        report = report or _fan_member(member, plan)
+    # One Sketch serves the whole chain: the fan is written once. This panel
+    # meshes from it; the other readers were marked by the write.
+    report = _fan_member(pattern, plan)
     report.update({"action": "pivot_fan", "panel": pattern.name,
                    "angle_deg": math.degrees(plan["angle"]),
                    "radius_mm": plan["radius"],

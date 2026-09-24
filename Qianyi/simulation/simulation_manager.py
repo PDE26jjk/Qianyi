@@ -173,13 +173,11 @@ class SimulationManager:
 
             # console.info('updated',self.world_matrixs[i])
         # self.simulator.update_once()
-        # self.simulator.update(0.01)
         # for i in range(2):
         try:
             self.simulator.update(self._step_h())
         except:
             self.running = False
-        # self.simulator.update(0.001)
         self.run_count += 1
 
         # start = time.time()

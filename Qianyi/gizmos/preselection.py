@@ -56,7 +56,20 @@ class NODE_GT_qmyi_preselection(Gizmo):
         old_hover_obj = qmyi.hover_object
         obj = None
         if uuid != 255:
-            obj = global_data.get_obj_by_uuid(uuid, False)
+            # What the pass drew at this id: the pair of a panel and one of its
+            # elements. An edge serves a whole instance chain, so the element
+            # alone cannot say which member the pointer is over - the pick is the
+            # only record that can, and the selection turns it into the active
+            # panel.
+            picked = draw_manager.resolve(uuid)
+            if picked is not None:
+                pattern, kind, obj = picked
+                draw_manager.hover_pick = (pattern, kind, obj)
+            else:
+                obj = global_data.get_obj_by_uuid(uuid, False)
+                draw_manager.hover_pick = None
+        else:
+            draw_manager.hover_pick = None
         # console_print("uuid" ,uuid,obj.global_uuid)
         if old_hover_obj != obj:
             qmyi.set_hover_object(obj)

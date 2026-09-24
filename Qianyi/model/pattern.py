@@ -1,4 +1,5 @@
 import time
+import math
 from collections import defaultdict, deque
 
 import bpy
@@ -18,6 +19,7 @@ from .section import Section
 from ..utilities.node_tree import get_all_node_tree
 from .. import global_data
 from ..utilities.cubic_spline import cubic_spline_2d_numpy
+from ..utilities.geometric_operation import resample_polyline
 from .model_data import ModelData, define_temp_prop, Selectable
 from .pattern_mesh import generate_pattern_mesh
 
@@ -64,8 +66,8 @@ def interactive_edit_allowed(context, points):
     interactive operators are the only path that tests at edit time, and the
     scene's "Check Self-Intersection" switch turns that test off, so a new
     operator can be written without the check first. Nothing else needs the
-    call: `forced_update` marks the outline unchecked on every shape change, and
-    the mesh and the simulation test it before they use it.
+    call: `mark_geometry_changed` marks the outline unchecked on every shape
+    change, and the mesh and the simulation test it before they use it.
     """
     scene = getattr(context, "scene", None)
     qmyi = getattr(scene, "qmyi", None)
@@ -78,6 +80,22 @@ def interactive_edit_allowed(context, points):
         "turn off Check Self-Intersection in the Pattern panel to edit through it",
     ))
     return False
+
+
+def crossing_check_enabled(context) -> bool:
+    """Whether an interactive edit tests its result for a self-crossing.
+
+    The scene's Check Self-Intersection switch is the one place the test is
+    optional, and an operator that can produce a crossing reads it here: with
+    the switch off, an edit that crosses is written like any other and the mesh
+    stage is what reports it, which is how a pattern maker edits through a
+    crossing on purpose. A context that cannot answer (a script, a headless
+    run) counts as testing.
+    """
+    qmyi = getattr(getattr(context, "scene", None), "qmyi", None)
+    if qmyi is None:
+        return True
+    return bool(qmyi.interactive_self_intersection_check)
 
 
 def find_invalid_patterns(patterns, force=False):
@@ -99,11 +117,15 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     anchor: FloatVectorProperty(name="anchor", subtype="XYZ", size=2, default=(0.0, 0.0))
     rotation: FloatProperty(name="rotation", default=0.0, subtype='ANGLE', unit='ROTATION')
     grain_dir: FloatProperty(name="Grain Direction", default=0.0, subtype='ANGLE', unit='ROTATION')
-    vertices: CollectionProperty(type=Vertex2D, name="vertices")
-    edges: CollectionProperty(type=Edge2D, name="edges")
-    internal_lines: CollectionProperty(type=InternalLine, name="internalLines")
+    # The authored geometry is one Sketch per instance chain; a pattern reads it
+    # through the properties below and never holds a copy of its own.
+    sketch_uuid: IntProperty(name="Sketch", default=-1, options={"HIDDEN"})
+    # The boundary samples this panel's last mesh was built from, kept as a copy
+    # in the file. Session data would do for the editor, but a check that runs
+    # without opening the add-on - a script reading the saved file - can only see
+    # what was written, and this is the panel's own shape at its own granularity.
+    geo_points: CollectionProperty(type=Vertex2D, name="geoPoints")
     fabric_uuid: IntProperty(name="fabricUUID", default=-1)
-    instance_next_uuid: IntProperty(name="Instance Next UUID", default=-1)
     is_mirror: BoolProperty(name="Is Mirror", default=False)
     collision_layer: IntProperty(
         name="CollisionLayer",
@@ -115,7 +137,68 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         default=-1)
 
     def update_granularity(self, context):
-        self.forced_update()
+        """A granularity change resamples this panel and meshes it again.
+
+        The number the user just typed is what this panel's samples and its mesh
+        are built from, before the change returns. The other members of its
+        chain keep their own granularity and their own mesh: the number is a
+        panel's field, not something its copies follow.
+        """
+        self.mark_samples_changed()
+        if self.mesh_object is not None:
+            # A panel that has never been meshed is built by whoever asks for
+            # its first mesh; meshing here would run in the middle of a script
+            # that is still writing the panel.
+            self.generate_mesh()
+
+    @property
+    def sketch(self):
+        """The Sketch this pattern's geometry lives in, or None when it has none."""
+        if self.sketch_uuid == -1:
+            return None
+        sketch = global_data.get_obj_by_uuid(self.sketch_uuid, check_uuid=False)
+        if sketch is not None:
+            return sketch
+        # Undo, redo and a file reload clear the identity map, and a panel that
+        # names a Sketch has to find it again without one: the project's
+        # collection is the other half of the reference.
+        for candidate in self.id_data.sketches:  # loop: one comparison per Sketch
+            if candidate.global_uuid == self.sketch_uuid:
+                global_data.uuid2obj[self.sketch_uuid] = candidate
+                return candidate
+        return None
+
+    @sketch.setter
+    def sketch(self, value):
+        self.sketch_uuid = value.global_uuid if value is not None else -1
+
+    def require_sketch(self):
+        """The Sketch this pattern reads, refusing when it carries none.
+
+        A panel with no Sketch has no geometry: nothing invents one for it, so
+        a caller that asks for its points is told why instead of getting an
+        empty shape.
+        """
+        sketch = self.sketch
+        if sketch is None:
+            raise RuntimeError(
+                f"pattern {self.name!r} has no Sketch, so it has no geometry")
+        return sketch
+
+    @property
+    def vertices(self):
+        """This pattern's points: the collection of the Sketch it uses."""
+        return self.require_sketch().vertices
+
+    @property
+    def edges(self):
+        """This pattern's edges: the collection of the Sketch it uses."""
+        return self.require_sketch().edges
+
+    @property
+    def internal_lines(self):
+        """This pattern's internal lines: those of the Sketch it uses."""
+        return self.require_sketch().internal_lines
 
     granularity: FloatProperty(
         name="granularity",
@@ -151,18 +234,16 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         self.fabric_uuid = val.global_uuid
 
     def initialize(self):
-        for edge in self.edges:
-            edge.pattern = self
-            edge.initialize()
-        for vertex in self.vertices:
-            vertex.pattern = self
+        sketch = self.sketch
+        if sketch is not None:
+            if sketch.owner is None:
+                sketch.owner = self
+            sketch.initialize()
         if global_data.renderers_enabled:
             from ..gizmos.pattern_renderer import PatternRenderer
             from ..gizmos.GizmosMeshRenderer import MeshRenderer
             self.line_renderer = PatternRenderer(self)
             self.mesh_renderer = MeshRenderer(self)
-        for il in self.internal_lines:
-            il.initialize()
         self.calc_bbox()
 
     def calc_area(self):
@@ -197,8 +278,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         else:
             console.success("ccw")
 
-        self.recreate_sections()
-        self.forced_update()
+        self.mark_geometry_changed()
         return ccw
 
     def mark_shape_changed(self):
@@ -224,7 +304,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         """
         chunks = []
         for edge in self.edges:
-            edge.update(self)
+            edge.update()
             points = edge.render_points
             if points is None or len(points) < 2:
                 continue
@@ -259,6 +339,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return bool(self.mesh_error) or self.validity_state == VALIDITY_INVALID
 
     def get_connected_patterns_and_sewings(self):
+        """The panels and sewings this panel's seam graph reaches.
+
+        A seam side names its panel by identity, so a side whose panel an editor
+        removed reads back as None and the walk skips it rather than touching
+        what is not there.
+        """
         # 1. 构建邻接表：记录每个 pattern 连接的 sewing 对象
         adj = defaultdict(list)
         for sewing in self.project.sewings:
@@ -288,7 +374,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
                 # 通过 sewing 找出相邻的 pattern
                 neighbor = sewing.pattern2 if sewing.pattern1 == curr else sewing.pattern1
-                if neighbor == curr:
+                if neighbor is None or neighbor == curr:
                     continue
                 # console.warning(neighbor,curr,neighbor is curr,neighbor == curr)
                 # 如果相邻 pattern 未访问过，加入队列继续搜索
@@ -299,172 +385,358 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
     def update_connected_pattern_sewing_state(self):
         connected_patterns, _ = self.get_connected_patterns_and_sewings()
-        if connected_patterns:
-            for p in connected_patterns:
-                p.need_sewing_update = True
+        for p in connected_patterns:
+            p.need_sewing_update = True
 
-    def forced_update(self, calc_intersect=True):
+    def mark_geometry_changed(self):
+        """The geometry this panel reads changed: its derived data is stale.
+
+        Marking, not rebuilding: the outline is unchecked, and this panel's own
+        copy of the section stage, its samples and its render line are marked.
+        The consumers do the work - `ensure_sections` refreshes the Sketch's
+        stage and clones this panel's copy from it, the mesh path runs that
+        before it samples - so a tool that has to mesh at once still does, and a
+        change that moves no geometry costs nothing here.
+
+        The patches a seam cuts into this panel's copy are dropped by that
+        rebuild: they were cut against the pieces the old geometry had, so a
+        rebuild clones the stage as it is now and the linking run cuts again.
+        """
         self.mark_shape_changed()
-        self.refresh_collection_uuid(self.edges)
-        for edge in self.edges:
-            edge.need_update_points = True
-            edge.update(self)
-        for line in self.internal_lines:
-            self.refresh_collection_uuid(line.edges)
-            line.update(self)
-        self.calc_bbox()
+        if self.sketch is not None:
+            # The curves are this panel's geometry as it is drawn, and the draw
+            # path, the outline test and the measuring passes all read them: say
+            # they moved, so the next reader of an edge builds it again.
+            self.sketch.mark_curves_changed()
+            # The edit itself is counted where it is written - a tool's write
+            # helper calls `Sketch.touch`, and so does a write of a curve
+            # (`Edge2D.set_curve`) - not here: marking a panel a consumer walks
+            # past (a prepare does that) is not an edit, and counting it would
+            # invalidate the baked data for nothing.
+            self.need_sections = True
         self.need_render_update = True
-        if calc_intersect:
-            self.handle_section_intersect()
         self.need_geo_update = True
         self.update_connected_pattern_sewing_state()
 
-    def recreate_sections(self):
-        for edge in self.edges:
-            edge.section_start = Section(edge, 0., 1.)
-        for i, edge in enumerate(self.edges):
-            next_sec = self.edges[(i + 1) % len(self.edges)].section_start
-            prev_sec = self.edges[(i - 1) % len(self.edges)].section_start
-            edge.section_start.next = next_sec
-            edge.section_start.prev = prev_sec
-            edge.section_end = next_sec
-        if len(self.internal_lines) > 0:
-            for internal_line in self.internal_lines:
-                for edge in internal_line.edges:
-                    edge.section_start = Section(edge, 0., 1.)
-                if internal_line.is_loop:
-                    for i, edge in enumerate(internal_line.edges):
-                        next_sec = internal_line.edges[(i + 1) % len(internal_line.edges)].section_start
-                        prev_sec = internal_line.edges[(i - 1) % len(internal_line.edges)].section_start
-                        edge.section_start.next = next_sec
-                        edge.section_start.prev = prev_sec
-                        edge.section_end = next_sec
-                else:
-                    for i, edge in enumerate(internal_line.edges):
-                        next_sec = internal_line.edges[i + 1].section_start if i < len(
-                            internal_line.edges) - 1 else None
-                        prev_sec = internal_line.edges[i - 1].section_start if i > 0 else None
-                        edge.section_start.next = next_sec
-                        # console.warning(edge.section_start, "->", next_sec)
-                        edge.section_start.prev = prev_sec
-                        edge.section_end = next_sec
+    def mark_sections_changed(self) -> None:
+        """The seam graph this panel is part of changed: its copy is stale.
 
-    def handle_section_intersect(self):
-        if len(self.internal_lines) == 0:
+        The geometry did not move, so the curves and the outline's state stay as
+        they are; only this panel's copy of the stage, its samples and its mesh
+        are marked, and every panel the sewings reach is marked with it. A seam
+        edit costs this much, which is what lets it leave the meshes alone until
+        a consumer needs them.
+        """
+        self.need_sections = True
+        self.need_geo_update = True
+        self.need_render_update = True
+        self.update_connected_pattern_sewing_state()
+
+    def mark_samples_changed(self) -> None:
+        """This panel's samples and its mesh are out of date; nothing else.
+
+        A field that changes the sampling rather than the geometry - the
+        granularity - needs exactly this: the pieces are cut at the same places,
+        the seam graph did not move, the Sketch is untouched and no edit is
+        counted. The section copy is rebuilt with it because a piece's segment
+        count is what the new number decides.
+        """
+        self.need_sections = True
+        self.need_geo_update = True
+        self.need_render_update = True
+
+    # ------------------------------------------- this panel's sections and samples
+
+    def ensure_sections(self) -> None:
+        """Build this panel's sections and samples when they are missing or stale.
+
+        They are session data: a panel a file was saved with has none of them,
+        and a geometry or seam change marks them. The first consumer that asks
+        for a piece, a sample or a mesh builds them here, which is what makes a
+        seam edit cheap and the work land where the data is needed.
+        """
+        if not self.need_sections and self.sections_by_edge:
             return
-        edge_points = [self.get_geo_points_unique()]
-        curve_sizes = [len(edge_points[0])]
-        is_loops = [True]
-        sec_point_sizes = [e.unique_geo_point_size for e in self.edges]
-        sec_sizes = [len(self.edges)]
-        for i, il in enumerate(self.internal_lines):
-            il_edge_points = il.get_geo_points_unique()
-            edge_points.append(il_edge_points)
-            is_loops.append(il.is_loop)
-            curve_sizes.append(len(il_edge_points))
-            sec_point_sizes.extend([e.unique_geo_point_size for e in il.edges])
-            sec_sizes.append(len(il.edges))
+        self.need_sections = False
+        if self.sketch is not None:
+            # The stage is always rebuilt from one section per edge before it is
+            # cloned: a cut read against sections that a previous cut or a seam
+            # boundary already split would land on the wrong pieces, and this
+            # panel's copy is only ever cloned from the curves as they are now.
+            self.sketch.update()
+        self.clone_sections()
+        self.sample_all()
+        self.calc_bbox()
+        self.need_geo_update = True
 
-        edge_points = np.concatenate(edge_points).astype(np.float32)
-        curve_sizes = np.array(curve_sizes, dtype=np.int32)
-        is_loops = np.array(is_loops, dtype=np.int8)
-        from Qianyi_DP import pattern_helper
-        intersections = pattern_helper.get_all_intersections(edge_points, curve_sizes, is_loops,
-                                                             np.array(sec_sizes, np.int32),
-                                                             np.array(sec_point_sizes, dtype=np.int32))
-        insecs = []
-        for intersection in intersections:
-            console.info("intersection", intersection)
-            (curve_a, section_a, t_a, curve_b,
-             section_b, t_b, state) = (intersection['curve_a'],
-                                       intersection['section_a'], intersection['t_a'],
-                                       intersection['curve_b'],
-                                       intersection['section_b'], intersection['t_b'],
-                                       intersection['state'])
-            insecs.append((curve_a, section_a, t_a, 0))
-            insecs.append((curve_b, section_b, t_b, state))
-        insecs.sort()
-        secs = set()
-        edges_update = set()
-        il_split = set()
-        for intersection in insecs:
-            curve, sec_ind, t, state = intersection
-            if curve == 0:
-                edge = self.edges[sec_ind]
-            else:
-                edge = self.internal_lines[curve - 1].edges[sec_ind]
-            sec = edge.section_start
-            sec.pending_split.append((t, state))
-            edges_update.add(edge)
-            secs.add(sec)
-            if state != 0:
-                il_split.add(curve - 1)
+    def clone_sections(self) -> None:
+        """Take this panel's own copy of the Sketch's first section stage.
 
-        for sec in secs:
-            sec.split_pending()
-        for il_ind in il_split:
-            il = self.internal_lines[il_ind]
-            sec: Section = il.edges[0].section_start
-            end_sec = None if not il.is_loop else sec
-            start = False
-            secs = []
-            max_secs = 1000
-            while (sec is not end_sec or not start) and max_secs > 0:
-                start = True
-                secs.append(sec)
-                sec = sec.next
-                max_secs -= 1
-            if max_secs == 0:
-                raise Exception("?????????")
-            secs_split = [i for i, sec in enumerate(secs) if sec.io_state != 0]
-            if secs[secs_split[0]].io_state == 2:
-                for i in range(secs_split[0]):
-                    secs[i].outsize = True
-            if secs[secs_split[-1]].io_state == 1:
-                for i in range(secs_split[-1], len(secs)):
-                    secs[i].outsize = True
-            if len(secs_split) > 1:
-                for i in range(len(secs_split) - 1):
-                    if secs[secs_split[i]].io_state == 1:
-                        for j in range(secs_split[i], secs_split[i + 1]):
-                            secs[j].outsize = True
-            states = [sec.io_state for sec in secs]
-            outsizes = [sec.outsize for sec in secs]
-            # console.info(states)
-            # console.info(outsizes)
+        Deep, head to tail: what a linking run cuts at seam boundaries is this
+        copy, and those cuts must never reach the Sketch or another panel of the
+        chain. Nothing is patched into a copy that already exists - a copy cut by
+        an older seam graph is dropped and cloned again from the stage the Sketch
+        has now.
+        """
+        sketch = self.sketch
+        self.sections_by_edge = {}
+        self.section_heads = {}
+        self.key_of_edge = {}
+        if sketch is None:
+            return
+        chains = [(None, sketch.edges)]
+        chains.extend((index, line.edges)
+                      for index, line in enumerate(sketch.internal_lines))
+        for key, edges in chains:  # loop: the outline, then one chain per line
+            is_loop = key is None or sketch.internal_lines[key].is_loop
+            chain = []
+            for index, edge in enumerate(edges):  # loop: one edge's raw pieces
+                self.key_of_edge[edge.global_uuid] = (key, index)
+                pieces = [Section.from_raw(raw) for raw in edge.raw_sections()]
+                for piece in pieces:  # loop: one span per piece of this edge
+                    piece.edge_key = (key, index)
+                    piece.panel = self
+                self.sections_by_edge[(key, index)] = pieces
+                chain.extend(pieces)
+            if not chain:
+                continue
+            for position, section in enumerate(chain):  # loop: one link per piece
+                section.prev = chain[position - 1] if position else None
+                section.next = chain[position + 1] if position + 1 < len(chain) else None
+            if is_loop:
+                chain[0].prev = chain[-1]
+                chain[-1].next = chain[0]
+            self.section_heads[key] = chain[0]
 
-        for edge in edges_update:
-            edge.need_update_points = True
-            edge.update(self)
+    def sections_for_edge(self, key, index) -> list:
+        """This panel's pieces of one edge, in chain order."""
+        self.ensure_sections()
+        return self.sections_by_edge.get((key, index), [])
+
+    def pieces_of(self, key) -> list:
+        """This panel's pieces of one chain: the outline, or one internal line."""
+        self.ensure_sections()
+        count = (len(self.edges) if key is None
+                 else len(self.internal_lines[key].edges))
+        pieces = []
+        for index in range(count):  # loop: one edge's pieces at a time
+            pieces.extend(self.sections_for_edge(key, index))
+        return pieces
+
+    def sample_all(self) -> None:
+        """Take this panel's samples from its own copy of the stage."""
+        self.sample_points = {}
+        self.sample_starts = {}
+        self.sample_sizes = {}
+        self.line_sizes = {}
+        for index in range(len(self.edges)):  # loop: one outline edge per run
+            self.sample_edge(None, index)
+        for line_index in range(len(self.internal_lines)):  # loop: one line per run
+            for index in range(len(self.internal_lines[line_index].edges)):
+                self.sample_edge(line_index, index)
+
+    def sample_edge(self, key, index) -> None:
+        """Sample one chain edge's pieces at this panel's granularity.
+
+        `key` is None for the outline and a line's index for one of its internal
+        lines. The samples land on the panel (`self.sample_points`) and the
+        segment count and the sample offsets on the panel's own pieces, so two
+        panels of one chain can sample the same edge differently.
+        """
+        sections = self.sections_for_edge(key, index)
+        if not sections:
+            return
+        edges = self.edges if key is None else self.internal_lines[key].edges
+        edge = edges[index]
+        granularity = max(float(self.granularity), 1e-6)
+        min_g = granularity
+        for section in sections:  # loop: one segment count per piece
+            if section.seg == -1:
+                section.seg = max(math.ceil(section.absolute_length() / granularity), 1)
+            min_g = min(section.absolute_length() / section.seg, min_g)
+        if len(sections) == 1:
+            point_size = sections[0].seg + 1
+            sections[0].start_point = 0
+            points = self._resample_edge_curve(edge, point_size)
+        else:
+            point_size = max(math.ceil(float(edge.length or 0.0) / min_g), 1) + 1
+            temp = self._resample_edge_curve(edge, point_size * 2)
+            segments = []
+            count = 0
+            for section in sections:  # loop: one sample run per piece
+                section.start_point = count
+                count += section.seg
+                segments.append([section.start_pos, section.seg])
+            segments[-1][1] += 1
+            points = resample_polyline(temp, segments, True)
+        self.sample_points[(key, index)] = points
+
+    @staticmethod
+    def _resample_edge_curve(edge, point_size) -> np.ndarray:
+        """`point_size` points at equal arc length along one edge's own curve."""
+        point_size = max(int(point_size), 2)
+        temp_points = edge.generate_render_points(max(point_size * 2, 8))
+        return resample_polyline(temp_points, [(0, point_size)], True)
+
+    def key_of(self, edge) -> tuple:
+        """Where one of the Sketch's edges sits in this panel: (line or None, index).
+
+        The table is part of this panel's copy of the stage, so the copy is asked
+        for first: a caller that reaches here before a marked rebuild - the
+        linking run is one, and it asks for the edge before it asks for a piece -
+        would otherwise read a table that is empty or one edit old.
+        """
+        self.ensure_sections()
+        return self.key_of_edge.get(edge.global_uuid, (None, None))
+
+    # --------------------------------------------------------------- picking
+
+    def pick_id(self, kind, element) -> int:
+        """The id this panel draws one of its elements with in the pick pass.
+
+        A Sketch element is on screen once per pattern of its chain, so the
+        element's own identity cannot be what a pick reads back: the id belongs
+        to the pair. It is generated here, kept for the session, and the pass
+        records which panel and which element it stood for, so a pointer over
+        one member's edge resolves to that member and not to its copy.
+        """
+        key = (kind, int(element.global_uuid))
+        table = self.pick_ids
+        identifier = table.get(key)
+        if identifier is None:
+            identifier = global_data.new_pick_id()
+            table[key] = identifier
+        return identifier
+
+    def find_or_add_section(self, edge, pos):
+        """The piece of one edge a position falls in, cutting this panel's copy.
+
+        The linking run uses this: a seam boundary has to sit on a piece boundary
+        before a walk can be read off. The cut is made on this panel's own pieces
+        (`Section.split` keeps the chain, the linking table and the per-edge
+        pieces in step), so it never reaches the Sketch or another panel.
+        """
+        eps = 1e-5
+        key, index = self.key_of(edge)
+        pieces = self.sections_for_edge(key, index)
+        if not pieces:
+            return None
+        if pos >= 1 - eps:
+            return pieces[-1].next
+        for section in pieces:  # loop: one piece per walk step
+            if pos < section.start_pos:
+                continue
+            if pos - section.start_pos < eps:
+                return section
+            if pos > section.end_pos + eps:
+                # The position is past this piece: it sits further along the
+                # edge. Splitting here would cut the piece with a fraction
+                # beyond its own end and leave a piece that runs backwards.
+                continue
+            radio = (pos - section.start_pos) / (section.end_pos - section.start_pos)
+            _, new_section = section.split(radio)
+            return new_section
+        return None
+
+    def register_piece(self, section) -> None:
+        """Put a piece a split produced into this panel's per-edge list.
+
+        `Section.split` calls this, so a piece a linking run cut is in the list
+        the panel samples as well as in the chain a sewing walk follows: a piece
+        missing from the list would never be given a segment count, and the two
+        sides of the seam would end up with different stitch counts.
+        """
+        key, index = section.edge_key
+        pieces = self.sections_by_edge.get((key, index))
+        if pieces is None or section in pieces:
+            return
+        lower = section.prev
+        if lower in pieces:
+            pieces.insert(pieces.index(lower) + 1, section)
+        else:
+            pieces.append(section)
+
+    def boundary_section(self, edge, pos, reverse=False):
+        """The piece a sewing walk starts on, or stops at, for a position.
+
+        Read-only: the stitch walk reads its boundaries back from the seam's own
+        parameters with this instead of trusting a stored pair, so a later split
+        cannot leave it pointing at the wrong piece. It reads this panel's own
+        pieces - the ones a linking run cut - and never changes them.
+
+        `reverse` asks for the piece below the boundary, which is where a walk
+        against the chain starts (and stops). A seam only has an exact boundary
+        here once it has been linked, so a missing one is reported rather than
+        silently walking a longer range.
+        """
+        eps = 1e-5
+        key, index = self.key_of(edge)
+        pieces = self.sections_for_edge(key, index)
+        if not pieces:
+            raise ValueError(f"edge {edge.get_index()} has no pieces on "
+                             f"{self.name or '(unnamed)'}")
+        if pos >= 1 - eps:
+            # None on an open chain's last edge: nothing follows its last piece,
+            # which is where a walk ends anyway.
+            section = pieces[-1].next
+        else:
+            section = None
+            for candidate in pieces:  # loop: one piece per walk step
+                if abs(candidate.start_pos - pos) <= eps:
+                    section = candidate
+                    break
+            if section is None:
+                raise ValueError(
+                    f"edge {edge.get_index()} of {self.name or '(unnamed)'} has no "
+                    f"section boundary at {pos:.4f}: the sewing that ends there "
+                    f"has not been linked")
+        if reverse:
+            section = pieces[-1] if section is None else section.prev
+            if section is None:
+                raise ValueError(
+                    f"edge {edge.get_index()} has nothing before position "
+                    f"{pos:.4f}, so a reversed sewing cannot start there")
+        return section
 
     def gen_mesh_edge_points_and_sections(self):
+        """The outline's samples and the panel's own pieces they came from.
+
+        Each piece's `mesh_start_point` says where the edge's samples start in
+        the array the mesh is built from, so the mesh indices a piece produces
+        are read from the panel's own copy rather than from a shared stage.
+        """
         sections = []
         points = self.get_geo_points_unique()
         start_point_final = 0
-        for e in self.edges:
-            edge_sections = list(e.sections())
+        for index, edge in enumerate(self.edges):  # loop: one outline edge per run
+            edge_sections = self.sections_for_edge(None, index)
             sections.extend(edge_sections)
-            for sec in edge_sections:
-                sec: Section
-                sec.mesh_start_point = start_point_final
-                sec.continuous = True
-                start_point_final += sec.seg
-                # console.info("sec.seg", sec.seg)
+            for section in edge_sections:  # loop: one mesh offset per piece
+                section.mesh_start_point = start_point_final
+                section.continuous = True
+                start_point_final += section.seg
         if start_point_final != len(points):
             raise Exception("start_point_final != len(points)", start_point_final, len(points))
         sections[-1].mesh_end_point = 0
         return points, sections
 
     def calc_mesh_edge_points(self):
+        # The pieces are this panel's own copy of the stage; a consumer that got
+        # here before a marked rebuild asked for a mesh, not for pieces.
+        self.ensure_sections()
+        # The linking run cuts this panel's pieces at seam boundaries after the
+        # samples were taken (`Section.split` leaves the new pieces unsegmented),
+        # so the samples are brought up to date with the pieces here, once per
+        # mesh build.
+        self.sample_all()
         edge_points, edge_sections = self.gen_mesh_edge_points_and_sections()
         secion_index_offset = len(edge_points)
         self.mesh_edge_point_outer_size = secion_index_offset
         edge_points = [edge_points]
 
-        for i, il in enumerate(self.internal_lines):
-            for edge in il.edges:
-                edge.update(self) # points may be changed after handling sewings.
-            il_edge_points, il_sections = il.gen_inside_points_and_sections(secion_index_offset)
+        for line_index, il in enumerate(self.internal_lines):  # loop: one line per run
+            il_edge_points, il_sections = self.gen_inside_points_and_sections(
+                line_index, secion_index_offset)
             secion_index_offset += len(il_edge_points)
             edge_points.append(il_edge_points)
             edge_sections.extend(il_sections)
@@ -492,7 +764,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             self.mesh_edge_point_indices = mapped
         else:
             sizes = [self.mesh_edge_point_outer_size,
-                     *[il.mesh_edge_inner_point_size for il in self.internal_lines]]
+                     *[self.line_sizes[index] for index in range(len(self.internal_lines))]]
             kept, offset = [], 0
             for index, size in enumerate(sizes):
                 block = mapped[offset:offset + size]
@@ -501,8 +773,8 @@ class Pattern(PropertyGroup, ModelData, Selectable):
                 kept.append(block)
                 offset += size
             self.mesh_edge_point_outer_size = sizes[0]
-            for line, size in zip(self.internal_lines, sizes[1:]):
-                line.mesh_edge_inner_point_size = size
+            for line_index, size in enumerate(sizes[1:]):
+                self.line_sizes[line_index] = size
             self.mesh_edge_point_indices = np.concatenate(kept).astype(np.int32)
         # self.mesh_edge_sizes = edge_points
         self.need_geo_update = False
@@ -562,26 +834,21 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         #         edge_indices = mesh_point_indeices[raw_indices]
 
     def add_vertex(self, position):
-        """添加顶点"""
-        vertex = self.vertices.add()
-        vertex.pattern = self
-        vertex.co = position
-        return len(self.vertices) - 1
+        """Add one point to this pattern's Sketch and return its index.
+
+        The geometry is the Sketch's, so one call writes once for every member
+        of the instance chain that shares it.
+        """
+        index = self.require_sketch().add_vertex(position)
+        self.calc_bbox()
+        return index
 
     def add_edge(self, start_idx, end_idx, control1=None, control2=None, handle1_type="VECTOR",
                  handle2_type="VECTOR", update=True):
-        edge: Edge2D = self.edges.add()
-        edge.vertex_index[0] = start_idx
-        edge.vertex_index[1] = end_idx
-        if control1 is not None and control2 is not None:
-            edge.handle1.co = control1[:]
-            edge.handle2.co = control2[:]
-        edge.handle1_type = handle1_type
-        edge.handle2_type = handle2_type
-        edge.pattern = self
-        if update:
-            edge.update(self)
-            self.calc_bbox()
+        """Add one edge to this pattern's Sketch."""
+        edge = self.require_sketch().add_edge(start_idx, end_idx, control1, control2,
+                                              handle1_type, handle2_type, update)
+        self.calc_bbox()
         return edge
 
     def add_internal_line(self, segments, is_loop=False):
@@ -590,30 +857,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         ``segments`` is a list of dicts with ``p0``, ``p1`` (pattern space, in
         millimetres), ``h1``, ``h2``, ``h1_type`` and ``h2_type``; consecutive
         pieces share their end point the way the internal line pen draws them.
-        The control points become vertices of this pattern, exactly as they do
-        when the pen writes the line, so the line can be edited afterwards.
+        The control points become points of this pattern's Sketch, exactly as
+        they do when the pen writes the line, so the line can be edited
+        afterwards.
         """
-        if not segments:
-            raise ValueError("an internal line needs at least one segment")
-        line: InternalLine = self.internal_lines.add()
-        line.is_loop = bool(is_loop)
-        offset = len(self.vertices)
-        for segment in segments:  # loop: one vertex object per curve piece
-            self.add_vertex(segment["p0"])
-        if not is_loop:
-            self.add_vertex(segments[-1]["p1"])
-        for index, segment in enumerate(segments):  # loop: one edge object per piece
-            if is_loop:
-                next_index = (index + 1) % len(segments)
-            else:
-                next_index = index + 1
-            line.add_edge(index + offset, next_index + offset,
-                          segment["h1"], segment["h2"],
-                          segment.get("h1_type", "VECTOR"),
-                          segment.get("h2_type", "VECTOR"), update=False)
-        line.pattern = self
-        self.recreate_sections()
-        self.forced_update()
+        line = self.require_sketch().add_internal_line(segments, is_loop)
+        self.mark_geometry_changed()
         return line
 
     def update_render_line(self):
@@ -625,7 +874,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             return []
         render_points = []
         for i in range(len(self.edges)):
-            self.edges[i].update(self)
+            self.edges[i].update()
             points = self.edges[i].render_points
             render_points.append(points)
         self.render_points = np.concatenate(render_points, dtype=np.float32)
@@ -652,30 +901,79 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         for il in self.internal_lines:
             il.update_render_spline_point()
 
-    def get_geo_points_unique(self):
+    def get_geo_points_unique(self) -> np.ndarray:
+        """The outline's samples, one edge at a time, without the joined ends.
+
+        The outline is a loop, so the first point of the next edge is the last
+        point of this one: it is dropped, and the offsets recorded here are the
+        ones the mesh index map is built from.
+        """
+        self.ensure_sections()
         edge_points = []
         start_point = 0
-        for i in range(len(self.edges)):
-            e = self.edges[i]
-            e.update(self)
-            points = e.geo_points_temp[:-1]
+        for index in range(len(self.edges)):  # loop: one outline edge per run
+            points = np.asarray(self.sample_points[(None, index)], dtype=np.float32)[:-1]
             if points.shape[0] < 1:
-                console.warning(e.vertex0.co, e.handle1_type, e.vertex1.co, e.handle2_type)
+                edge = self.edges[index]
+                console.warning(edge.vertex0.co, edge.handle1_type,
+                                edge.vertex1.co, edge.handle2_type)
                 raise Exception("points.shape[0] < 1")
             edge_points.append(points)
-            e.start_point = start_point
-            e.unique_geo_point_size = len(points)
+            self.sample_starts[(None, index)] = start_point
+            self.sample_sizes[(None, index)] = len(points)
             start_point += points.shape[0]
-        edge_points = np.concatenate(edge_points, dtype=np.float32)
-        return edge_points
+        return np.concatenate(edge_points, dtype=np.float32)
 
-    def get_edge_geo_points(self):
-        edge_points = []
-        for i in range(len(self.edges)):
-            self.edges[i].update(self)
-            points = self.edges[i].geo_points_temp
-            edge_points.extend(points)
-        return edge_points
+    def write_geo_points(self) -> None:
+        """Keep a copy of the boundary samples the mesh is about to be built from.
+
+        Called right before the mesh is generated, from the points that mesh is
+        generated from. The samples themselves are session data - they are taken
+        again from the Sketch at this panel's granularity whenever they are
+        needed - but a check that runs without opening the add-on can only read
+        what was written to the file, so the panel's own shape is kept there.
+        """
+        self.geo_points.clear()
+        points = self.mesh_edge_points
+        if points is None:
+            return
+        for point in np.asarray(points, dtype=np.float32):  # loop: one RNA point per sample
+            entry = self.geo_points.add()
+            entry.co = (float(point[0]), float(point[1]))
+
+    def gen_inside_points_and_sections(self, line_index, index_offset=0):
+        """One line's samples that lie inside the outline, and their pieces.
+
+        Pieces marked outside are dropped, and a piece that continues into the
+        next one shares its end point. Both come from this panel's own copy of
+        the stage, so the mesh a panel builds cannot be read off another panel's
+        cuts.
+        """
+        pieces = [section for section in self.pieces_of(line_index)
+                  if not section.outsize]
+        if not pieces:
+            self.line_sizes[line_index] = 0
+            return np.zeros((0, 2), dtype=np.float32), []
+        chunks = []
+        start_point_final = index_offset
+        self.line_sizes[line_index] = int(np.sum([section.seg for section in pieces]))
+        for position, section in enumerate(pieces):  # loop: one piece per run
+            samples = np.asarray(self.sample_points[section.edge_key], dtype=np.float32)
+            begin = section.start_point
+            if position < len(pieces) - 1 and section.next is pieces[position + 1]:
+                # Continuous: the next piece starts on the shared point.
+                points = samples[begin:begin + section.seg]
+                section.continuous = True
+            else:
+                points = samples[begin:begin + section.seg + 1]
+                section.continuous = False
+            chunks.append(points)
+            section.mesh_start_point = start_point_final
+            start_point_final += len(points)
+        if (self.internal_lines[line_index].is_loop
+                and pieces[-1].next is pieces[0]):
+            pieces[-1].mesh_end_point = index_offset
+        return np.concatenate(chunks, dtype=np.float32), pieces
 
     def get_vertice_list(self):
         list_vertices = []
@@ -684,7 +982,21 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return list_vertices
 
     def calc_bbox(self):
-        points = np.asarray(self.get_edge_geo_points())
+        """The panel's bounding box, measured on the curves themselves.
+
+        The draw points are the shape; the samples are one rendering of it, so a
+        box that needed them would be missing before a mesh pass and would move
+        with the granularity.
+        """
+        chunks = []
+        for edge in self.sketch.all_edges() if self.sketch is not None else []:
+            edge.update()
+            points = edge.render_points
+            if points is not None and len(points) > 0:
+                chunks.append(np.asarray(points, dtype=np.float32))
+        if not chunks:
+            return
+        points = np.concatenate(chunks)
         if points.shape[0] > 0:
             bbox_min = points.min(axis=0)
             bbox_max = points.max(axis=0)
@@ -701,7 +1013,18 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         bbox = self.get_bbox()
         return (bbox[0] + bbox[1]) * 0.5
 
-    def generate_mesh(self, scale_data=None):
+    def generate_mesh(self, scale_data=None, force=False):
+        """Build this panel's mesh from the samples it has.
+
+        A panel whose samples did not move since its mesh was built keeps the
+        mesh it has: calling this again with nothing marked is a no-op, which is
+        what makes a repeated call - a repair pass, a redraw that asks for the
+        mesh - cost nothing. `force` and `scale_data` are for a caller that
+        wants the mesh written again whatever the flags say.
+        """
+        if (not force and scale_data is None and self.mesh_object is not None
+                and not self.need_geo_update):
+            return
         granularity = self.granularity / 1000
         # A crossing outline cannot become a mesh at all. The sampler does not
         # only drop the triangles it cannot validate: on a bowtie outline it
@@ -721,6 +1044,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         try:
             if self.need_geo_update:
                 self.calc_mesh_edge_points()
+            self.write_geo_points()
             self.mesh_object = generate_pattern_mesh(self, granularity, self.mesh_object,
                                                      scale_data)
         except Exception as error:
@@ -781,68 +1105,24 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         pos = self.calc_matrix() @ Vector((pos[0], pos[1], 0, 1))
         return pos[0], pos[1]
 
-    def _copy_geometry_from(self, source):
-        """Copy vertices, edges, handles, spline points and internal lines.
-
-        Copies stay index-aligned with their source - the outline and the
-        internal lines alike - which is what lets an edit be written to the
-        whole instance list by index.
-        """
-        for vertex in source.vertices:  # loop: one vertex object per point
-            self.add_vertex((vertex.co[0], vertex.co[1]))
-        for edge in source.edges:  # loop: one edge object per edge
-            new_edge: Edge2D = self.edges.add()
-            new_edge.vertex_index[0] = edge.vertex_index[0]
-            new_edge.vertex_index[1] = edge.vertex_index[1]
-            handle1 = edge.handle1.co[:] if len(edge.handles) > 0 else (0.0, 0.0)
-            handle2 = edge.handle2.co[:] if len(edge.handles) > 1 else (0.0, 0.0)
-            # One implementation of "write this edge as a line, a Bezier or a
-            # spline", so a copy cannot drift from what the editor writes.
-            new_edge.set_curve(edge.kind, handle1, handle2,
-                               [(point.co[0], point.co[1])
-                                for point in edge.spline_points],
-                               edge.handle1_type, edge.handle2_type)
-            new_edge.name = edge.name
-            new_edge.pattern = self
-        self.refresh_collection_uuid(self.edges)
-        # The internal lines come along in the same order. Their edges index
-        # the vertices copied above, so the indices carry over unchanged.
-        for source_line in source.internal_lines:  # loop: one line per line
-            line: InternalLine = self.internal_lines.add()
-            line.is_loop = source_line.is_loop
-            line.is_hole = source_line.is_hole
-            line.name = source_line.name
-            line.pattern = self
-            for edge in source_line.edges:  # loop: one edge object per line edge
-                new_edge: Edge2D = line.edges.add()
-                new_edge.vertex_index[0] = edge.vertex_index[0]
-                new_edge.vertex_index[1] = edge.vertex_index[1]
-                handle1 = edge.handle1.co[:] if len(edge.handles) > 0 else (0.0, 0.0)
-                handle2 = edge.handle2.co[:] if len(edge.handles) > 1 else (0.0, 0.0)
-                new_edge.set_curve(edge.kind, handle1, handle2,
-                                   [(point.co[0], point.co[1])
-                                    for point in edge.spline_points],
-                                   edge.handle1_type, edge.handle2_type)
-                new_edge.name = edge.name
-                new_edge.pattern = self
-            self.refresh_collection_uuid(line.edges)
-
     def copy_pattern(self, as_instance=False, mirror=False, project=None, anchor=None):
         """Copy this panel and return the copy.
 
-        The copy holds the same local geometry; a mirror is expressed by the
+        The copy references the same Sketch: one Sketch per instance chain, so
+        copying a panel costs no geometry. A mirror is expressed by the
         transform matrix and the mesh scale, so `mirror` only flips the copy's
-        flag. Both panels end up in one instance list, which is how the editor
-        keeps copies of a panel in step.
+        flag. Nothing links the two panels - they are one chain because they
+        read one Sketch - and a copy that is to have a shape of its own is
+        detached afterwards.
         """
         from .qianyi_project import get_unique_name
 
         if project is None:
             project = self.project
-        new_pattern = project.add_pattern()
+        new_pattern = project.add_pattern(sketch=self.sketch)
         new_pattern.name = get_unique_name(
             project.patterns, f"{self.name}_{'mirror' if mirror else 'instance'}")
-        new_pattern._copy_geometry_from(self)
+        new_pattern.sketch = self.sketch
         new_pattern.anchor = self.anchor[:] if anchor is None else (float(anchor[0]),
                                                                    float(anchor[1]))
         new_pattern.rotation = self.rotation
@@ -851,30 +1131,55 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         new_pattern.fabric_uuid = self.fabric_uuid
         new_pattern.granularity = self.granularity
         new_pattern.is_mirror = bool(self.is_mirror) ^ bool(mirror)
-        # The instance list is circular: the source points at the copy, and the
-        # copy points at whatever the source pointed at - itself when the source
-        # was alone.
-        if self.instance_next_uuid == -1:
-            self.instance_next_uuid = self.global_uuid
-        new_pattern.instance_next_uuid = self.instance_next_uuid
-        self.instance_next_uuid = new_pattern.global_uuid
         new_pattern.initialize()
-        new_pattern.forced_update()
+        new_pattern.mark_geometry_changed()
         new_pattern.generate_mesh()
         return new_pattern
 
-    def other_instances(self):
-        instances = []
-        if self.instance_next_uuid == -1:
-            return instances
-        p = global_data.get_obj_by_uuid(self.instance_next_uuid)
-        # if p is None:
-        #     self.instance_next_uuid = -1
-        #     return instances
-        while p.global_uuid != self.global_uuid:
-            instances.append(p)
-            p = global_data.get_obj_by_uuid(p.instance_next_uuid)
-        return instances
+    def detach(self) -> dict:
+        """Leave this pattern's instance chain and give it a Sketch of its own.
+
+        A chain shares one Sketch, so this is the only way two patterns of one
+        origin come to hold different geometry. The Sketch this pattern had is
+        copied in the state it is in; the members that stay linked are
+        untouched. A pattern that is already alone in its chain has nothing to
+        detach, which the report says.
+        """
+        sketch = self.sketch
+        staying = [pattern.name for pattern in self.sketch_members()
+                   if pattern.global_uuid != self.global_uuid]
+        if not staying:
+            return {"pattern": self.name, "sketch": None, "detached": False,
+                    "staying": [], "reason": "it is already alone in its chain"}
+        private = sketch.copy(owner=self) if sketch is not None else None
+        self.sketch = private
+        self.need_sewing_update = True
+        return {"pattern": self.name,
+                "sketch": private.name if private is not None else None,
+                "detached": True, "staying": staying,
+                "reason": "the copy now holds its own Sketch"}
+
+    def sketch_members(self) -> list:
+        """Every panel that reads this panel's Sketch, this one first.
+
+        A chain is what shares a Sketch, so it is read from the project instead
+        of being kept as a list of its own: a panel that names no Sketch is
+        alone, and a panel that names one is with the panels that name it too.
+        Only the drawing of a selection and a generator rebuild have any use for
+        this - a length-1 answer is the common case and the honest one for a
+        panel that was never copied.
+        """
+        members = [self]
+        if self.sketch_uuid == -1:
+            # A panel with no Sketch has no geometry, so there is nothing for a
+            # copy to share and nothing to look for: it is alone.
+            return members
+        for candidate in self.project.patterns:  # loop: one comparison per panel
+            if candidate.global_uuid == self.global_uuid:
+                continue
+            if candidate.sketch_uuid == self.sketch_uuid:
+                members.append(candidate)
+        return members
 
 
 define_temp_prop(Pattern, "initialized", False)
@@ -889,7 +1194,6 @@ define_temp_prop(Pattern, "mesh_renderer", None)
 define_temp_prop(Pattern, "line_renderer", None)
 define_temp_prop(Pattern, "transform_mat_2D", None)
 define_temp_prop(Pattern, "inv_transform_mat_2D", None)
-define_temp_prop(Pattern, "instances", None)
 define_temp_prop(Pattern, "impacted", False)
 define_temp_prop(Pattern, "mesh_edge_points", None)
 define_temp_prop(Pattern, "mesh_edge_index_map", None)
@@ -898,6 +1202,22 @@ define_temp_prop(Pattern, "mesh_point_indices", None)
 # mapping: reading them back from Blender re-tessellates the old mesh first.
 define_temp_prop(Pattern, "mesh_triangles", None)
 define_temp_prop(Pattern, "mesh_edge_point_outer_size", -1)
+# The panel's own copy of the Sketch's first section stage, and the samples taken
+# from it. Session data: it is rebuilt from the Sketch whenever this panel asks
+# for a mesh, and a reload starts with none of it.
+define_temp_prop(Pattern, "sections_by_edge", dict)
+define_temp_prop(Pattern, "section_heads", dict)
+define_temp_prop(Pattern, "key_of_edge", dict)
+# The ids this panel draws its own elements with in the pick pass, one per
+# (kind, element). Session data: a pick only ever reads what the pass left.
+define_temp_prop(Pattern, "pick_ids", dict)
+define_temp_prop(Pattern, "sample_points", dict)
+define_temp_prop(Pattern, "sample_starts", dict)
+define_temp_prop(Pattern, "sample_sizes", dict)
+define_temp_prop(Pattern, "line_sizes", dict)
+# Whether this panel's own copy of the Sketch's stage and its samples are up to
+# date. Session data, and true at the start of a session: nothing is stored.
+define_temp_prop(Pattern, "need_sections", True)
 # Outline validity. A temp prop on purpose: it is a cache of an engine answer,
 # so it is never written to the file and a reopened scene starts as unknown.
 define_temp_prop(Pattern, "validity_state", VALIDITY_UNKNOWN)

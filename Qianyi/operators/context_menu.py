@@ -61,6 +61,11 @@ class NODE_OT_qmyi_context_menu(Operator):
                 row.operator(Operators.Corner2D, text="round").mode = "ROUND"
                 row.operator(Operators.Corner2D, text="chamfer").mode = "CHAMFER"
                 row.operator(Operators.Corner2D, text="hollow").mode = "CONCAVE"
+                col = self.layout.column()
+                col.label(text="point",)
+                row = col.row()
+                row.operator(Operators.MergeConnected2D, text="merge connected")
+                row.operator(Operators.ElementsDelete2D, text="delete")
 
         # if not element:
         #     bpy.ops.wm.call_menu(name="NODE_MT_selected_menu")

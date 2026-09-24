@@ -2,12 +2,12 @@ import numpy as np
 from bpy.types import Context
 from bpy.utils import register_classes_factory
 
-from ..model.pattern_instance import collect_unique_instances
 from ..model.sewing import SewingOneSide
 from ..model.pattern import interactive_edit_allowed
 from ..model.generator import refuse_generated_edit
 from ..gizmos.moving_curve import TempPoint
 from ..model.geometry import Edge2D, Vertex2D
+from ..model.model_data import owner_pattern
 from ..utilities.console import console_print, console
 from ._2d_operator_base import Operator2DBase
 from .. import global_data
@@ -230,8 +230,9 @@ def delete_line_elements(pattern, line_index, vertices=(), spline_points=(), *,
     marks = _control_point_marks(line, spline_points)
     sewing_map = {} if sewing_map is None else sewing_map
     mark_impacted = (lambda _sewing: None) if mark_impacted is None else mark_impacted
-    for member in pattern.instances or [pattern]:
-        _splice_line(member, line_index, deleted, marks, sewing_map, mark_impacted)
+    # One Sketch serves the whole instance chain, so the splice is written once
+    # and every member reads it; the members rebuild their own mesh afterwards.
+    _splice_line(pattern, line_index, deleted, marks, sewing_map, mark_impacted)
 
 
 class NODE_OT_elements_delete(Operator2DBase):
@@ -265,8 +266,15 @@ class NODE_OT_elements_delete(Operator2DBase):
             point_set = set()
             objs = project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
             for obj in objs:
-                pattern_set.add(obj.pattern)
-            pattern_set = collect_unique_instances(pattern_set)
+                panel = owner_pattern(obj)
+                if panel is not None:
+                    pattern_set.add(panel)
+            # One Sketch serves a whole instance chain, so two selected elements
+            # of two members are one edit: the set is keyed by Sketch.
+            by_sketch = {}
+            for panel in pattern_set:
+                by_sketch.setdefault(int(panel.sketch_uuid), panel)
+            pattern_set = set(by_sketch.values())
             for candidate in pattern_set:
                 if refuse_generated_edit(self, project, candidate):
                     return {"CANCELLED"}
@@ -314,7 +322,6 @@ class NODE_OT_elements_delete(Operator2DBase):
                 insert_sewing_map(s.side2.line2_uuid, s)
 
             for p in pattern_set:
-                members = p.instances or [p]
                 edges_del = []
                 edges_rest = []  # [(e_uuid,e_v0_uuid,e_new_v1_uuid),...]
                 spline_del = []  # Corresponding to edges_rest
@@ -357,12 +364,13 @@ class NODE_OT_elements_delete(Operator2DBase):
                 # outline would cross itself is left exactly as it was - its
                 # internal lines included.
                 #
-                # An internal line the selection touched is spliced first, on
-                # every member of the instance chain: the chain bridges the
-                # deleted points the way the outline does, a line left without
-                # an edge is removed, and the vertices nothing references any
-                # more leave the pool. A vertex the outline shares stays - the
-                # outline's own surgery below removes it.
+                # An internal line the selection touched is spliced first. One
+                # Sketch serves the whole instance chain, so the write happens
+                # once and every member reads it: the chain bridges the deleted
+                # points the way the outline does, a line left without an edge
+                # is removed, and the vertices nothing references any more leave
+                # the pool. A vertex the outline shares stays - the outline's own
+                # surgery below removes it.
                 marked_vertices = [v for v in p.vertices if v.impacted]
                 marked_points = [point for line in p.internal_lines
                                  for edge in line.edges
@@ -372,47 +380,50 @@ class NODE_OT_elements_delete(Operator2DBase):
                                          sewing_map=sewing_map,
                                          mark_impacted=mark_impacted)
                 for i in sorted(edges_del, reverse=True):
-                    for ins in members:
-                        edge_uuid = ins.edges[i].global_uuid
-                        if edge_uuid in sewing_map:
-                            for s in sewing_map[edge_uuid]:
-                                mark_impacted(s)
-                            sewing_map.pop(edge_uuid, None)
-                        ins.edges.remove(i)
-                for ins in members:
-                    ins.refresh_collection_uuid(ins.edges)
+                    edge_uuid = p.edges[i].global_uuid
+                    if edge_uuid in sewing_map:
+                        for s in sewing_map[edge_uuid]:
+                            mark_impacted(s)
+                        sewing_map.pop(edge_uuid, None)
+                    p.edges.remove(i)
+                p.refresh_collection_uuid(p.edges)
                 vertices_del = [v.get_index() for v in p.vertices if v.impacted]
                 for i in sorted(vertices_del, reverse=True):
-                    for ins in members:
-                        ins.vertices.remove(i)
-                        for line in ins.internal_lines:
-                            for edge in line.edges:
-                                _shift_index(edge, i)
-                for ins in members:
-                    ins.refresh_collection_uuid(ins.vertices)
-                    for line in ins.internal_lines:
-                        ins.refresh_collection_uuid(line.edges)
+                    p.vertices.remove(i)
+                    for line in p.internal_lines:
+                        for edge in line.edges:
+                            _shift_index(edge, i)
+                p.refresh_collection_uuid(p.vertices)
+                for line in p.internal_lines:
+                    p.refresh_collection_uuid(line.edges)
                 for i, e_ in enumerate(edges_rest):
                     e_index = global_data.get_obj_by_uuid(e_[0]).get_index()
                     v0_index = global_data.get_obj_by_uuid(e_[1]).get_index()
                     v1_index = global_data.get_obj_by_uuid(e_[2]).get_index()
-                    for ins in members:
-                        e = ins.edges[e_index]
-                        e.vertex_index[0] = v0_index
-                        e.vertex_index[1] = v1_index
-                        sps = spline_del[i]
-                        if len(sps) > 0:
-                            for j in sorted(sps, reverse=True):
-                                e.spline_points.remove(j)
-                            e.refresh_collection_uuid(e.spline_points)
-                # The sewings that lost a line have to go before the pattern is
-                # refreshed: `forced_update` walks every sewing in the project
-                # and a deleted edge no longer resolves.
+                    e = p.edges[e_index]
+                    e.vertex_index[0] = v0_index
+                    e.vertex_index[1] = v1_index
+                    sps = spline_del[i]
+                    if len(sps) > 0:
+                        for j in sorted(sps, reverse=True):
+                            e.spline_points.remove(j)
+                        e.refresh_collection_uuid(e.spline_points)
+                # The sewings that lost a line have to go before the panels are
+                # marked: marking walks every sewing in the project and a
+                # deleted edge no longer resolves.
                 project.remove_impacted_sewings()
-                for ins in members:
-                    ins.recreate_sections()
-                    ins.forced_update()
-                    ins.generate_mesh()
+                # Every write above went straight into the Sketch's own
+                # collections - edges and vertices removed, indices shifted,
+                # spline points dropped - so the write signal is sent here: the
+                # panels that read the Sketch are marked and their display is
+                # rebuilt.
+                sketch = p.sketch
+                if sketch is not None:
+                    sketch.geometry_written()
+                    # One Sketch serves the whole instance chain, so the
+                    # removals are one edit for every member: the Sketch builds
+                    # each of their meshes.
+                    sketch.rebuild_meshes()
             if blocked:
                 context.area.tag_redraw()
             draw_manager.clear()
@@ -429,8 +440,8 @@ class NODE_OT_elements_delete(Operator2DBase):
                     continue
                 sewing = obj.sewing
                 if sewing is None:
-                    # Only a seam that was drawn has this temp prop set.
-                    console.warning("a selected seam is not drawn, skipping it")
+                    console.warning("a selected seam is no longer in the "
+                                    "project, skipping it")
                     continue
                 index = sewing_index(project, sewing)
                 if index == -1:

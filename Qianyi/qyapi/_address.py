@@ -12,8 +12,8 @@ import numpy as np
 
 from .errors import QyapiError
 from .. import global_data
-from ..model.generator import instance_chain
-from ..model.model_data import refresh_all_uuids
+
+from ..model.model_data import owner_pattern, refresh_all_uuids
 from ..model.pattern import boundary_self_intersection
 from ..utilities.node_tree import get_all_node_tree
 
@@ -143,14 +143,13 @@ def unique_name(project, base):
 
 def ensure_current(pattern):
     """Refresh a panel's derived data without touching its outline."""
-    if pattern.need_geo_update:
-        pattern.forced_update()
+    pattern.ensure_sections()
     return pattern
 
 
 def chain_of(pattern):
     """Every panel that shares geometry with this one, this one included."""
-    return instance_chain(pattern)
+    return pattern.sketch_members()
 
 
 def edge_or_refuse(pattern, reference):
@@ -175,7 +174,6 @@ def edge_or_refuse(pattern, reference):
             raise QyapiError(f"panel {pattern.name!r} has no edge {index}",
                              (f"it has {len(pattern.edges)} edges",))
         edge = pattern.edges[index]
-    edge.pattern = pattern
     return edge, index
 
 
@@ -190,7 +188,7 @@ def side_entry(sewing, side_number):
     """One side of a sewing, as plain data."""
     side = sewing.side1 if side_number == 1 else sewing.side2
     try:
-        pattern = side.line1.pattern
+        pattern = owner_pattern(side.line1)
         panel = pattern.name
         label = side.line1.name or None
         index = side.line1.get_index()
@@ -224,13 +222,13 @@ def sewing_entry(project, sewing, index, section_error=None):
 
 def sewing_entries(project, pattern=None):
     """Every sewing, or the ones that touch `pattern` - one builder for both."""
-    # The sections every sewing is measured against. This is the add-on's own
-    # sequence (fresh sections, then link them): linking a subset raises
-    # "Sewing overlap!!!" for a valid seam, because the section link ids would
-    # still point into the previous run.
+    # Reading a sewing reads the walk it makes, and the linking run is what
+    # builds the pieces a walk needs: it starts its own table, so linking here
+    # is the whole "fresh sections, then link them" sequence without rebuilding
+    # the stage and the samples of every panel a sewing touches.
     section_error = None
     try:
-        project.calc_all_sewings_sections()
+        project.calc_sewings_sections(project.sewings)
     except Exception as error:
         section_error = f"{type(error).__name__}: {error}"
     entries = []

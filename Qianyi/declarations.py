@@ -56,6 +56,7 @@ class Operators(str, Enum):
     Fan2D = "qmyi.2d_fan"
     EdgeElementsMove2D = "qmyi.2d_edge_move"
     ElementsDelete2D = "qmyi.2d_elements_delete"
+    MergeConnected2D = "qmyi.2d_merge_connected"
     SewingAdd1to12D = "qmyi.2d_add_sewing_1to1"
     SewingAddFree2D = "qmyi.2d_add_sewing_free"  # TODO
     SewingAddMtoN2D = "qmyi.2d_add_sewing_m2n"  # TODO

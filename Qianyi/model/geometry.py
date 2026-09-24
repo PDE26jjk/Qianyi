@@ -6,7 +6,7 @@ from bpy.props import FloatVectorProperty, CollectionProperty, EnumProperty, Int
 from bpy.types import PropertyGroup
 from bpy.utils import register_classes_factory
 
-from .model_data import ModelData, define_temp_prop, Selectable
+from .model_data import ModelData, define_temp_prop, resolve_sketch, Selectable
 from .section import Section
 from .. import global_data
 from ..utilities.console import console
@@ -34,31 +34,17 @@ class Vertex2D(PropertyGroup, ModelData, Selectable):
         self.co[1] = value[1]
 
     def clear_temp_data(self):
-        self.pattern_temp = None
+        self.sketch_temp = None
+        self.sketch_uuid = -1
 
     @property
-    def pattern(self):
-        if self.pattern_temp is not None:
-            try:
-                self.pattern_temp.path_from_id()
-            except Exception as e:
-                console.error("can not get pattern!", e)
-                self.pattern_temp = None
-        if self.pattern_temp is None:
-            path = self.path_from_id()
-            # "patterns[1].edges[7].handles[0]"   -> [("patterns",1), ("edges",7), ("handles",0)]
-            segments = re.findall(r'(\w+)\[(\d+)\]', path)
-            pattern_path = segments[0]
-            if pattern_path[0] == "patterns":
-                self.pattern_temp = self.id_data.patterns[int(pattern_path[1])]
-        return self.pattern_temp
-
-    @pattern.setter
-    def pattern(self, value):
-        self.pattern_temp = value
+    def sketch(self):
+        """The Sketch this point is stored in, or None."""
+        return resolve_sketch(self)
 
 
-define_temp_prop(Vertex2D, "pattern_temp", None)
+define_temp_prop(Vertex2D, "sketch_temp", None)
+define_temp_prop(Vertex2D, "sketch_uuid", -1)
 define_temp_prop(Vertex2D, "impacted", False)
 define_temp_prop(Vertex2D, "proxy", None)
 
@@ -80,37 +66,13 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
     handles: CollectionProperty(name="handles", type=Vertex2D, )
     handle1_type: EnumProperty(name="handle1Type", items=HandleType, default="VECTOR")
     handle2_type: EnumProperty(name="handle2Type", items=HandleType, default="VECTOR")
-    geo_points: CollectionProperty(name="geoPoints", type=Vertex2D, )
     spline_points: CollectionProperty(name="splinePoints", type=Vertex2D, )
     bbox: FloatVectorProperty(name="bBox", size=4, default=(0, 0, 1, 1))
 
-    def initialize(self):
-        if len(self.geo_points) > 0:
-            pts = []
-            for point in self.geo_points:
-                pts.append(point.co)
-            self.geo_points_temp = np.asarray(pts)
-
     @property
-    def pattern(self):
-        if self.pattern_temp is not None:
-            try:
-                self.pattern_temp.path_from_id()
-            except Exception as e:
-                console.error("can not get pattern!", e)
-                self.pattern_temp = None
-        if self.pattern_temp is None:
-            path = self.path_from_id()
-            # "patterns[1].edges[7].handles[0]"   -> [("patterns",1), ("edges",7), ("handles",0)]
-            segments = re.findall(r'(\w+)\[(\d+)\]', path)
-            pattern_path = segments[0]
-            if pattern_path[0] == "patterns":
-                self.pattern_temp = self.id_data.patterns[int(pattern_path[1])]
-        return self.pattern_temp
-
-    @pattern.setter
-    def pattern(self, value):
-        self.pattern_temp = value
+    def sketch(self):
+        """The Sketch this edge is stored in, or None."""
+        return resolve_sketch(self)
 
     def reverse(self):
         self.vertex_index[0], self.vertex_index[1] = self.vertex_index[1], self.vertex_index[0]
@@ -120,50 +82,43 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
     @property
     def handle1(self):
         if len(self.handles) < 1:
-            self.handles.add()
+            self.handles.add().get_temp_data()
         return self.handles[0]
 
     @property
     def handle2(self):
         if len(self.handles) < 2:
             if len(self.handles) < 1:
-                self.handles.add()
-            self.handles.add()
+                self.handles.add().get_temp_data()
+            self.handles.add().get_temp_data()
         return self.handles[1]
 
     @property
     def vertex0(self):
-        return self.pattern.vertices[self.vertex_index[0]]
+        return self.sketch.vertices[self.vertex_index[0]]
 
     @property
     def vertex1(self):
-        return self.pattern.vertices[self.vertex_index[1]]
+        return self.sketch.vertices[self.vertex_index[1]]
 
-    def update(self, pattern=None):
+    def update(self):
+        """Build this edge's own draw points and its length and box.
+
+        These are the points of the curve the handles describe: what the editor
+        draws and what the crossing search measures. The samples a mesh is built
+        from are a panel's own (`Pattern.sample_edge`), taken at that panel's
+        granularity from these same points, so nothing here depends on a panel.
+        """
         if not self.need_update_points:
             return
-        if pattern is not None:
-            self.pattern = pattern
         self.vertices[0] = self.vertex0.co[:]
         self.vertices[1] = self.vertex1.co[:]
         self.render_points = self.generate_render_points(1024)
         # self.calc_length()
         pts = self.render_points
         self.length = np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1))
-        # self.sections.clear()
-        # self.sections.append(Section(0., self))
-        # self.sections[0].length = self.length
-
-        self.calc_geo_point_for_sections()
-        self.geo_points.clear()
-        self.calc_bbox(self.geo_points_temp)
-
-        for i in range(self.geo_points_temp.shape[0]):
-            p = self.geo_points.add()
-            p.co = self.geo_points_temp[i]
+        self.calc_bbox(pts)
         self.need_update_points = False
-        self.handle1.pattern = self.pattern
-        self.handle2.pattern = self.pattern
         if global_data.renderers_enabled:
             from ..gizmos.curve_renderer import CurveRenderer
             if self.renderer is None:
@@ -209,6 +164,7 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         if kind == "spline":
             for point in (points or ()):  # loop: one point object per control point
                 handle = self.spline_points.add()
+                handle.get_temp_data()
                 handle.co = (float(point[0]), float(point[1]))
             handle1_type = handle1_type or "VECTOR"
             handle2_type = handle2_type or "VECTOR"
@@ -222,11 +178,23 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         self.handle2.co = (float(handle2[0]), float(handle2[1])) if handle2 else (0.0, 0.0)
         self.handle1_type = handle1_type
         self.handle2_type = handle2_type
+        # The identity map has to name the wrappers the collection holds now:
+        # adding an item retires the ones it handed out before, so the wrapper a
+        # control point registered when it was made is not that point any more -
+        # a pick reads an element back by identity and would find nothing.
+        self.refresh_collection_uuid(self.handles)
+        self.refresh_collection_uuid(self.spline_points)
         self.need_update_points = True
+        sketch = self.sketch
+        if sketch is not None:
+            # One write path for "this edge is a line, a Bezier or a spline": the
+            # Sketch tells every panel that reads it that its geometry moved.
+            sketch.geometry_written()
         return self
 
     def add_edge_point(self, position):
         point = self.spline_points.add()
+        point.get_temp_data()
         point.co = position
         return point
 
@@ -237,158 +205,33 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         q = np.array((self.vertices[0], *edge_points, self.vertices[1]))
         return generate_curve_points(q, h1, h2, render_point_count).astype(np.float32)
 
-    def sections(self):
-        max_sec = 10000
-        sec: Section = self.section_start
-        if sec is None:
-            self.pattern.recreate_sections()
-            sec = self.section_start
-        assert sec is not None, "Sections are not created!!!"
-        while sec is not self.section_end and max_sec > 0:
-            yield sec
-            sec = sec.next
-            max_sec -= 1
-        if max_sec == 0:
-            raise ValueError("Wrong section link!!")
+    def raw_sections(self) -> list:
+        """The Sketch's own pieces of this edge, in chain order.
 
-    def calc_temp_geo_point(self, point_size):
-        point_size = max(point_size, 2)
-        temp_points = self.generate_render_points(max(point_size * 2, 8))
-        self.geo_points_temp = resample_polyline(temp_points, [(0, point_size)], True)
-
-    def calc_geo_point_for_sections(self):
-        min_g = self.pattern.granularity
-        sections = list(self.sections())
-        for sec in sections:
-            if sec.seg == -1:
-                sec.seg = max(math.ceil(sec.absolute_length() / sec.edge.pattern.granularity), 1)
-                # console.info("sec", sec.start_pos, sec.end_pos, sec.seg)
-            # else:
-            #     console.warning("sec", sec.start_pos, sec.end_pos, sec.seg)
-            min_g = min(sec.absolute_length() / sec.seg, min_g)
-        only_one_section = self.section_start.next == self.section_end
-        if only_one_section:
-            point_size = self.section_start.seg + 1
-            self.calc_temp_geo_point(point_size)
-            self.section_start.start_point = 0
-        else:
-            point_size = max(math.ceil(self.length / min_g), 1) + 1
-            self.calc_temp_geo_point(point_size * 2)
-            segments = []
-            points_count = 0
-            for i, sec in enumerate(sections):
-                sec.start_point = points_count
-                points_count += sec.seg
-                segments.append([sec.start_pos, sec.seg])
-            segments[-1][1] += 1
-            # console.info("segments",sections, segments)
-            self.geo_points_temp = resample_polyline(self.geo_points_temp, segments, True)
-            # console.success(len(self.geo_points_temp))
-        return
-
-    def clear_temp_data(self):
-        self.pattern = None
-        self.need_update_points = True
-
-    def find_or_add_section(self, pos) -> Section | None:
-        eps = 1e-5
-        if self.section_start is None:
-            # Same guard as sections(): the add-sewing path walks the sections
-            # without recreating them first, so on a scene that has not run a
-            # simulation yet every edge has section_start is None and the walk
-            # raised "'NoneType' object has no attribute 'start_pos'" - which
-            # the add-sewing operator reports as "sewing overlap!".
-            self.pattern.recreate_sections()
-        if pos >= 1 - eps:
-            return self.section_end
-        max_sec = 10000
-        sec: Section = self.section_start
-        while sec is not self.section_end and max_sec > 0:
-            if pos >= sec.start_pos:
-                if pos - sec.start_pos < eps:
-                    return sec
-                radio = (pos - sec.start_pos) / (sec.end_pos - sec.start_pos)
-                _, new_sec = sec.split(radio)
-                return new_sec
-            sec = sec.next
-            max_sec -= 1
-        if max_sec == 0:
-            raise ValueError("Wrong section link!!")
-        if max_sec == 10000:
-            # a loop with only one section
-            if pos - sec.start_pos < eps:
-                return sec
-            radio = (pos - sec.start_pos) / (sec.end_pos - sec.start_pos)
-            _, new_sec = sec.split(radio)
-            return new_sec
-        return None
-
-    def boundary_section(self, pos, reverse=False) -> Section:
-        """The section a sewing walk starts on, or stops at, for `pos`.
-
-        `find_or_add_section` is the linking-time lookup: it cuts the edge so a
-        boundary sits exactly on `pos` and hands back the piece above it. This
-        is the same lookup for consumers that must not change the geometry -
-        the stitch walk uses it instead of a stored pair of sections, so no
-        later split can leave it pointing at the wrong piece.
-
-        `reverse` asks for the piece *below* the boundary, which is where a
-        walk against the chain starts (and stops). A sewing only has an exact
-        boundary here once it has been linked, so a missing one is reported
-        rather than silently walking a longer range.
+        These are the first stage: spans and crossing marks only. What a panel
+        samples lives on that panel's copy of this stage, not here.
         """
-        eps = 1e-5
-        if pos >= 1 - eps:
-            # None on an open line: nothing follows its last piece, which is
-            # where a walk ends anyway.
-            section = self.section_end
-        else:
-            section = None
-            sec = self.section_start
-            guard = 0
-            while sec is not None and sec is not self.section_end and guard < 10000:
-                if abs(sec.start_pos - pos) <= eps:
-                    section = sec
-                    break
-                sec = sec.next
-                guard += 1
-            if section is None:
-                raise ValueError(
-                    f"edge {self.get_index()} has no section boundary at "
-                    f"{pos:.4f}: the sewing that ends there has not been linked")
-        if reverse:
-            if section is None:
-                # The chain has no piece after the last one, so the piece
-                # ending at the end of the edge is that last piece.
-                section = self.section_start
-                guard = 0
-                while section is not None and section.next is not None and guard < 10000:
-                    section = section.next
-                    guard += 1
-            else:
-                section = section.prev
-            if section is None:
-                raise ValueError(
-                    f"edge {self.get_index()} has nothing before position "
-                    f"{pos:.4f}, so a reversed sewing cannot start there")
-        return section
+        sections = []
+        section = self.section_start
+        guard = 0
+        while (section is not None and section is not self.section_end
+               and guard < 10000):
+            sections.append(section)
+            section = section.next
+            guard += 1
+        if guard >= 10000:
+            raise ValueError("Wrong section link!!")
+        return sections
 
-    # def try_regain_self(self):
-    #     if self.pattern is not None and self.pattern.global_uuid != -1:
-    #         self.pattern.forced_update()
-
-
-define_temp_prop(Edge2D, "pattern_temp", None)
+define_temp_prop(Edge2D, "sketch_temp", None)
+define_temp_prop(Edge2D, "sketch_uuid", -1)
 define_temp_prop(Edge2D, "length", None)
 define_temp_prop(Edge2D, "vertices", lambda: [(0.0, 0.0), (0.0, 0.0)])
 define_temp_prop(Edge2D, "need_update_points", True)
 define_temp_prop(Edge2D, "render_points", None)
 define_temp_prop(Edge2D, "renderer", None)
-define_temp_prop(Edge2D, "geo_points_temp", None)
-define_temp_prop(Edge2D, "unique_geo_point_size", 0)
 define_temp_prop(Edge2D, "section_start", None)
 define_temp_prop(Edge2D, "section_end", None)
-define_temp_prop(Edge2D, "start_point", -1)
 define_temp_prop(Edge2D, "proxy", None)
 
 register, unregister = register_classes_factory((Vertex2D, Edge2D,))

@@ -246,32 +246,17 @@ def generation_lock(project, pattern) -> str | None:
     """Why a geometry edit of this panel is refused, or None when it is free.
 
     Sewing, simulation, fabric settings and 2D placement are not affected: only
-    the edits a rebuild would overwrite are locked. The whole instance chain is
-    examined: the interactive tools keep copies in sync, so editing a free copy
-    of a generated panel would reach the generated panel through the chain.
+    the edits a rebuild would overwrite are locked, and a chain shares one
+    Sketch, so editing a free copy of a generated panel would reach the
+    generated panel: every panel reading that Sketch is examined.
     """
-    for member in instance_chain(pattern):
+    if pattern is None:
+        return None
+    for member in pattern.sketch_members():
         generator = generator_of_pattern(project, member)
         if generator is not None:
             return LOCKED_EDIT_MESSAGE.format(name=generator.name or generator.component_id)
     return None
-
-
-def instance_chain(pattern) -> list:
-    """A panel plus every copy in its instance list.
-
-    ``instance_next_uuid`` is a circular list, so any member sees all the
-    others. A broken or half-built chain simply yields the panel alone.
-    """
-    if pattern is None:
-        return []
-    members = [pattern]
-    try:
-        members.extend(instance for instance in pattern.other_instances()
-                       if instance is not None)
-    except Exception:
-        pass
-    return members
 
 
 def refuse_generated_edit(operator, project, pattern) -> bool:

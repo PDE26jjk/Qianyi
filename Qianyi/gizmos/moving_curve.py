@@ -1,12 +1,11 @@
 from typing import List
 
 import bpy
-import re
 import numpy as np
 from mathutils import Matrix, Vector
 
 from ..model.geometry import Vertex2D, Edge2D
-from ..utilities.console import console
+from ..model.model_data import owner_pattern
 from ..utilities.cubic_spline import cubic_spline_2d_numpy
 from ..utilities.geometric_operation import forward_diff_bezier, generate_curve_points
 from .. import global_data
@@ -21,33 +20,36 @@ class ProxyPoint:
     def __init__(self, vertex):
         self.vertex = vertex
         self.co = vertex.co[:]
-        # path = self.vertex.path_from_id()
-        # instances = self.vertex.pattern.instances
-        # pattern = self.vertex.pattern
-        # console.info(f"instances: {instances},pattern:{pattern.global_uuid}:{pattern.path_from_id()},path:{path}")
         vertex.proxy = self
 
-    def update_offset(self, offset):
-        offset_relative = self.vertex.pattern.inv_transform_mat_2D @ Vector((offset[0], offset[1], 0, 0))
+    def update_offset(self, offset, pattern=None):
+        """Move this point by a pointer offset, in the space of `pattern`.
+
+        The offset comes from the pointer and therefore moves in view space; the
+        point lives in the pattern space of the panel the pointer is over. That
+        panel is what the offset is converted with - its own inverse transform
+        carries its mirror and its rotation - because the panel that owns the
+        Sketch is the first member of the chain, which need not be the one being
+        dragged: converting through the owner moves a mirrored instance's point
+        the other way along the mouse.
+        """
+        panel = pattern if pattern is not None else owner_pattern(self.vertex)
+        if panel is None:
+            raise ValueError("this point has no panel to move in: the Sketch it "
+                             "lives in names no owner")
+        if panel.inv_transform_mat_2D is None:
+            panel.calc_inv_matrix()
+        offset_relative = panel.inv_transform_mat_2D @ Vector((offset[0], offset[1], 0, 0))
         self.co = self.vertex.co + Vector((offset_relative[0], offset_relative[1]))
 
     def apply_proxy(self):
-        self.vertex.co = self.co[:]
+        """Write this point's new place into the Sketch it lives in.
 
-    def apply_proxy_to_instances(self):
-        instances = self.vertex.pattern.instances
-        path = self.vertex.path_from_id()
-        # "patterns[1].edges[7].handles[0]"   -> [("patterns",1), ("edges",7), ("handles",0)]
-        segments = re.findall(r'(\w+)\[(\d+)\]', path)
-        sub_segments = segments[1:]
-        if instances is None:
-            console.error(f"instances is None! pattern:{self.vertex.pattern},path:{path}")
-            return
-        for instance in instances:
-            obj = instance
-            for attr_name, index_str in sub_segments:
-                obj = getattr(obj, attr_name)[int(index_str)]
-            obj.co = self.co[:]
+        One Sketch serves the whole instance chain, so there is nothing per
+        member to write: this is the one point, and every member draws it from
+        where it now is.
+        """
+        self.vertex.co = self.co[:]
 
 
 def get_proxy_or_not(vertex) -> ProxyPoint | Vertex2D:
@@ -152,4 +154,4 @@ class MovingCurveWhole(MovingCurve):
 
     def apply_moving(self):
         for point in self.whole_points:
-            point.apply_proxy_to_instances()
+            point.apply_proxy()

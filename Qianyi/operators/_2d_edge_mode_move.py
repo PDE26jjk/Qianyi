@@ -3,10 +3,10 @@ from bpy.props import FloatVectorProperty, BoolProperty
 from bpy.types import Context
 from bpy.utils import register_classes_factory
 
-from ..model.pattern_instance import collect_unique_instances
 from ..model.pattern import interactive_edit_allowed
 from ..model.generator import generation_lock
 from ..model.geometry import Edge2D, Vertex2D
+from ..model.model_data import owner_pattern
 from ..utilities.console import console
 from ._2d_operator_base import Operator2DBase
 from .states.IState import IState
@@ -18,6 +18,29 @@ from ..gizmos.temp_draw_manager import TempDrawManager
 from ..gizmos.moving_curve import ProxyPoint
 from ..utilities.coords_transform import region2view_coord
 from ..utilities.node_tree import get_active_node_tree
+
+
+def gesture_edges(patterns) -> list:
+    """Every edge the gesture draws while it drags, each one once.
+
+    The outline and the internal lines of every Sketch in the selection: an
+    internal line is dragged by the same points the outline is, so leaving it
+    out showed no preview at all while its points moved. The edges belong to the
+    Sketch, so two members of one chain would otherwise draw the same preview
+    twice.
+    """
+    edges = []
+    seen = set()
+    for pattern in patterns:  # loop: one panel of the selection
+        sketch = pattern.sketch
+        if sketch is None:
+            continue
+        for edge in sketch.all_edges():  # loop: the outline, then the lines' own
+            if edge.global_uuid in seen:
+                continue
+            seen.add(edge.global_uuid)
+            edges.append(edge)
+    return edges
 
 
 class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
@@ -36,7 +59,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
         if project is not None:
             objs = project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
             # A generated panel refuses geometry edits; its parameters own its shape.
-            if any(generation_lock(project, obj.pattern) for obj in objs):
+            if any(generation_lock(project, owner_pattern(obj)) for obj in objs):
                 return False
             if len(objs) > 0:
                 return True
@@ -62,12 +85,9 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
         self.point_proxys = []
         objs = self.project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
         for obj in objs:
-            self.pattern_set.add(obj.pattern)
-        self.pattern_set = collect_unique_instances(self.pattern_set)
-        for p in self.pattern_set:
-            for v in p.vertices:
-                v.impacted = False
-        objs = {o for o in objs if o.pattern.impacted}
+            panel = owner_pattern(obj)
+            if panel is not None:
+                self.pattern_set.add(panel)
         for obj in objs:
             if isinstance(obj, Edge2D):
                 move_point_set.add(obj.vertex0)
@@ -81,23 +101,22 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
             # console.success(point.path_from_id())
             self.point_proxys.append(ProxyPoint(point))
 
-        for p in self.pattern_set:
-            for e in p.edges:
-                sp_impacted = False
-                for sp in e.spline_points:
-                    if sp.impacted:
-                        sp_impacted = True
-                        break
-                if sp_impacted or e.vertex0.impacted or e.vertex1.impacted or e.handle1.impacted or e.handle2.impacted:
-                    if e.vertex0.impacted or e.vertex1.impacted:
-                        mc = self.draw_manager.add_moving_curve_whole(e)
-                    else:
-                        mc = self.draw_manager.add_moving_curve(e)
-                    # move_edges.append(e)
-                    self.moving_curves.append(mc)
-                    e.proxy = mc
+        for e in gesture_edges(self.pattern_set):
+            sp_impacted = False
+            for sp in e.spline_points:
+                if sp.impacted:
+                    sp_impacted = True
+                    break
+            if (sp_impacted or e.vertex0.impacted or e.vertex1.impacted
+                    or e.handle1.impacted or e.handle2.impacted):
+                if e.vertex0.impacted or e.vertex1.impacted:
+                    mc = self.draw_manager.add_moving_curve_whole(e)
                 else:
-                    e.proxy = None
+                    mc = self.draw_manager.add_moving_curve(e)
+                self.moving_curves.append(mc)
+                e.proxy = mc
+            else:
+                e.proxy = None
         # console.info(self.moving_curves)
         for p in move_point_set:
             p.impacted = False  # reset
@@ -109,6 +128,14 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
                 self.initialized = True
                 self.origin_mouse_location = co
                 self.origin_pattern_locations = {}
+                # The member the gesture started on: its own transform is what
+                # converts the pointer's offset into the Sketch's space, so a
+                # mirrored instance moves with the mouse instead of against it.
+                # The member the gesture started on: the id pass knows which one
+                # the pointer was over, and the selection has already made it
+                # the active panel.
+                self.drag_pattern = (self.draw_manager.picked_pattern()
+                                     or self.project.active_pattern)
                 return
             self.updated = True
             loc = list(self.origin_mouse_location)
@@ -116,7 +143,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
             offset[0] -= loc[0]
             offset[1] -= loc[1]
             for p in self.point_proxys:
-                p.update_offset(offset)
+                p.update_offset(offset, self.drag_pattern)
             for mc in self.moving_curves:
                 mc.update()
 
@@ -139,14 +166,18 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
                 return
 
         for p in self.point_proxys:
-            p.apply_proxy_to_instances()
+            p.apply_proxy()
         for mc in self.moving_curves:
             mc.apply_moving()
         for p in self.pattern_set:
-            for ins in p.instances:
-                ins.recreate_sections()
-                ins.forced_update()
-                ins.generate_mesh()
+            # The gesture moves points of one Sketch, and this tool draws the
+            # members of that chain while it drags: they have all been showing
+            # the moved outline, so all of them have to leave with the new
+            # mesh. Both steps are the Sketch's - the write signal and the mesh
+            # rebuild reach every panel that reads it.
+            sketch = p.require_sketch()
+            sketch.geometry_written()
+            sketch.rebuild_meshes()
 
         self.project.clear_edge_finder()
 

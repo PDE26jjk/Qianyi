@@ -288,8 +288,8 @@ class View3DOverlay:
             for sewing in project.sewings:
                 try:
                     data = sewing.get_stitch_data()
-                    first = sewing.side1.line1.pattern.mesh_object
-                    second = sewing.side2.line1.pattern.mesh_object
+                    first = sewing.pattern1.mesh_object if sewing.pattern1 else None
+                    second = sewing.pattern2.mesh_object if sewing.pattern2 else None
                 except Exception:
                     # A seam whose sides cannot be resolved has nothing to draw.
                     continue

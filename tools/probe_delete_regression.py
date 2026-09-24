@@ -5,7 +5,7 @@
 The failure under test:
 
     Exception: obj.global_uuid != uuid, -1062000418 != -945774949
-    raised from  _2d_elements_delete.execute -> Pattern.forced_update
+    raised from  _2d_elements_delete.execute -> Pattern.mark_geometry_changed
                 -> update_connected_pattern_sewing_state
                 -> get_connected_patterns_and_sewings -> Sewing.pattern1
                 -> global_data.get_obj_by_uuid
@@ -118,7 +118,6 @@ def import_addon(path, module_name):
 
 def report_uuid_state(project, label):
     from qmyi import global_data
-    from qmyi.model.pattern_instance import collect_unique_instances
 
     lines = []
     for index, sewing in enumerate(project.sewings):
@@ -180,14 +179,16 @@ def remove_sewings_on(project, pattern, vertex):
 def pick_both_sides(project):
     """One vertex on each side of the first sewing, to delete in one go."""
     from qmyi import global_data
+    from qmyi.model.model_data import owner_pattern
 
     sewing = project.sewings[0]
     targets = []
     for side in (sewing.side1, sewing.side2):
         line = global_data.get_obj_by_uuid(side.line1_uuid)
-        log(f"    target: {line.pattern.name} edge {line.global_uuid} "
+        panel = owner_pattern(line)
+        log(f"    target: {panel.name} edge {line.global_uuid} "
             f"vertex0 {line.vertex0.global_uuid}")
-        targets.append((line.pattern, line.vertex0))
+        targets.append((panel, line.vertex0))
     return targets
 
 

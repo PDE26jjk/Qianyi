@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple
 
+from .. import global_data
 from ..utilities.console import console
 
 
@@ -7,6 +8,50 @@ class DirSection:
     def __init__(self, section, reverse=False):
         self.section: Section = section
         self.reverse: bool = reverse
+
+
+class SectionRaw:
+    """One piece of a chain as the Sketch holds it: a span, and nothing sampled.
+
+    The first stage is topology: which piece of which edge runs from one place on
+    it to another, whether a crossing left it outside the outline, and the links
+    that make a walk along the chain cheap. A raw piece carries no segment count,
+    no sample offset and no mesh offset, because those belong to the panel that
+    samples it and a panel must not write to a piece it shares with its copies.
+    A panel clones a raw chain into `Section` objects of its own
+    (`Section.from_raw`), and every sampled field lives there.
+    """
+
+    def __init__(self, edge, start_pos, end_pos):
+        self.start_pos = start_pos
+        self.end_pos = end_pos
+        # The edge is carried by identity and not by reference: an edit that
+        # replaces an edge - a divide, a corner merge - leaves the copies of the
+        # panels that were not rebuilt holding the wrapper they were cut from,
+        # and that wrapper can by then name a different edge. `edge` resolves
+        # the identity the way every other cross-reference in the model does.
+        self.edge_uuid = edge.global_uuid
+        self.prev: Optional['SectionRaw'] = None
+        self.next: Optional['SectionRaw'] = None
+        self.io_state = 0            # 0 none, 1 leaves the outline, 2 enters it
+        self.outsize = False         # a piece of a line outside the outline
+
+    @property
+    def edge(self):
+        """The edge this span is on, or None when it has been replaced."""
+        return global_data.get_obj_by_uuid(self.edge_uuid, check_uuid=False)
+
+    def absolute_length(self):
+        """How long this span is on its edge, in millimetres."""
+        edge = self.edge
+        if edge is None:
+            raise ValueError("this span names an edge that is no longer in the "
+                             "scene, so its length cannot be measured")
+        return (self.end_pos - self.start_pos) * (edge.length or 0.0)
+
+    def __repr__(self):
+        return (f"SectionRaw(edge={self.edge.get_index() if self.edge else None}, "
+                f"{self.start_pos:.3f}-{self.end_pos:.3f}, outsize={self.outsize})")
 
 
 # Doubly linked list node, --> next in CCW
@@ -21,8 +66,8 @@ class Section:
     def __init__(self, edge, start_pos, end_pos):
         self.start_pos = start_pos
         self.end_pos = end_pos
-        from .geometry import Edge2D
-        self.edge: Edge2D = edge
+        # The edge is carried by identity; see `SectionRaw.edge`.
+        self.edge_uuid = edge.global_uuid
         self.prev: Optional[Section] = None
         self.next: Optional[Section] = None
         self.seg = -1
@@ -35,6 +80,43 @@ class Section:
         self.io_state = 0
         self.outsize = False  # outsize of pattern
         self.continuous = False
+        # Where this piece sits in the panel that owns it: (the outline's None or
+        # an internal line's index, the edge's index). The Sketch's raw stage has
+        # no use for it; a panel's copy is found again by it.
+        self.edge_key = None
+        # The panel this piece belongs to, when it is a panel's own copy: a split
+        # tells it about the piece it produced, so the panel's per-edge list and
+        # its samples stay in step with the chain.
+        self.panel_uuid = -1
+
+    @property
+    def edge(self):
+        """The edge this piece was cut from, or None when it has been replaced."""
+        return global_data.get_obj_by_uuid(self.edge_uuid, check_uuid=False)
+
+    @property
+    def panel(self):
+        """The panel whose copy this piece is, or None when it is gone."""
+        if self.panel_uuid == -1:
+            return None
+        return global_data.get_obj_by_uuid(self.panel_uuid, check_uuid=False)
+
+    @panel.setter
+    def panel(self, value):
+        self.panel_uuid = value.global_uuid if value is not None else -1
+
+    @classmethod
+    def from_raw(cls, raw) -> 'Section':
+        """A panel's own piece, cloned from one of the Sketch's raw spans.
+
+        Only the span and the crossing marks come across: the segment count and
+        the sample and mesh offsets are the sampling pass's, and start at their
+        unset values on a fresh clone.
+        """
+        section = cls(raw.edge, raw.start_pos, raw.end_pos)
+        section.io_state = raw.io_state
+        section.outsize = raw.outsize
+        return section
 
     def split(self, radio, reverse=False, check_link=True):
         """Cut this section in two and return `(the lower half, the upper half)`
@@ -57,6 +139,8 @@ class Section:
         cut = length * radio
         split_pos = self.end_pos - cut if reverse else self.start_pos + cut
         new_sec = Section(self.edge, split_pos, self.end_pos)
+        new_sec.edge_key = self.edge_key
+        new_sec.panel = self.panel
         self.end_pos = split_pos
         # One splice for both directions: the new piece takes over the upper
         # half, this one keeps the lower half.
@@ -93,14 +177,30 @@ class Section:
             Section.link_sections.append(new_link_sections)
         new_sec.outsize = self.outsize
         new_sec.io_state = self.io_state
+        if self.panel is not None:
+            self.panel.register_piece(new_sec)
         return self, new_sec
 
-    def split_pending(self):
+    def split_pending(self, min_ratio=None):
+        """Apply the cuts recorded in `pending_split`.
+
+        `min_ratio` is how close to the piece before it a cut has to be before
+        the two count as the same crossing. Left out, the value comes from the
+        panel this piece belongs to (a fraction of its granularity); a caller
+        that works on the authored geometry, which has no granularity, passes
+        its own.
+        """
         self.seg = -1  # need to be recalculated.
         length = self.end_pos - self.start_pos
         abs_l = self.absolute_length()
         sec = self
-        min_r = self.edge.pattern.granularity * 0.02 / abs_l
+        if min_ratio is None:
+            if self.panel is None:
+                raise ValueError(
+                    "a cut needs the panel this piece belongs to before it can "
+                    "measure itself against a granularity")
+            min_ratio = self.panel.granularity * 0.02 / abs_l
+        min_r = min_ratio
         last_r = 0
         end_pos = self.end_pos
         start_pos = self.start_pos
@@ -195,7 +295,11 @@ class Section:
             theirs.clear()
 
     def absolute_length(self):
-        return (self.end_pos - self.start_pos) * self.edge.length
+        edge = self.edge
+        if edge is None:
+            raise ValueError("this piece names an edge that is no longer in the "
+                             "scene, so its length cannot be measured")
+        return (self.end_pos - self.start_pos) * edge.length
 
     # def __repr__(self):
     #     return f"({self.edge.global_uuid}: {self.start_pos},{self.length},{self.seg})"

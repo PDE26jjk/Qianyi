@@ -19,6 +19,7 @@ modules = [
     '_2d_internal_line_create_by_pen',
     '_2d_pattern_copy_instance',
     '_2d_elements_delete',
+    '_2d_merge_connected',
     '_2d_edge_mode_move',
     '_2d_add_vertex',
     '_2d_add_spline_point',

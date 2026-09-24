@@ -5,7 +5,6 @@ from bpy.utils import register_classes_factory
 
 from ..utilities.cubic_spline import get_handles_after_split, compute_split_handles
 from ..utilities.geometric_operation import split_bezier
-from ..model.pattern_instance import collect_unique_instances
 from ..model.pattern import Pattern, interactive_edit_allowed
 from ..model.generator import refuse_generated_edit
 from ..model.qianyi_data import ensure_edit_mode
@@ -130,40 +129,56 @@ class NODE_OT_add_vertex(Operator2DBase):
             return {'CANCELLED'}
 
         draw_manager.clear()
-        collect_unique_instances({pattern})
         spline_points_size = len(edge.spline_points)
         console.info("old edge:", edge.vertex0.co, edge.vertex1.co, [p.co for p in edge.spline_points])
-        for ins in pattern.instances:
-            v_index = ins.add_vertex(temp_point.co)
-            e = ins.edges[edge_index]
-            e.handle1.co = handle_a.co
-            e.handle2.co = handle_b.co
-            handle_type = "ALIGNED" if not is_straight_line else "VECTOR"
-            new_edge = ins.add_edge(v_index, e.vertex_index[1],
+        # One Sketch per instance chain: the split is written once. This panel
+        # meshes from it now; the other readers of the Sketch were marked by the
+        # write and rebuild when a consumer asks them for a mesh.
+        v_index = pattern.add_vertex(temp_point.co)
+        # Adding to a collection retires every wrapper it handed out before, so
+        # each edge is read back by its place after the write that moved it: the
+        # old edge is written before the new one exists, and both are read again
+        # after that.
+        e = pattern.edges[edge_index]
+        old_end = int(e.vertex_index[1])
+        old_end_type = e.handle2_type
+        e.handle1.co = handle_a.co
+        e.handle2.co = handle_b.co
+        handle_type = "ALIGNED" if not is_straight_line else "VECTOR"
+        new_edge = pattern.add_edge(v_index, old_end,
                                     control1=handle_c.co, control2=handle_d.co,
-                                    handle1_type=handle_type, handle2_type=e.handle2_type,
+                                    handle1_type=handle_type, handle2_type=old_end_type,
                                     update=False)
-            if not is_bz:
-                for i in range(insert_at_final, spline_points_size):
-                    sp = new_edge.spline_points.add()
-                    sp.co = e.spline_points[i].co
-                for i in range(insert_at_final, spline_points_size).__reversed__():
-                    e.spline_points.remove(i)
+        if not is_bz:
+            e = pattern.edges[edge_index]
+            new_edge = pattern.edges[len(pattern.edges) - 1]
+            for i in range(insert_at_final, spline_points_size):
+                point = new_edge.spline_points.add()
+                point.get_temp_data()
+                point.co = e.spline_points[i].co
+            for i in range(insert_at_final, spline_points_size).__reversed__():
+                e.spline_points.remove(i)
+            # Both collections were rewritten, and adding or removing retires the
+            # wrappers they handed out before: the map has to name the ones they
+            # hold now, or a pick cannot read the control points back.
+            pattern.refresh_collection_uuid(e.spline_points)
+            pattern.refresh_collection_uuid(new_edge.spline_points)
 
+        e = pattern.edges[edge_index]
+        e.handle2_type = handle_type
+        e.vertex_index[1] = v_index
+        if edge_index + 2 != len(pattern.edges):
+            pattern.edges.move(len(pattern.edges) - 1, edge_index + 1)
+        pattern.refresh_collection_uuid(pattern.vertices)
+        pattern.refresh_collection_uuid(pattern.edges)
 
-            console.info("new edge1:", e.vertex0.co, e.vertex1.co, [p.co for p in e.spline_points])
-            console.info("new edge2:", new_edge.vertex0.co, new_edge.vertex1.co, [p.co for p in new_edge.spline_points])
-
-            e.handle2_type = handle_type
-            e.vertex_index[1] = v_index
-            if edge_index + 2 != len(ins.edges):
-                ins.edges.move(len(ins.edges) - 1, edge_index + 1)
-            ins.refresh_collection_uuid(ins.vertices)
-            ins.refresh_collection_uuid(ins.edges)
-
-            ins.recreate_sections()
-            ins.forced_update()
-            ins.generate_mesh()
+        # One Sketch serves the whole instance chain, so the new point is one
+        # edit for every member: the Sketch builds each of their meshes.
+        pattern.require_sketch().rebuild_meshes()
+        # The outline changed, so the finder the tools snap against is stale:
+        # without this the next click snaps to the shape that used to be there,
+        # and its offsets no longer fit the edges the panel has now.
+        project.clear_edge_finder()
         p = pattern.vertices[len(pattern.vertices) - 1]
         p.get_temp_data()
         project.selected_vertices.clear()

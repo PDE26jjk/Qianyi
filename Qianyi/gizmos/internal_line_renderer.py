@@ -10,6 +10,7 @@ from mathutils import Matrix
 
 from .base_renderer import BaseRenderer
 from .. import global_data
+from ..model.model_data import owner_pattern
 
 from ..utilities.coords_transform import create_2d_matrix, create_2d_matrix_invert
 
@@ -26,7 +27,8 @@ class InternalLineRenderer(BaseRenderer):
 
     @property
     def pattern(self):
-        return self.line.pattern
+        """The panel that owns the Sketch the line lives in, or None."""
+        return owner_pattern(self.line)
 
     @property
     def line(self):
@@ -44,10 +46,12 @@ class InternalLineRenderer(BaseRenderer):
             {"pos": spline_points},
         )
 
-    def draw_edges(self, color=(1.0, 1.0, 1.0, 0.5)):
+    def draw_edges(self, color=(1.0, 1.0, 1.0, 0.5), pattern=None):
+        """Draw this line for one panel; `pattern` is the member to draw it in."""
         if not self.batch_edge:
             self.update_batch_edge(self.pattern.render_points)
-        if not self.pattern:
+        pattern = pattern if pattern is not None else self.pattern
+        if not pattern:
             return
         # self.pattern.update_render_points()
         # 设置GPU状态
@@ -55,7 +59,7 @@ class InternalLineRenderer(BaseRenderer):
         # gpu.state.depth_test_set('NONE')
 
         self.shader.bind()
-        transform_matrix = self.pattern.calc_matrix()
+        transform_matrix = pattern.calc_matrix()
 
         # self.shader.uniform_float("ModelMatrix", transform_matrix)
         self.update_model_matrix(transform_matrix)

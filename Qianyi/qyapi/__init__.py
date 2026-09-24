@@ -36,8 +36,8 @@ Projects: ``qyapi.projects.list()``, ``active()``, ``create()``, ``activate()``,
 Panels: ``qyapi.patterns.list()``, ``get()``, ``points()``, ``create()``,
 ``set_point()``, ``add_point()``, ``remove_point()``, ``set_handle()``,
 ``add_spline_point()``, ``remove_spline_point()``, ``add_internal_line()``,
-``remove_internal_line()``, ``transform()``, ``copy()``, ``remove()``,
-``validate()``, ``fabrics()``, ``assign_fabric()``.
+``remove_internal_line()``, ``transform()``, ``copy()``, ``detach()``,
+``remove()``, ``validate()``, ``fabrics()``, ``assign_fabric()``.
 Sewings: ``qyapi.sewings.list()``, ``of()``, ``sew()``, ``sew_at()``,
 ``set_color()``, ``remove()``.
 Generators: ``qyapi.generators.list()``, ``get()``, ``create()``,
@@ -136,6 +136,9 @@ _ENTRY_POINTS = (
     ("patterns.copy(name, mirror=False, anchor=None)",
      "copy the panel as an instance or a mirror",
      "mirror: bool, anchor: [x, y] (mm)"),
+    ("patterns.detach(name)",
+     "give one panel a Sketch of its own; the other members stay linked",
+     "no arguments"),
     ("patterns.remove(names)", "remove panels; a generated panel is refused here",
      "names: one name or a list (str | list)"),
     ("patterns.validate(names=None)", "test the outlines now and report the crossing ones",
@@ -236,14 +239,20 @@ PROJECT   one Blender node tree of type QianyiNodeTree (bpy.data.node_groups)
           .name, .patterns, .sewings, .fabrics, .generators
           reached from qyapi.state(), or by scanning bpy.data.node_groups
 
-PATTERN   one 2D outline in its own space, in metres
-          .name, .vertices, .edges, .internal_lines, .fabric, .granularity (mm),
-          .collision_layer, .mesh_object, .anchor, .rotation, .grain_dir,
+SKETCH    the drawn geometry of one instance chain, in the panel's own space
+          .vertices, .edges, .internal_lines
+          One Sketch serves every member of a chain; patterns.detach() gives one
+          panel a Sketch of its own.
+
+PATTERN   one panel: its own identity and settings, and the derived data taken
+          from the Sketch it reads
+          .name, .sketch, .fabric, .granularity (mm), .collision_layer,
+          .mesh_object, .anchor, .rotation, .grain_dir,
           .validity_state (unknown | valid | invalid)
     VERTEX         .co  (x, y)
     EDGE           .vertex_index (two indices), .handle1, .handle2,
                    .handle1_type, .handle2_type (VECTOR is a straight edge)
-    INTERNAL LINE  .edges, .pattern (a cut inside the outline)
+    INTERNAL LINE  .edges, .sketch, .is_hole (a cut inside the outline)
 
 SEWING    one seam between two pattern edges
           .side1 and .side2, each a (edge, position on that edge in 0..1) pair

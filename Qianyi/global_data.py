@@ -14,6 +14,21 @@ uuid2obj = {}
 # and batch update on the data path is guarded by it.
 renderers_enabled = True
 
+# Ids for the pick pass. One Sketch element is on screen once per pattern of its
+# instance chain, so a pick cannot read the element's own uuid back: each
+# (pattern, element) pair draws with an id of its own, generated here so two
+# patterns never share one. The range is high enough to stay clear of the uuids
+# the identity map hands out at random, and every value fits the four bytes the
+# pass packs an id into.
+pick_id_counter = 1_000_000_000
+
+
+def new_pick_id() -> int:
+    """One fresh id for one (pattern, element) pair."""
+    global pick_id_counter
+    pick_id_counter += 1
+    return pick_id_counter
+
 
 def get_obj_by_uuid(uuid, check_uuid=True, check_valid=False):
     if uuid in uuid2obj:

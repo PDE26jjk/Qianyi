@@ -5,7 +5,6 @@ from bpy.types import Context
 from bpy.utils import register_classes_factory
 from mathutils import Vector
 
-from ..model.pattern_instance import collect_unique_instances
 from ..model import pattern
 from ..model.internal_line import InternalLine
 from ..model.pattern import Pattern
@@ -97,36 +96,29 @@ class NODE_OT_internal_line_create_by_pen(Operator2DBase, StateOperator):
             self.return_state = ReturnState.CANCELLED
             return
         pattern = self.pattern
-        collect_unique_instances({pattern})
-        # The line goes to every panel of the instance list, by index - which
-        # only means the same line while the chain's lines have not drifted.
-        # A copy that lost a line would take this one at a different index.
-        drifted = [ins.name for ins in pattern.instances
-                   if len(ins.internal_lines) != len(pattern.internal_lines)]
-        if drifted:
-            self.report(
-                {'ERROR'},
-                f"{', '.join(drifted)} "
-                f"{'does not share' if len(drifted) == 1 else 'do not share'} "
-                f"{pattern.name}'s internal lines - detach or rebuild "
-                f"{'it' if len(drifted) == 1 else 'them'} before drawing one")
-            self.return_state = ReturnState.CANCELLED
-            return
         # View coordinates to pattern space once, then let the model layer write
-        # the same line into every panel of the instance list.
+        # the line. One Sketch serves the whole instance chain, so the line is
+        # written once; this panel meshes from it and the other readers of the
+        # Sketch were marked by the write. The panel is the one this pen was
+        # started on - the panel under the pointer then, or the selected one -
+        # which is the space the points were drawn in.
+        panel = pattern
         segments = []
         for mc in state.moving_curves:
             segments.append({
-                "p0": pattern.view_to_pattern_pos(mc.vertex0.co),
-                "p1": pattern.view_to_pattern_pos(mc.vertex1.co),
-                "h1": pattern.view_to_pattern_pos(mc.handle1.co),
-                "h2": pattern.view_to_pattern_pos(mc.handle2.co),
+                "p0": panel.view_to_pattern_pos(mc.vertex0.co),
+                "p1": panel.view_to_pattern_pos(mc.vertex1.co),
+                "h1": panel.view_to_pattern_pos(mc.handle1.co),
+                "h2": panel.view_to_pattern_pos(mc.handle2.co),
                 "h1_type": mc.handle1_type,
                 "h2_type": mc.handle2_type,
             })
-        for ins in pattern.instances:
-            ins.add_internal_line(segments, is_loop=state.circle)
-            ins.generate_mesh()
+        pattern.add_internal_line(segments, is_loop=state.circle)
+        # One Sketch serves the whole instance chain, so the line is one edit
+        # for every member: the Sketch builds each of their meshes.
+        pattern.require_sketch().rebuild_meshes()
+        # The outline's samples grew a line, so the finder is stale.
+        self.project.clear_edge_finder()
 
     def handle_failure(self, context, state: IState):
         self.return_state = ReturnState.CANCELLED

@@ -7,6 +7,7 @@ from gpu_extras.batch import batch_for_shader
 from mathutils import Matrix
 
 from ..utilities.console import console
+from ..model.model_data import owner_pattern
 from .base_renderer import BaseRenderer
 from .moving_curve import MovingCurve
 from .. import global_data
@@ -65,12 +66,16 @@ class CurveRenderer(BaseRenderer):
             {"pos": lines},
         )
 
-    def draw(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0, draw_id=False):
+    def draw(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0, draw_id=False, pattern=None):
         """
         Args:
             color: 颜色 (R, G, B, A)
             thickness: 线宽
             draw_id: draw_id
+            pattern: the panel to draw this edge for. An edge serves the whole
+                instance chain, so it is drawn once per member, and each draw
+                needs that member's transform; left out, the panel that owns the
+                edge's Sketch (the chain's first member) is used.
         """
         if not self.edge:
             return
@@ -82,7 +87,9 @@ class CurveRenderer(BaseRenderer):
         else:
             gpu.state.blend_set('ALPHA')
 
-        pattern = self.edge.pattern
+        pattern = pattern if pattern is not None else owner_pattern(self.edge)
+        if pattern is None:
+            return
 
         # gpu.state.depth_test_set('NONE')
         gpu.state.line_width_set(thickness)
@@ -94,12 +101,23 @@ class CurveRenderer(BaseRenderer):
         self.shader.uniform_float("color", color)
         self.batch.draw(self.shader)
 
-    def draw_instances(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0):
+    def draw_instances(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0,
+                       handles=False, handle_color=(0.0, 1.0, 0.0, 1.0)):
+        """Draw this edge once for every member of its instance chain.
+
+        `handles` also draws the handles of each member, where that member is:
+        a preview that moves a handle has to show it on every panel the edge is
+        drawn on, and drawing them once would put them on the member that owns
+        the Sketch and nowhere else.
+        """
         if not self.edge:
             return
         if not self.batch:
             self.update_batch()
-        patterns = self.edge.pattern.instances
+        owner = owner_pattern(self.edge)
+        if owner is None:
+            return
+        patterns = owner.sketch_members()
         if not patterns:
             return
 
@@ -112,8 +130,16 @@ class CurveRenderer(BaseRenderer):
             transform_matrix = pattern.calc_matrix()
             self.update_model_matrix(transform_matrix)
             self.batch.draw(self.shader)
+            if handles:
+                self.draw_handles(handle_color, thickness, pattern=pattern)
 
-    def draw_handles(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0, draw_id=False):
+    def draw_handles(self, color=(1.0, 1.0, 1.0, 0.5), thickness=1.0, draw_id=False,
+                     pattern=None, handle_ids=None):
+        """Draw an edge's handles, for `pattern` when one is given.
+
+        `handle_ids` are the ids to draw the two handle points with in the pick
+        pass; they come from the panel, because each member draws its own pair.
+        """
         if not self.edge:
             return
         if not self.batch:
@@ -125,7 +151,9 @@ class CurveRenderer(BaseRenderer):
             gpu.state.blend_set('ALPHA')
 
         edge = self.edge
-        pattern = edge.pattern
+        pattern = pattern if pattern is not None else owner_pattern(edge)
+        if pattern is None:
+            return
 
         # gpu.state.depth_test_set('NONE')
         gpu.state.line_width_set(thickness)
@@ -141,13 +169,17 @@ class CurveRenderer(BaseRenderer):
         self.shader.uniform_float("color", (1, 1, 1, 1))
         if edge.handle1_type != "VECTOR":
             if draw_id:
+                identifier = (handle_ids[0] if handle_ids is not None
+                              and handle_ids[0] is not None else edge.handle1.global_uuid)
                 self.shader.uniform_float("color",
-                                          global_data.temp_draw_manager.index_to_rgb(edge.handle1.global_uuid))
+                                          global_data.temp_draw_manager.index_to_rgb(identifier))
             self.handle1_point_batch.draw(self.shader)
         if edge.handle2_type != "VECTOR":
             if draw_id:
+                identifier = (handle_ids[1] if handle_ids is not None
+                              and handle_ids[1] is not None else edge.handle2.global_uuid)
                 self.shader.uniform_float("color",
-                                          global_data.temp_draw_manager.index_to_rgb(edge.handle2.global_uuid))
+                                          global_data.temp_draw_manager.index_to_rgb(identifier))
             self.handle2_point_batch.draw(self.shader)
 
 

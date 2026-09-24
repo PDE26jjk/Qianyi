@@ -18,6 +18,7 @@ from .points_renderer import PointsRenderer
 from ..utilities.coords_transform import create_2d_matrix, region2view_coord
 from .. import global_data
 from ..model.geometry import Edge2D, Vertex2D
+from ..model.model_data import owner_pattern
 from ..model.pattern import Pattern
 from ..utilities.node_tree import get_active_node_tree
 from .GizmosMeshRenderer import MeshRenderer
@@ -35,6 +36,25 @@ SELECTED_PATTERN_LINE_WIDTH = 3.0
 SELECTED_EDGE_COLOR = (1.0, 1.0, 0.0, 1.0)
 SELECTED_VERTEX_COLOR = (1.0, 1.0, 0.0, 1.0)
 DIMMED_SELECTION_ALPHA = 0.35
+
+
+def handles_visible(edge) -> bool:
+    """Whether an edge's handles are drawn - and so also pickable.
+
+    The edge is selected, or one of the points it owns is: a handle and a spline
+    point are moved through the handles of the edge they belong to, so selecting
+    one of them has to keep that edge's handles on screen. Asking only the edge
+    left them undrawn the moment the click moved the selection onto a point, so
+    the second handle of a corner could not be picked any more.
+    """
+    if edge.is_selected:
+        return True
+    for point in (*edge.handles, *edge.spline_points):  # loop: this edge's points
+        if point.is_selected:
+            return True
+    return False
+
+
 # The point a tool would act on, drawn under the pointer while the tool is
 # active: the same idea as the add-vertex tool's preview, for the tools that
 # pick a point of the outline instead of an edge.
@@ -74,6 +94,9 @@ class TempDrawManager:
         self.mouse_location = None
         # Points a tool wants drawn: (panel uuid, point in that panel's space).
         self.tool_points = []
+        # The tool that drew them: a preview belongs to the tool that made it, and
+        # switching tools has to take it off the screen, which nothing else does.
+        self.tool_owner = ""
         # Line segments a tool wants drawn, in view space.
         self.tool_lines: List[Line] = []
         # One polyline a tool wants drawn, in view space: a whole outline is one
@@ -82,6 +105,17 @@ class TempDrawManager:
         # Set while a tool's modal gesture owns the preview: the tool's own
         # cursor preview then leaves it alone.
         self.preview_locked = False
+        # What the id pass drew, id by id: the pair of a panel and one of its
+        # elements. An edge is shared by every member of its chain, so the pass
+        # draws it once per member and each draw carries that member's own id -
+        # the pair is what a pick reads back, and an element on its own never
+        # says which member was under the pointer.
+        self.pick_of_id = {}
+        # (panel, kind, element) under the pointer, as of the last id pass the
+        # pointer read; "kind" is "edge", "vertex", "spline_point", "handle1" or
+        # "handle2". A tool that reacts to a click reads it here, and the
+        # selection turns it into the active panel.
+        self.hover_pick = None
         # Projection of the project's silhouette objects, drawn behind the
         # panels. Built lazily: a GPU shader cannot be created before the draw
         # callback has a context.
@@ -119,6 +153,14 @@ class TempDrawManager:
         self.tool_lines.clear()
         self.tool_polyline = None
 
+    @staticmethod
+    def active_tool_id() -> str:
+        """The id of the tool the node editor has active, or "" if unknown."""
+        try:
+            return getattr(bpy.context.workspace.tools.from_space_node(), "idname", "") or ""
+        except Exception:
+            return ""
+
     def set_tool_points(self, entries) -> None:
         """Show the points a tool is working with.
 
@@ -126,6 +168,7 @@ class TempDrawManager:
         the colour the point is drawn in: ``"hover"`` for what a click would
         take, ``"pivot"`` and ``"target"`` for the points a gesture has taken.
         """
+        self.tool_owner = self.active_tool_id()
         self.tool_points = [(pattern.global_uuid,
                              (float(point[0]), float(point[1])), kind)
                             for pattern, point, kind in entries if pattern is not None]
@@ -139,6 +182,7 @@ class TempDrawManager:
 
     def add_tool_line(self, point1, point2) -> None:
         """Add one view-space segment to the tool's own preview."""
+        self.tool_owner = self.active_tool_id()
         line = Line()
         line.set_points(point1, point2)
         self.tool_lines.append(line)
@@ -151,6 +195,7 @@ class TempDrawManager:
 
     def set_tool_polyline(self, points) -> None:
         """Show one polyline as the tool's preview, in view space."""
+        self.tool_owner = self.active_tool_id()
         self.tool_polyline = [tuple(point) for point in points]
 
     @staticmethod
@@ -252,12 +297,52 @@ class TempDrawManager:
         u = ((r << 24) | (g << 16) | (b << 8) | a)
         return ctypes.c_int32(u).value
 
+    def picked_pattern(self):
+        """The panel under the pointer, or None.
+
+        A tool that has to know which member of a chain the pointer is over asks
+        here, and the answer is what the id pass drew - a panel and one of its
+        elements are one pair there. Nothing asks an element which panel it
+        belongs to: an edge is shared by the whole chain, so that question has
+        no single answer.
+        """
+        pick = self.hover_pick
+        return pick[0] if pick is not None else None
+
+    def draw_edge_for_pick(self, pattern, edge, renderer, width=10.0):
+        """Draw one edge for one panel, with the id that panel gave the pair.
+
+        An edge is drawn once per member of its chain, each with that member's
+        transform and its own id, so the pointer reads back the member it is
+        over instead of whichever member happened to be drawn last.
+        """
+        own = pattern.pick_id("edge", edge)
+        self.pick_of_id[own] = (pattern, "edge", edge.global_uuid)
+        renderer.draw(self.index_to_rgb(own), width, draw_id=True, pattern=pattern)
+
+    def resolve(self, index):
+        """What the last id pass drew at one id: (pattern, kind, element).
+
+        None when the id is not one this pass drew - the field behind a panel,
+        or a value left over from an older pass.
+        """
+        entry = self.pick_of_id.get(index)
+        if entry is None:
+            return None
+        pattern, kind, element_uuid = entry
+        element = global_data.get_obj_by_uuid(element_uuid, False)
+        if element is None:
+            return None
+        return pattern, kind, element
+
     uniform_color_shader = None
 
     def draw_id(self, context):
         region = context.region
         # create offscreen
         width, height = region.width, region.height
+        # One pass, one table: what a pick reads back is what this pass drew.
+        self.pick_of_id = {}
         if self.region_width != width or self.region_height != height or self.id_texture is None:
             self.region_width = width
             self.region_height = height
@@ -278,8 +363,12 @@ class TempDrawManager:
                 for p in patterns:
                     p: Pattern
                     if p.need_render_update:
+                        # The pass needs the lines as they are to draw their
+                        # ids; the flag stays set, because the draw that follows
+                        # rebuilds the points and the spline points as well.
+                        # Clearing it here left those two stale until the next
+                        # unrelated edit.
                         p.update_render_line()
-                        p.need_render_update = False
                     if qmyi.edit_mode == "PATTERN":
                         if p.mesh_renderer is not None:
                             p.mesh_renderer.draw_fill_mesh(self.index_to_rgb(p.global_uuid), True)
@@ -290,22 +379,41 @@ class TempDrawManager:
                             if e.renderer is None:
                                 e.need_update_points = True
                                 e.update()
-                            e.renderer.draw(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
-                            if e.is_selected:
-                                e.renderer.draw_handles(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
+                            self.draw_edge_for_pick(p, e, e.renderer, 10.)
+                            if handles_visible(e):
+                                handle_ids = []
+                                for slot, (kind, handle_type) in enumerate(
+                                        (("handle1", e.handle1_type),
+                                         ("handle2", e.handle2_type))):
+                                    if handle_type == "VECTOR":
+                                        handle_ids.append(None)
+                                        continue
+                                    handle = e.handle1 if slot == 0 else e.handle2
+                                    own = p.pick_id(kind, handle)
+                                    self.pick_of_id[own] = (p, kind, handle.global_uuid)
+                                    handle_ids.append(own)
+                                e.renderer.draw_handles(
+                                    self.index_to_rgb(handle_ids[0] if handle_ids[0]
+                                                      is not None else e.global_uuid),
+                                    10., draw_id=True, pattern=p,
+                                    handle_ids=tuple(handle_ids))
                             for sp in e.spline_points:
                                 sp.get_temp_data()
-                                points_renderer.add_point(p, sp, self.index_to_rgb(sp.global_uuid))
+                                own = p.pick_id("spline_point", sp)
+                                self.pick_of_id[own] = (p, "spline_point", sp.global_uuid)
+                                points_renderer.add_point(p, sp, self.index_to_rgb(own))
 
                         for v in p.vertices:
                             v: Vertex2D
                             v.get_temp_data()
-                            points_renderer.add_point(p, v, self.index_to_rgb(v.global_uuid))
+                            own = p.pick_id("vertex", v)
+                            self.pick_of_id[own] = (p, "vertex", v.global_uuid)
+                            points_renderer.add_point(p, v, self.index_to_rgb(own))
                     elif qmyi.edit_mode == "SEWING":
                         if qmyi.edit_sub_mode == "ADD_SEWING1":
                             edges = [*p.edges, *(e for il in p.internal_lines for e in il.edges)]
                             for e in edges:
-                                e.renderer.draw(self.index_to_rgb(e.global_uuid), 10., draw_id=True)
+                                self.draw_edge_for_pick(p, e, e.renderer, 10.)
                         else:
                             sewings = node_tree.sewings
                             gpu.state.line_width_set(10.0)
@@ -326,18 +434,31 @@ class TempDrawManager:
         hover = context.scene.qmyi.hover_object
         if shader is None or edge1 is None or not isinstance(hover, Edge2D):
             return
-        if hover.global_uuid == edge1.global_uuid or self.mouse_location is None:
+        if self.mouse_location is None:
             return
         point1 = project.selected_sewing_point1
         if point1 is None:
             return
-        point2 = hover.pattern.view_to_pattern_pos(
-            region2view_coord(context, self.mouse_location))
+        # The first side named its panel when it was clicked; the second side is
+        # the one under the pointer, which the id pass is the only thing that can
+        # say - the edge is shared by the whole chain.
+        panel1 = project.selected_sewing_pattern1 or owner_pattern(edge1)
+        panel2 = self.picked_pattern() or owner_pattern(hover)
+        if panel1 is None or panel2 is None:
+            return
+        if (hover.global_uuid == edge1.global_uuid
+                and panel1.global_uuid == panel2.global_uuid):
+            # The pointer is back on the edge the first click chose, on the same
+            # member: that is not a second side, so there is nothing to join.
+            # The same edge of *another* member is a seam - two instances sewn
+            # to each other along the one edge they share - and it is drawn.
+            return
+        point2 = panel2.view_to_pattern_pos(region2view_coord(context, self.mouse_location))
         first_half, second_half = sewing_half_directions(edge1, point1, hover, point2)
         start1, end1 = first_half[0], first_half[1]
         start2, end2 = second_half[0], second_half[1]
-        pattern1 = edge1.pattern
-        pattern2 = hover.pattern
+        pattern1 = panel1
+        pattern2 = panel2
         positions = [
             pattern1.pattern_to_view_pos(edge_point_at(edge1, start1)),
             pattern2.pattern_to_view_pos(edge_point_at(hover, start2)),
@@ -371,13 +492,19 @@ class TempDrawManager:
             try:
                 obj = qmyi.hover_object
                 # offset = [0., 0.]
-                p = None
-                if hasattr(obj, 'pattern'):
-                    # offset = obj.pattern.anchor
-                    p = obj.pattern
-                elif hasattr(obj, 'anchor'):
-                    # offset = obj.anchor
-                    p = obj
+                # The panel the pointer is over: the id pass recorded which
+                # member drew it, which the element itself cannot say - an edge
+                # is shared by its whole chain.
+                p = self.picked_pattern()
+                if p is None:
+                    if hasattr(obj, 'anchor'):
+                        # A panel is drawn in its own space.
+                        # offset = obj.anchor
+                        p = obj
+                    else:
+                        # A geometry element is drawn in the space of the panel
+                        # that owns the Sketch it lives in.
+                        p = owner_pattern(obj)
                 if p is None:
                     if isinstance(obj, SewingOneSide):  # why false?
                         # if obj.__class__.__name__ == "SewingOneSide":
@@ -435,6 +562,14 @@ class TempDrawManager:
         draw_start_time = start_time
         qmyi = context.scene.qmyi
 
+        if self.tool_points or self.tool_lines or self.tool_polyline:
+            active = self.active_tool_id()
+            if active and self.tool_owner and active != self.tool_owner:
+                # The preview on screen was drawn by a tool the editor no longer
+                # has active: the tool that made it is not the one being used, so
+                # nothing would ever replace or clear it.
+                self.clear_tool_preview()
+
         if self.uniform_color_shader is None:
             self.uniform_color_shader = gpu.shader.from_builtin('UNIFORM_COLOR')
         shader = self.uniform_color_shader
@@ -469,7 +604,6 @@ class TempDrawManager:
                 break
         # console.info("-------------------")
         # for p in project.patterns:
-        #     console.info(p.path_from_id(), p.global_uuid, p.instance_next_uuid, p.name)
 
         # console.info(f"temp lines: {(time.time() - start_time) * 1000}")
         # start_time = time.time()
@@ -523,7 +657,9 @@ class TempDrawManager:
             if p.is_invalid and p.invalid_point is not None:
                 p.line_renderer.draw_invalid_marker(p.invalid_point)
             for il in p.internal_lines:
-                il.renderer.draw_edges(color=line_color)
+                # Each member draws the one shared line, with its own transform:
+                # the line belongs to the Sketch, so a copy shows it too.
+                il.renderer.draw_edges(color=line_color, pattern=p)
             if p.is_selected:
                 # A panel selected in the pattern mode keeps its selection
                 # outline in the other modes - dimmed, so the mode the user is
@@ -563,16 +699,36 @@ class TempDrawManager:
         dimmed_points_renderer = PointsRenderer()
         edge_selection_color = (SELECTED_EDGE_COLOR if in_edge_mode
                                 else dimmed_selection_color(SELECTED_EDGE_COLOR))
+        # The panels that read each Sketch, in one pass over the project: an
+        # element of a Sketch is on screen once per member of its chain, so the
+        # highlight is drawn for each of them with that member's transform.
+        members_of = {}
+        for panel in project.patterns:  # loop: one list per Sketch
+            if panel.sketch_uuid == -1:
+                continue
+            members_of.setdefault(int(panel.sketch_uuid), []).append(panel)
         for obj in project.get_selected_objects_by_mode("EDGE", strict=False):
+            owner = owner_pattern(obj)
+            members = members_of.get(int(owner.sketch_uuid), []) if owner is not None else []
             if isinstance(obj, Edge2D):
-                obj.renderer.draw(edge_selection_color, 3 if in_edge_mode else 2)
-                if in_edge_mode:
-                    obj.renderer.draw_handles((0, 1, 0, 1), 2)
+                for member in members:
+                    obj.renderer.draw(edge_selection_color, 3 if in_edge_mode else 2,
+                                      pattern=member)
+                    if in_edge_mode:
+                        obj.renderer.draw_handles((0, 1, 0, 1), 2, pattern=member)
             elif isinstance(obj, Vertex2D):
-                if in_edge_mode:
-                    points_renderer.add_point(obj.pattern, obj)
-                else:
-                    dimmed_points_renderer.add_point(obj.pattern, obj)
+                for member in members:
+                    if in_edge_mode:
+                        points_renderer.add_point(member, obj)
+                        # A handle or a control point is moved through the
+                        # handles of the edge it belongs to, so they are drawn
+                        # while it is selected - the handle itself shows what it
+                        # is attached to instead of floating on its own.
+                        parent = obj.get_parent()
+                        if isinstance(parent, Edge2D) and in_edge_mode:
+                            parent.renderer.draw_handles((0, 1, 0, 1), 2, pattern=member)
+                    else:
+                        dimmed_points_renderer.add_point(member, obj)
         if in_edge_mode and qmyi.edit_sub_mode in ("ADD_VERTEX", "ADD_SPLINE_POINT"):
             if project.nearest_point is not None:
                 points_renderer.add_point(project.patterns[project.nearest_pattern], project.nearest_point)
@@ -589,13 +745,27 @@ class TempDrawManager:
             if qmyi.edit_sub_mode == "ADD_SEWING1":
                 # console.info("edge1",project.selected_sewing_edge1)
                 if project.selected_sewing_edge1 is not None:
-                    project.selected_sewing_edge1.renderer.draw(color=(0.2, 0.8, 0.8, 1), thickness=10.0)
+                    # The highlight goes on the member the first click was made
+                    # on: the edge is shared by its chain, and the chain's owner
+                    # is not necessarily the panel the pointer was over.
+                    project.selected_sewing_edge1.renderer.draw(
+                        color=(0.2, 0.8, 0.8, 1), thickness=10.0,
+                        pattern=project.selected_sewing_pattern1)
                     self.draw_sewing_direction_preview(context, project)
         else:
             # The seams selected in the sewing mode are still selected here:
-            # draw those chains dimmed instead of hiding them.
-            selected_sewings = project.get_selected_objects_by_mode("SEWING",
-                                                                    strict=False)
+            # draw those chains dimmed instead of hiding them. The selection
+            # holds the sides a seam was drawn with - that is what the pick
+            # answers - so each entry is read as the seam it belongs to, and each
+            # seam once however many of its sides are selected.
+            selected_sewings = []
+            seen_sewings = set()
+            for side in project.get_selected_objects_by_mode("SEWING", strict=False):
+                sewing = side.sewing
+                if sewing is None or sewing.global_uuid in seen_sewings:
+                    continue
+                seen_sewings.add(sewing.global_uuid)
+                selected_sewings.append(sewing)
             if selected_sewings and self.last_edit_mode != qmyi.edit_mode:
                 for s in selected_sewings:
                     s.need_render_update = True
@@ -654,8 +824,11 @@ class TempDrawManager:
 
         if self.moving_curves:
             for mc in self.moving_curves:
-                mc.renderer.draw_instances((1, 1, 0, 1), 7)
-                mc.renderer.draw_handles((0, 1, 0, 1), 2)
+                # The handles come with the members: a drag that moves a handle
+                # has to show it where each member is drawn, not only on the one
+                # that owns the Sketch.
+                mc.renderer.draw_instances((1, 1, 0, 1), 7, handles=True,
+                                           handle_color=(0, 1, 0, 1))
 
         self.last_edit_mode = qmyi.edit_mode
 

@@ -9,7 +9,7 @@ by hand.
 
 ## What Changes
 
-- Add **Sketch**: the authored vector geometry of a panel - its vertices, edges,
+- Add **Sketch**: the authored vector geometry of a pattern - its vertices, edges,
   handles, spline points and internal lines - held once per instance chain,
   together with the editor's own draw points and the first section stage: the
   sections of every edge plus the pieces a crossing cuts them into, with the
@@ -21,11 +21,11 @@ by hand.
 - Replace the per-copy write convention with one contract: an edit writes the
   Sketch once, and the Sketch marks every Pattern that reads it; a consumer
   rebuilds a marked Pattern when it needs its derived data.
-- Make the section stage of a Sketch independent of a panel's granularity, so
+- Make the section stage of a Sketch independent of a pattern's granularity, so
   which pieces a sketch consists of is a property of the Sketch alone.
 - **BREAKING**: a copy no longer holds vector geometry of its own. Copying shares
   the Sketch; detaching gives one Pattern a private copy of it. Every place that
-  reaches a panel's vertices or edges - an operator, a panel, a script - goes
+  reaches a pattern's vertices or edges - an operator, a pattern, a script - goes
   through the Sketch.
 - **BREAKING**: nothing converts a scene saved by an earlier build. The two
   layers are what is saved and read; the add-on has not been released, so a scene
@@ -48,8 +48,8 @@ by hand.
 
 ## Impact
 
-- Model: a panel's own vertices, edges and internal lines move into a Sketch
-  object; the Sketch sends the signal and the panels carry the flags that follow
+- Model: a pattern's own vertices, edges and internal lines move into a Sketch
+  object; the Sketch sends the signal and the patterns carry the flags that follow
   from it.
 - Editing operators: every tool that changes topology writes the Sketch and
   stops there; the drift refusal and the per-member write loops disappear.

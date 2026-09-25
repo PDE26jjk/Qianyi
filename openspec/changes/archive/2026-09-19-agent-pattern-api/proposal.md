@@ -1,7 +1,7 @@
 ## Why
 
 The script surface covers the simulation and nothing else, so a client that has
-to add or change a panel today reaches into Blender data by hand and meets every
+to add or change a pattern today reaches into Blender data by hand and meets every
 sharp edge of the add-on at once: the identity map that undo and file loading
 clear, the mesh and the sewing stitches that are derived from the outline, the
 instance list that is a linked list, and the sewing remap a rebuild runs. It is
@@ -11,17 +11,17 @@ refreshed. An agent cannot be asked to know that.
 
 ## What Changes
 
-- Add panel authoring to the surface: create a panel from points, edit its
+- Add pattern authoring to the surface: create a pattern from points, edit its
   points, edge handles, spline points and internal lines, place it, copy it as an
   instance or a mirror, remove it, and read it back.
-- Add a read-back that answers the question an agent actually asks: a panel's
+- Add a read-back that answers the question an agent actually asks: a pattern's
   edges (index, label, type, endpoints, handles, spline points, length) and every
   sewing that touches it, plus a separate call for the point coordinates.
 - Add sewing control: create a seam between two edges with a direction flag,
   create one at explicit positions along the edges, recolour, remove and list.
-- Add parametric panels: create a generator from a library component with its
+- Add parametric patterns: create a generator from a library component with its
   parameters, change several parameters in one rebuild, detach, remove, and read
-  the parameter table and the panels a generator owns.
+  the parameter table and the patterns a generator owns.
 - Add the component library surface: list what the library offers, describe one
   component's parameters, build a component's outlines **without touching the
   scene**, and reload the user component folders. This is the environment the
@@ -45,11 +45,11 @@ m-to-n sewing, any new UI, and any engine or DP backend change.
 ### New Capabilities
 
 - `agent-pattern-authoring`: creating, editing, placing, copying, removing and
-  reading back panels, and the validation that keeps a broken outline away from
+  reading back patterns, and the validation that keeps a broken outline away from
   the mesh and the engine.
 - `agent-sewing-control`: creating, removing and listing sewings, the direction
-  flag, and reading the sewings of one panel.
-- `agent-panel-generators`: parametric panels from library components - the
+  flag, and reading the sewings of one pattern.
+- `agent-pattern-generators`: parametric patterns from library components - the
   component library surface, creating and rebuilding generators, detaching and
   removing their groups, and fabric assignment.
 
@@ -70,5 +70,5 @@ requirement changes.
   spline points) have no model-level function either. The operators keep working
   and call the extracted functions, so there is one implementation.
 - Unchanged: the pattern, sewing and mesh data models, the `.blend` format, the
-  simulation surface, every panel and the engine contract.
+  simulation surface, every pattern and the engine contract.
 - No new dependency: numpy, as bundled with Blender.

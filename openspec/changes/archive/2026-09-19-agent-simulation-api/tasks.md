@@ -45,7 +45,7 @@
 
 - [x] 8.1 Implement position read-back and verify the returned positions match the pattern meshes, the vertex count per pattern matches, and a read moves no vertex
 - [x] 8.2 Verify a non-finite position is reported as a count instead of failing the call (a NaN written into a simulated shape key comes back as one bad vertex)
-- [x] 8.3 Implement reset and verify a run started after a reset begins from the rest pose while panels, sewings and solver parameters are unchanged (every simulated shape key equals its rest key afterwards)
+- [x] 8.3 Implement reset and verify a run started after a reset begins from the rest pose while patterns, sewings and solver parameters are unchanged (every simulated shape key equals its rest key afterwards)
 - [x] 8.4 Implement metrics and verify the wall time and the substep and frame counts are present, and that no solver statistic appears when the engine reports none
 
 ## 9. Documentation
@@ -59,7 +59,7 @@
 ## 10. End-to-end and validation
 
 - [x] 10.1 Run an end-to-end headless script against the test scene: load, prepare, step a fixed number of substeps, read back, reset; verify the reported counts and that no entry point opened a dialog (50 checks, 0 failures, `tools/probe_agent_api.py`)
-- [ ] 10.2 Run the same script in a live session and verify the viewport shows the stepped result and that one undo reverts a scripted panel batch while leaving the simulated positions alone
+- [ ] 10.2 Run the same script in a live session and verify the viewport shows the stepped result and that one undo reverts a scripted pattern batch while leaving the simulated positions alone
 - [x] 10.3 Run `openspec validate agent-simulation-api --strict` and fix everything it reports
 
 ## 11. Notes from implementation

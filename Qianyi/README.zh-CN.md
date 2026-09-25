@@ -50,8 +50,8 @@
 
 - [x] 障碍物对象参与模拟，可设碰撞层，可按帧更新顶点。
 - [ ] 版片级状态：参与解算 / 不解算 / 冻结 / 硬化（塑化）——
-  `panel-states-and-display`。
-- [ ] 版片级刚度倍率，覆盖共享面料的数值 —— `panel-states-and-display`。
+  `pattern-states-and-display`。
+- [ ] 版片级刚度倍率，覆盖共享面料的数值 —— `pattern-states-and-display`。
 - [ ] 把当前褶皱烘焙进静止形状（塑化冻结）：引擎侧是 Qianyi_DP 的
   `cloth-plasticity` 变更，引擎落地后前端加按钮。
 - [ ] 真正的刚体版片（而不是刚度倍率）。
@@ -62,12 +62,12 @@
 
 - [x] 版片窗口绘制：轮廓、内部线、样条点、缝线、预选高亮、纱向、轮廓自交标记。
 - [x] 版片窗口显示模式：纯色、线框、网格、受力、debug ——
-  `panel-states-and-display`。
+  `pattern-states-and-display`。
 - [x] 3D 视口的受力与 debug 顶点着色，以覆盖层绘制在 Blender 自身渲染之上
-  —— `panel-states-and-display`。
-- [x] 3D 视口按缝合顶点对绘制缝线，带深度 —— `panel-states-and-display`。
+  —— `pattern-states-and-display`。
+- [x] 3D 视口按缝合顶点对绘制缝线，带深度 —— `pattern-states-and-display`。
 - [x] 人体剪影投影到版片窗口，作为对齐参考（按工程指定集合，1:1 投影并可叠加网格，
-  带缓存）—— `panel-states-and-display`。
+  带缓存）—— `pattern-states-and-display`。
 - [ ] 点与线的抗锯齿，以及重绘后仍生效的线宽控制。
 - [ ] 面料贴图与 UV 显示。
 
@@ -81,8 +81,8 @@
 - [ ] 导角：圆角、直线倒角、凹圆角一个点变两点 —— `pattern-editing-toolkit`。
 - [ ] 延展：以轴点旋转半个版片并补出张开的扇形 ——
   `pattern-editing-toolkit`。
-- [ ] 拖动曲线成形（按弧长拟合、只保留点：直线仍是直线、圆弧仍是贝塞尔、其余
-  落成样条）—— `pattern-editing-toolkit`。
+- [x] 拖动曲线成形：抓住边上任意一点拖，曲线跟着鼠标走、两端不动。直线与贝塞尔
+  只改两个手柄，样条只改已有的控制点；沿线拖动仍是直线。
 - [ ] 通用圆与圆环生成器 —— `pattern-editing-toolkit`。
 - [ ] 版片元素的复制与粘贴。
 - [ ] 测量工具：点、边与人体之间的距离和夹角。
@@ -108,6 +108,12 @@
 
 - [x] 1:1 缝线，两端位置自由、可跨多条连续边，可上色，方向由点击决定。
 - [x] 构件自带缝线，版片重建时按边标签与几何重映射。
+- [x] 自由绘制缝线：按住沿轮廓拖出第一半（起点吸附顶点与已有半边端点），
+  画第二半时吸附"与第一半等长"的位置并在预览里标出。
+- [x] 半边编辑：拖端点增长/缩短（吸附顶点、其它半边端点、对侧半边的等长点），
+  拖半边体则两端一起沿轮廓平移、各自吸附；一次拖动一步撤销。
+- [x] 两个半边无法配对（一条缝线的走查嵌在另一条里）时，把涉及的缝线标红、
+  其版片不生成 mesh 且禁止开始模拟，修好后自动恢复。
 - [ ] 多对多缝线：每侧是一组按绘制顺序与方向的半边，按长度比例对 section
   匹配 —— `pattern-editing-toolkit`。
 - [ ] 每条缝线自己的缝合参数（强度、针数），而不是全场景一个缝合刚度。
@@ -161,7 +167,7 @@
 
 ### 12. 质量、测试与文档
 
-- [x] 版片库的纯 CPU 单元测试（`python Qianyi/panellib/tests/run_tests.py`，
+- [x] 版片库的纯 CPU 单元测试（`python Qianyi/patternlib/tests/run_tests.py`，
   只依赖 numpy，不需要 Blender）。
 - [x] 轮廓自交检测，以及记录在 OpenSpec 变更里的缝线方向与相交探针。
 - [ ] 新命令与显示模式的回归测试，随功能一起落地。
@@ -174,15 +180,15 @@
 - 版片库测试（不需要 Blender，也不需要引擎）：
 
   ```bash
-  python Qianyi/panellib/tests/run_tests.py
+  python Qianyi/patternlib/tests/run_tests.py
   ```
 
 - 设计工作用 OpenSpec 跟踪：
 
   ```bash
   openspec list
-  openspec status --change panel-states-and-display
-  openspec validate panel-states-and-display --strict
+  openspec status --change pattern-states-and-display
+  openspec validate pattern-states-and-display --strict
   ```
 
 - 约定：代码注释与需要归档的公开文件用英文；数值计算用 numpy 向量化而不是

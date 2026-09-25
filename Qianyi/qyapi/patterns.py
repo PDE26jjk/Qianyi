@@ -1,8 +1,8 @@
-"""Panels: create, read, edit, place, copy and remove them.
+"""Patterns: create, read, edit, place, copy and remove them.
 
-A panel's own 2D space is millimetres. Every write checks its arguments first,
+A pattern's own 2D space is millimetres. Every write checks its arguments first,
 then the outline it produced, and puts the changed value back when the outline
-is refused, so a call never leaves a panel in the state it was refused for.
+is refused, so a call never leaves a pattern in the state it was refused for.
 """
 
 from __future__ import annotations
@@ -15,16 +15,16 @@ from ..model.pattern import VALIDITY_INVALID
 
 
 def list(project=None):  # noqa: A001 - the surface's name for this call
-    """Every panel of the project, with its counts and whether it is generated."""
+    """Every pattern of the project, with its counts and whether it is generated."""
     project = address.project_or_refuse(project)
-    panels = []
-    for position, pattern in enumerate(project.patterns):  # loop: one dict per panel
-        panels.append(_summary(pattern, position))
-    return address.jsonify({"project": project.name, "panels": panels})
+    patterns = []
+    for position, pattern in enumerate(project.patterns):  # loop: one dict per pattern
+        patterns.append(_summary(pattern, position))
+    return address.jsonify({"project": project.name, "patterns": patterns})
 
 
 def get(name, project=None):
-    """One panel: its summary, its edge table and the sewings that touch it."""
+    """One pattern: its summary, its edge table and the sewings that touch it."""
     project = address.project_or_refuse(project)
     pattern = address.pattern_or_refuse(project, name)
     entry = _summary(pattern, None)
@@ -40,22 +40,22 @@ def get(name, project=None):
 
 
 def points(name, project=None):
-    """The panel's outline vertices, in millimetres, in vertex order."""
+    """The pattern's outline vertices, in millimetres, in vertex order."""
     project = address.project_or_refuse(project)
     pattern = address.pattern_or_refuse(project, name)
     values = [[float(vertex.co[0]), float(vertex.co[1])] for vertex in pattern.vertices]
-    return address.jsonify({"panel": pattern.name, "count": len(values), "points": values})
+    return address.jsonify({"pattern": pattern.name, "count": len(values), "points": values})
 
 
 def create(points, name=None, granularity_mm=None, fabric=None, allow_crossing=False,
            project=None):
-    """Create a closed, counter-clockwise panel from points in millimetres.
+    """Create a closed, counter-clockwise pattern from points in millimetres.
 
-    The loop is closed here: there is no open-panel form. ``granularity_mm`` is
+    The loop is closed here: there is no open-pattern form. ``granularity_mm`` is
     the sampling ceiling, and ``fabric`` is a fabric name or None for the
     project's default. A name that is taken gets the add-on's suffix.
     ``allow_crossing`` lets this one call store an outline that crosses itself;
-    such a panel gets no mesh until the outline is fixed.
+    such a pattern gets no mesh until the outline is fixed.
     """
     project = address.project_or_refuse(project)
     outline = address.clean_points(points)
@@ -81,20 +81,20 @@ def create(points, name=None, granularity_mm=None, fabric=None, allow_crossing=F
     if pattern.mesh_object is None:
         if not allow_crossing:
             # The mesh stage refused what the quick check accepted: leave
-            # nothing behind rather than a panel without a mesh.
+            # nothing behind rather than a pattern without a mesh.
             project.remove_patterns([pattern], expand_groups=False)
             raise QyapiError("the mesh stage refused that outline",
                              ("a crossing or degenerate outline is never meshed",))
-        # Allowed: the panel stays without a mesh until its outline is fixed.
+        # Allowed: the pattern stays without a mesh until its outline is fixed.
 
-    address.write_done(f"create panel {pattern.name}")
+    address.write_done(f"create pattern {pattern.name}")
     entry = _summary(pattern, len(project.patterns) - 1)
     entry["requested_name"] = requested
     return address.jsonify(entry)
 
 
 def set_point(name, index, xy, allow_crossing=False, project=None):
-    """Move one of the panel's vertices, in millimetres."""
+    """Move one of the pattern's vertices, in millimetres."""
     project = address.project_or_refuse(project)
     pattern = address.pattern_or_refuse(project, name)
     index = _vertex_index(pattern, index)
@@ -278,7 +278,7 @@ def add_internal_line(name, points, is_hole=False, closed=False, project=None):
     def write(member):
         line = member.add_internal_line(segments, is_loop=bool(closed))
         line.is_hole = bool(is_hole)
-        # The line lives in the panel's Sketch, so one call wrote it for the
+        # The line lives in the pattern's Sketch, so one call wrote it for the
         # whole instance chain; the Sketch builds each member's mesh.
         member.require_sketch().rebuild_meshes()
 
@@ -295,7 +295,7 @@ def remove_internal_line(name, index, project=None):
     pattern = address.pattern_or_refuse(project, name)
     index = int(index)
     if not 0 <= index < len(pattern.internal_lines):
-        raise QyapiError(f"panel {pattern.name!r} has {len(pattern.internal_lines)} "
+        raise QyapiError(f"pattern {pattern.name!r} has {len(pattern.internal_lines)} "
                          f"internal lines",
                          (f"index {index} is out of range",))
     members = _chain_members(pattern)
@@ -308,7 +308,7 @@ def remove_internal_line(name, index, project=None):
 
 def transform(name, anchor=None, rotation=None, grain_dir=None, collision_layer=None,
               mirror=None, project=None):
-    """Place the panel: anchor (millimetres), angles (radians), layer and mirror."""
+    """Place the pattern: anchor (millimetres), angles (radians), layer and mirror."""
     project = address.project_or_refuse(project)
     pattern = address.pattern_or_refuse(project, name)
     if anchor is not None:
@@ -322,58 +322,58 @@ def transform(name, anchor=None, rotation=None, grain_dir=None, collision_layer=
     if mirror is not None:
         pattern.is_mirror = bool(mirror)
         pattern.generate_mesh()
-    address.write_done(f"place panel {pattern.name}")
+    address.write_done(f"place pattern {pattern.name}")
     return address.jsonify(_edit_result(pattern, "transform"))
 
 
 def copy(name, mirror=False, anchor=None, project=None):
-    """Copy the panel as an instance (or a mirror) at an anchor, in millimetres."""
+    """Copy the pattern as an instance (or a mirror) at an anchor, in millimetres."""
     project = address.project_or_refuse(project)
     pattern = address.pattern_or_refuse(project, name)
     if anchor is not None:
         anchor = address.clean_point(anchor, "the anchor")
     new_pattern = pattern.copy_pattern(as_instance=True, mirror=bool(mirror),
                                        project=project, anchor=anchor)
-    address.write_done(f"copy panel {pattern.name}")
+    address.write_done(f"copy pattern {pattern.name}")
     entry = _summary(new_pattern, len(project.patterns) - 1)
     entry["source"] = pattern.name
     return address.jsonify(entry)
 
 
 def remove(names, project=None):
-    """Remove panels and report what went with them."""
+    """Remove patterns and report what went with them."""
     project = address.project_or_refuse(project)
     if isinstance(names, str):
         names = [names]
     targets = [address.pattern_or_refuse(project, name) for name in names]
-    for pattern in targets:  # loop: one generator check per panel
+    for pattern in targets:  # loop: one generator check per pattern
         if int(pattern.generator_uuid) != -1:
             raise QyapiError(
                 f"{pattern.name!r} comes from a generator, and removing it would "
                 f"take its whole group",
-                ("qyapi.generators.detach() turns the group into ordinary panels",
+                ("qyapi.generators.detach() turns the group into ordinary patterns",
                  "qyapi.generators.remove() removes the group"))
     before = len(project.sewings)
     removed = [pattern.name for pattern in targets]
     project.remove_patterns(targets, expand_groups=False)
     after = len(project.sewings)
-    address.write_done(f"remove panel(s) {', '.join(removed) or '(none)'}")
+    address.write_done(f"remove pattern(s) {', '.join(removed) or '(none)'}")
     return address.jsonify({"removed": removed, "dropped_sewings": before - after,
-                            "panels_left": len(project.patterns)})
+                            "patterns_left": len(project.patterns)})
 
 
 def detach(name, project=None):
-    """Give one panel a Sketch of its own, leaving the other members together.
+    """Give one pattern a Sketch of its own, leaving the other members together.
 
     A chain reads one Sketch, so its members cannot hold different geometry; a
-    panel that is to be edited on its own is detached first. The panel keeps the
+    pattern that is to be edited on its own is detached first. The pattern keeps the
     shape the chain has now, and the members that stayed linked keep reading the
     Sketch they had.
     """
     project = address.project_or_refuse(project)
     pattern = address.pattern_or_refuse(project, name)
     report = pattern.detach()
-    address.write_done(f"detach panel {pattern.name}")
+    address.write_done(f"detach pattern {pattern.name}")
     return address.jsonify(report)
 
 
@@ -387,16 +387,16 @@ def validate(names=None, project=None):
     else:
         targets = [address.pattern_or_refuse(project, name) for name in names]
     result = []
-    for pattern in targets:  # loop: one outline test per panel
+    for pattern in targets:  # loop: one outline test per pattern
         state = pattern.validate(force=True)
         crossing = pattern.invalid_point
         result.append({
-            "panel": pattern.name,
+            "pattern": pattern.name,
             "valid": state != VALIDITY_INVALID,
             "crossing": None if crossing is None
             else [float(crossing[0]), float(crossing[1])],
         })
-    return address.jsonify({"panels": result})
+    return address.jsonify({"patterns": result})
 
 
 def fabrics(project=None):
@@ -407,7 +407,7 @@ def fabrics(project=None):
 
 
 def assign_fabric(name, fabric, project=None):
-    """Give a panel a fabric by name."""
+    """Give a pattern a fabric by name."""
     project = address.project_or_refuse(project)
     pattern = address.pattern_or_refuse(project, name)
     pattern.fabric = address.fabric_or_refuse(project, fabric)
@@ -425,8 +425,8 @@ def _summary(pattern, position):
     entry = {
         "name": pattern.name,
         "index": position,
-        # The two layers: the Sketch a panel reads its geometry from, and this
-        # panel's own derived state. A chain reports one Sketch and one entry
+        # The two layers: the Sketch a pattern reads its geometry from, and this
+        # pattern's own derived state. A chain reports one Sketch and one entry
         # per member.
         "sketch": sketch.name if sketch is not None else None,
         "vertices": len(pattern.vertices),
@@ -471,7 +471,7 @@ def _edge_table(pattern):
 def _vertex_index(pattern, index):
     index = int(index)
     if not 0 <= index < len(pattern.vertices):
-        raise QyapiError(f"panel {pattern.name!r} has {len(pattern.vertices)} vertices",
+        raise QyapiError(f"pattern {pattern.name!r} has {len(pattern.vertices)} vertices",
                          (f"index {index} is out of range",))
     return index
 
@@ -494,7 +494,7 @@ def _proposed_vertices(pattern, index, point):
 
 
 def _chain_members(pattern):
-    """The panel and the copies that share its Sketch.
+    """The pattern and the copies that share its Sketch.
 
     There is nothing to compare: a chain holds one Sketch, so its members cannot
     hold different geometry. `members` is still the list every caller needs, for
@@ -519,7 +519,7 @@ def _refresh(pattern):
 
 
 def _outline_error(pattern):
-    """Why the panel's outline is unusable now, or None."""
+    """Why the pattern's outline is unusable now, or None."""
     if pattern.validate(force=True) == VALIDITY_INVALID:
         crossing = pattern.invalid_point
         where = "" if crossing is None else f" near ({crossing[0]:.3f}, {crossing[1]:.3f})"
@@ -540,7 +540,7 @@ def _finish(project, pattern, members, restore=None, allow_crossing=False):
 
     With ``allow_crossing`` the outline test still runs, but a crossing outline
     is kept and reported instead of put back, and the meshes are not built: the
-    mesh stage refuses a crossing outline anyway, so the panels keep theirs.
+    mesh stage refuses a crossing outline anyway, so the patterns keep theirs.
     """
     for member in members:  # loop: the derived data of every copy
         _refresh(member)
@@ -600,7 +600,7 @@ def _edges_at_vertex(pattern, index):
         raise QyapiError(f"the point is not on the outline of {pattern.name!r}",
                          ("a point joins exactly two edges in a closed outline",))
     if previous is next_edge:
-        raise QyapiError("that panel is too small to lose a point")
+        raise QyapiError("that pattern is too small to lose a point")
     return previous, next_edge, previous_index, next_index
 
 
@@ -672,7 +672,7 @@ def _drop_internal_line(pattern, index):
     pattern.refresh_collection_uuid(pattern.vertices)
     pattern.refresh_collection_uuid(pattern.edges)
     pattern.mark_geometry_changed()
-    # The line lived in the panel's Sketch, so its removal is one edit for the
+    # The line lived in the pattern's Sketch, so its removal is one edit for the
     # whole instance chain: the Sketch builds each member's mesh.
     pattern.require_sketch().rebuild_meshes()
 

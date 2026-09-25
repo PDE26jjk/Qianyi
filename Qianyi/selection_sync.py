@@ -3,18 +3,18 @@
 Off by default; the header carries one toggle for it, the way the UV editor and
 the outliner do. With it on:
 
-* selecting a panel's mesh in the 3D viewport selects that panel in the pattern
-  editor, and deselects the panels that are no longer selected;
-* selecting a panel in the pattern editor (or a row of them) selects their
+* selecting a pattern's mesh in the 3D viewport selects that pattern in the pattern
+  editor, and deselects the patterns that are no longer selected;
+* selecting a pattern in the pattern editor (or a row of them) selects their
   meshes in the 3D viewport;
 * clearing either side clears the other.
 
-Exactly the panels that are selected are mirrored, one for one: an instance copy
-is a convenience for editing the same panel twice, not a selection unit, so
+Exactly the patterns that are selected are mirrored, one for one: an instance copy
+is a convenience for editing the same pattern twice, not a selection unit, so
 selecting one member of an instance chain leaves the others alone.
 
 Only pattern meshes take part: a collider or any other object is left exactly as
-it was, and a panel with no mesh yet has nothing to select in 3D.
+it was, and a pattern with no mesh yet has nothing to select in 3D.
 
 The two sides are polled from one timer rather than hooked to a depsgraph
 handler, because a pure selection change does not reliably run a handler and the
@@ -64,26 +64,26 @@ def active_project(context=None, qmyi=None):
 
 
 def selected_3d_uuids(context) -> frozenset:
-    """Every selected pattern mesh, as a set of panel uuids."""
+    """Every selected pattern mesh, as a set of pattern uuids."""
     uuids = set()
     for obj in context.selected_objects:
         props = getattr(obj, "qmyi_simulation_props", None)
         if obj.type != 'MESH' or props is None or not props.is_pattern_mesh:
             continue
-        # The uuid comes straight off the mesh: a mesh whose panel was removed
-        # cannot be synced, and asking for the panel object would raise.
+        # The uuid comes straight off the mesh: a mesh whose pattern was removed
+        # cannot be synced, and asking for the pattern object would raise.
         uuids.add(props.pattern_uuid)
     return frozenset(uuids)
 
 
 def selected_2d_uuids(project) -> frozenset:
-    """Every panel selected in the pattern editor."""
+    """Every pattern selected in the pattern editor."""
     return frozenset(pattern.global_uuid for pattern in project.patterns
                      if pattern.is_selected)
 
 
 def apply_to_patterns(project, uuids) -> int:
-    """Select exactly these panels in the pattern editor; returns how many."""
+    """Select exactly these patterns in the pattern editor; returns how many."""
     # The operators read the uuid cache, so it has to be filled before it is
     # used - a session that just loaded a file has an empty identity map.
     project.refresh_collection_uuid(project.patterns)
@@ -100,7 +100,7 @@ def apply_to_patterns(project, uuids) -> int:
 
 
 def apply_to_objects(context, project, uuids) -> int:
-    """Select the meshes of exactly these panels in the 3D viewport."""
+    """Select the meshes of exactly these patterns in the 3D viewport."""
     view_layer = context.view_layer
     wanted = set()
     active = None

@@ -27,7 +27,7 @@ class InternalLineRenderer(BaseRenderer):
 
     @property
     def pattern(self):
-        """The panel that owns the Sketch the line lives in, or None."""
+        """The pattern that owns the Sketch the line lives in, or None."""
         return owner_pattern(self.line)
 
     @property
@@ -47,10 +47,11 @@ class InternalLineRenderer(BaseRenderer):
         )
 
     def draw_edges(self, color=(1.0, 1.0, 1.0, 0.5), pattern=None):
-        """Draw this line for one panel; `pattern` is the member to draw it in."""
+        """Draw this line for one pattern; `pattern` is the member to draw it in."""
         if not self.batch_edge:
             self.update_batch_edge(self.pattern.render_points)
-        pattern = pattern if pattern is not None else self.pattern
+        if pattern is None:
+            pattern = self.pattern
         if not pattern:
             return
         # self.pattern.update_render_points()

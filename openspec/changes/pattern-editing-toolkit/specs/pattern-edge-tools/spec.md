@@ -2,7 +2,7 @@
 
 Gives the pattern editor the edge commands a pattern maker drafts with -
 dividing an edge, reshaping a corner, opening a fan, and dragging a curve - so
-panels can be built and corrected inside the add-on instead of being drafted
+patterns can be built and corrected inside the add-on instead of being drafted
 elsewhere and imported.
 
 ## ADDED Requirements
@@ -24,7 +24,7 @@ cap, keeping the closest fit it found.
 
 - **WHEN** a straight edge of 100 mm is divided into four parts
 - **THEN** four straight pieces of 25 mm are written, the outline's shape and
-  area are unchanged, and the panel meshes at the same granularity
+  area are unchanged, and the pattern meshes at the same granularity
 
 #### Scenario: Divide a curved edge by arc length
 
@@ -47,12 +47,12 @@ cap, keeping the closest fit it found.
 
 ### Requirement: Points closer than the merge threshold are merged
 
-The project SHALL carry one merge threshold, independent of any panel's
+The project SHALL carry one merge threshold, independent of any pattern's
 granularity, and a command SHALL merge a point it produced with an existing
 point when the two are closer than that threshold instead of creating a second
 point there. A division whose pieces would be shorter than the threshold SHALL
 reduce its part count instead, and every such reduction SHALL be in the report.
-Existing panels SHALL NOT be repaired by this rule; it applies only to the
+Existing patterns SHALL NOT be repaired by this rule; it applies only to the
 geometry a command is producing.
 
 #### Scenario: A cut point lands on a vertex
@@ -81,7 +81,7 @@ it once, within the same tolerance.
 
 - **WHEN** an edge is divided into four parts
 - **THEN** three vertices are added at the quarter points of its arc length, the
-  outline's shape and area are unchanged, and the panel meshes at the same
+  outline's shape and area are unchanged, and the pattern meshes at the same
   granularity
 
 #### Scenario: Divide a chain
@@ -98,7 +98,7 @@ it once, within the same tolerance.
 
 #### Scenario: Instance chain follows
 
-- **WHEN** a panel that has copies is divided
+- **WHEN** a pattern that has copies is divided
 - **THEN** every member of the instance chain receives the same division - the
   outline and the internal lines alike - and stays index-aligned with its source
 
@@ -141,7 +141,7 @@ it.
 
 ### Requirement: An instance chain shares its internal lines
 
-A copy of a panel SHALL carry the panel's internal lines, index-aligned with
+A copy of a pattern SHALL carry the pattern's internal lines, index-aligned with
 their source, and an edit of an internal line SHALL be written to the matching
 line of every member of the instance chain. A chain whose members disagree
 about a line - one missing it, or holding a different number of edges for it -
@@ -149,20 +149,20 @@ SHALL be refused by name until the drifted copy is detached or rebuilt.
 
 #### Scenario: A copy carries the lines
 
-- **WHEN** a panel that has internal lines is copied
+- **WHEN** a pattern that has internal lines is copied
 - **THEN** the copy holds the same lines, in the same order, with the same
   edge counts
 
 #### Scenario: A line edit reaches every copy
 
-- **WHEN** an internal line is drawn on, divided on, or removed from a panel
+- **WHEN** an internal line is drawn on, divided on, or removed from a pattern
   that has copies
 - **THEN** every member of the instance chain receives the same change to its
   matching line
 
 #### Scenario: A drifted chain is refused
 
-- **WHEN** a command that edits a chain is asked to run on a panel whose copy
+- **WHEN** a command that edits a chain is asked to run on a pattern whose copy
   is missing an internal line, or whose copy's line holds a different number of
   edges
 - **THEN** the command is refused and names the copy that has drifted
@@ -176,9 +176,9 @@ SHALL place two points on the adjacent edges at the tangent length for the
 requested radius, joined by a tangent arc in `ROUND`, by a straight edge in
 `CHAMFER`, and by the mirrored arc in `CONCAVE`. All three remove material, and
 the amount grows from `ROUND` to `CHAMFER` to `CONCAVE`, whose arc lies on the
-panel's side of the chord between the two points and therefore cuts the whole
+pattern's side of the chord between the two points and therefore cuts the whole
 circular sector out of the corner. The same tangent length serves a reflex
-corner, where the arc lands on the notch's side of the corner and the panel
+corner, where the arc lands on the notch's side of the corner and the pattern
 therefore gains the same figure instead of losing it. The editor SHALL refuse a
 radius whose tangent length does not fit the adjacent edges, naming the largest
 radius that fits. The largest radius SHALL leave at least the command's edge
@@ -186,7 +186,7 @@ margin - 5 mm - at each end of the edges it trims, and within that range the
 outline keeps the vertices and the edges it had and gains only the one vertex
 and the one edge the treatment adds. The outline SHALL stay a single closed
 loop. The command's edge margin SHALL be the command's own constant,
-independent of any panel's mesh sampling size.
+independent of any pattern's mesh sampling size.
 
 A single corner pulled past the largest radius SHALL merge instead: each side
 whose tangent length has reached that side's own far vertex is consumed - its
@@ -199,7 +199,7 @@ for a self-crossing like any other. Merging SHALL work on one corner at a time.
 
 - **WHEN** a right-angle corner with 50 mm edges is rounded with a 10 mm radius
 - **THEN** the corner is replaced by an arc of that radius tangent to both
-  edges, the panel area decreases by the corner area, and the outline is still
+  edges, the pattern area decreases by the corner area, and the outline is still
   a single closed loop
 
 #### Scenario: Chamfer the same corner
@@ -212,7 +212,7 @@ for a self-crossing like any other. Merging SHALL work on one corner at a time.
 
 - **WHEN** the same corner is hollowed with the same radius
 - **THEN** the arc is inserted on the other side of the chord, so the boundary
-  cuts into the panel and the area falls by the circular sector of that radius
+  cuts into the pattern and the area falls by the circular sector of that radius
   and interior angle
 
 #### Scenario: Radius too large for a run of corners
@@ -220,7 +220,7 @@ for a self-crossing like any other. Merging SHALL work on one corner at a time.
 - **WHEN** several corners are selected and a radius larger than the adjacent
   edges allow is requested
 - **THEN** the command is refused, the largest fitting radius is reported, and
-  the panel is unchanged
+  the pattern is unchanged
 
 #### Scenario: The largest radius
 
@@ -261,7 +261,7 @@ for a self-crossing like any other. Merging SHALL work on one corner at a time.
 
 - **WHEN** a vertex where the outline turns outward is rounded
 - **THEN** the two points are placed the same tangent length along the adjacent
-  edges, the arc between them lies in the notch, and the panel gains the material
+  edges, the arc between them lies in the notch, and the pattern gains the material
   the arc covers
 
 #### Scenario: A corner of an internal line
@@ -278,10 +278,10 @@ for a self-crossing like any other. Merging SHALL work on one corner at a time.
 - **THEN** the command is refused, because the vertex belongs to two chains and
   there is no single corner to treat
 
-### Requirement: An edge can be extended by rotating one half of the panel about a pivot
+### Requirement: An edge can be extended by rotating one half of the pattern about a pivot
 
 The editor SHALL take a pivot point and a target point on the outline, the
-distance between them being the radius, and SHALL divide the panel by the chord
+distance between them being the radius, and SHALL divide the pattern by the chord
 between them. It SHALL rotate the half on the chosen side of the radius rigidly
 about the pivot by a requested angle that starts at zero and never closes, and
 SHALL fill what opens with the sector that has the pivot as its apex, the radius
@@ -291,11 +291,11 @@ centred on the pivot with the radius, running from the target point to its
 rotated image. The area SHALL increase by the sector's area. No internal line
 SHALL be created for either radius. A radius that lies along the outline - both
 points on one edge, with no material on either side of it - SHALL be refused,
-because it does not divide the panel into two halves.
+because it does not divide the pattern into two halves.
 
 #### Scenario: Open a measured fan
 
-- **WHEN** the pivot is at the corner of a panel, the target is on another edge
+- **WHEN** the pivot is at the corner of a pattern, the target is on another edge
   and the fan is opened by 30 degrees
 - **THEN** a new arc edge of radius 60 mm and 30 degrees is added, the half on
   the rotating side moves rigidly with it, no other vertex of that half is
@@ -313,7 +313,7 @@ because it does not divide the panel into two halves.
 - **THEN** the points the gesture took are drawn in their own colours, the
   radius between them is drawn with an arrowhead, and the outline the command
   would leave behind is drawn as a whole, so what is judged is the resulting
-  panel and not only the arc
+  pattern and not only the arc
 
 #### Scenario: The click that starts the tool
 
@@ -325,7 +325,7 @@ because it does not divide the panel into two halves.
 #### Scenario: Zero angle
 
 - **WHEN** the fan is opened by zero degrees
-- **THEN** the panel is unchanged, other than being resewn where the split
+- **THEN** the pattern is unchanged, other than being resewn where the split
   changed an edge
 
 #### Scenario: Refusals
@@ -333,13 +333,13 @@ because it does not divide the panel into two halves.
 - **WHEN** the pivot or the target is not on the outline, or the chord between
   them crosses the outline, or the radius lies along the outline, or the result
   crosses itself
-- **THEN** the command is refused with the reason and the panel is unchanged
+- **THEN** the command is refused with the reason and the pattern is unchanged
 
 #### Scenario: The angle is adjustable afterwards
 
 - **WHEN** the angle is changed in Blender's adjust-last-operation panel after a
   fan was opened
-- **THEN** the panel is rebuilt from its pre-operation state with the new angle,
+- **THEN** the pattern is rebuilt from its pre-operation state with the new angle,
   rather than a second sector being added
 
 ### Requirement: A curve can be edited through points
@@ -353,7 +353,7 @@ and it SHALL store no centre, radius or sweep on the edge.
 
 - **WHEN** a straight edge is dragged off its line
 - **THEN** the edge becomes a curve through the dragged position, its ends stay
-  where they were, and the panel area changes with the curve
+  where they were, and the pattern area changes with the curve
 
 #### Scenario: Drag an existing curve
 

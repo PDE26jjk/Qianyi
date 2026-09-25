@@ -22,10 +22,10 @@ See proposal.md for motivation. The measurements that shape the approach:
   one and shows up as a blank row until it is set.
 - `active_project_index` indexes `bpy.data.node_groups`, which can also hold node
   trees that are not projects.
-- The mesh stage already refuses a crossing outline and keeps the panel's
+- The mesh stage already refuses a crossing outline and keeps the pattern's
   previous mesh; a crossing outline that reaches the sampler leaves an illegal
   memory access in the 2D BVH that surfaces on the next engine call (measured
-  earlier in this project), and `sim.prepare()` already refuses crossing panels.
+  earlier in this project), and `sim.prepare()` already refuses crossing patterns.
 - The geometry writes refuse in two ways today: a vertex-list crossing is caught
   before anything is written, while a handle or spline change that only crosses
   after sampling is written, tested, and put back on failure (measured: the
@@ -41,7 +41,7 @@ See proposal.md for motivation. The measurements that shape the approach:
 - One addressable name per project, with the editor's own list kept in step.
 - Crossing outlines as a per-call choice for a caller that is building a shape.
 - Honest reporting: an answer says when it left a crossing outline and when the
-  panel's mesh is therefore stale.
+  pattern's mesh is therefore stale.
 
 **Non-Goals:**
 
@@ -69,7 +69,7 @@ surface reads).
 
 Creating a project makes the node tree, gives the project and its default fabric
 their identities, names them, and selects it. The identity step is the one that
-matters: it is invisible until the first panel call raises an assertion, which is
+matters: it is invisible until the first pattern call raises an assertion, which is
 exactly the kind of gap this surface exists to close.
 
 *Alternatives*: leaving the identity work to the caller (the measured
@@ -88,7 +88,7 @@ keep.
 *Alternatives*: reporting the property and the datablock key as two names a
 caller may use (two rules, one of which cannot be maintained); leaving the
 property empty and addressing only by list position (a project with no name in
-the panel, and an address that moves when the list is reordered).
+the pattern, and an address that moves when the list is reordered).
 
 ### D4 - `allow_crossing` is a per-call argument
 
@@ -106,14 +106,14 @@ surface must not change what the UI does).
 ### D5 - The mesh and simulation gates do not move
 
 Allowing a crossing outline allows the *data* to be crossing. The mesh stage
-still refuses to sample it (the panel keeps the mesh it had) and a simulation
+still refuses to sample it (the pattern keeps the mesh it had) and a simulation
 still refuses to start on it: that is the difference between an intermediate
 shape and a mesh the engine can be handed, and the engine's failure mode there is
 a CUDA fault, not an exception.
 
-### D6 - The answers say what state the panel was left in
+### D6 - The answers say what state the pattern was left in
 
-Every write answer carries the panel's `outline_validity`, the crossing point
+Every write answer carries the pattern's `outline_validity`, the crossing point
 when one is known, and `mesh_stale` - true when the mesh was not rebuilt because
 the outline is invalid. A read answers the same way, computed from the cached
 validity, so a caller that picks up a scene can see it without asking for an
@@ -129,17 +129,17 @@ flag; with it off the restore stays exactly as it is.
 ### D8 - The generator rebuild keeps its own policy, and only reports better
 
 `apply_generator` already writes the geometry, lets the mesh stage keep the
-previous mesh when the outline crosses or is degenerate, and counts those panels
-(`invalid_panels`, `degenerate_panels`). That is the same policy as this change,
+previous mesh when the outline crosses or is degenerate, and counts those patterns
+(`invalid_patterns`, `degenerate_patterns`). That is the same policy as this change,
 reached from the other side, so the rebuild gains no `allow_crossing` argument
 and no refusal: adding either would make a parameter change stricter than it is
 today and break rebuilds that currently work. What it does gain is the reporting
-the pattern answers get - which panels were left invalid, and that their meshes
+the pattern answers get - which patterns were left invalid, and that their meshes
 were not rebuilt - so a caller reading the report can see the same thing.
 
 ## Risks / Trade-offs
 
-- A crossing panel is a trap for the next call: its mesh is stale, it cannot be
+- A crossing pattern is a trap for the next call: its mesh is stale, it cannot be
   simulated, and a build that forgets to fix it looks finished -> the answer says
   so every time, `validate()` reports it, and `sim.prepare()` refuses by name.
 - The two names can still diverge if a user renames the datablock in the outliner
@@ -147,7 +147,7 @@ were not rebuilt - so a caller reading the report can see the same thing.
 - `allow_crossing=True` on the two topology edits (`add_point`, `remove_point`)
   can leave a shape the mesh stage will not touch for a long time -> documented,
   and the worked example fixes the outline in the next call.
-- Removing a project takes its panels and sewings with it -> the answer reports
+- Removing a project takes its patterns and sewings with it -> the answer reports
   the counts and does not ask (the earlier decision for removals).
 - The flag makes it easy to build a scene that cannot simulate -> `validate()` is
   documented as the step before `sim.prepare()`.
@@ -162,7 +162,7 @@ were not rebuilt - so a caller reading the report can see the same thing.
 ## Open Questions
 
 - Whether `projects.remove` should refuse while the simulation surface is bound
-  to a panel of that project; deferrable, because the simulation refuses a scene
-  whose panels are gone anyway.
+  to a pattern of that project; deferrable, because the simulation refuses a scene
+  whose patterns are gone anyway.
 - Whether `create` should accept an initial component (a project that starts with
   a generator) - a convenience, not a requirement.

@@ -16,9 +16,9 @@ class SectionRaw:
     The first stage is topology: which piece of which edge runs from one place on
     it to another, whether a crossing left it outside the outline, and the links
     that make a walk along the chain cheap. A raw piece carries no segment count,
-    no sample offset and no mesh offset, because those belong to the panel that
-    samples it and a panel must not write to a piece it shares with its copies.
-    A panel clones a raw chain into `Section` objects of its own
+    no sample offset and no mesh offset, because those belong to the pattern that
+    samples it and a pattern must not write to a piece it shares with its copies.
+    A pattern clones a raw chain into `Section` objects of its own
     (`Section.from_raw`), and every sampled field lives there.
     """
 
@@ -27,7 +27,7 @@ class SectionRaw:
         self.end_pos = end_pos
         # The edge is carried by identity and not by reference: an edit that
         # replaces an edge - a divide, a corner merge - leaves the copies of the
-        # panels that were not rebuilt holding the wrapper they were cut from,
+        # patterns that were not rebuilt holding the wrapper they were cut from,
         # and that wrapper can by then name a different edge. `edge` resolves
         # the identity the way every other cross-reference in the model does.
         self.edge_uuid = edge.global_uuid
@@ -80,14 +80,14 @@ class Section:
         self.io_state = 0
         self.outsize = False  # outsize of pattern
         self.continuous = False
-        # Where this piece sits in the panel that owns it: (the outline's None or
+        # Where this piece sits in the pattern that owns it: (the outline's None or
         # an internal line's index, the edge's index). The Sketch's raw stage has
-        # no use for it; a panel's copy is found again by it.
+        # no use for it; a pattern's copy is found again by it.
         self.edge_key = None
-        # The panel this piece belongs to, when it is a panel's own copy: a split
-        # tells it about the piece it produced, so the panel's per-edge list and
+        # The pattern this piece belongs to, when it is a pattern's own copy: a split
+        # tells it about the piece it produced, so the pattern's per-edge list and
         # its samples stay in step with the chain.
-        self.panel_uuid = -1
+        self.pattern_uuid = -1
 
     @property
     def edge(self):
@@ -95,19 +95,19 @@ class Section:
         return global_data.get_obj_by_uuid(self.edge_uuid, check_uuid=False)
 
     @property
-    def panel(self):
-        """The panel whose copy this piece is, or None when it is gone."""
-        if self.panel_uuid == -1:
+    def pattern(self):
+        """The pattern whose copy this piece is, or None when it is gone."""
+        if self.pattern_uuid == -1:
             return None
-        return global_data.get_obj_by_uuid(self.panel_uuid, check_uuid=False)
+        return global_data.get_obj_by_uuid(self.pattern_uuid, check_uuid=False)
 
-    @panel.setter
-    def panel(self, value):
-        self.panel_uuid = value.global_uuid if value is not None else -1
+    @pattern.setter
+    def pattern(self, value):
+        self.pattern_uuid = value.global_uuid if value is not None else -1
 
     @classmethod
     def from_raw(cls, raw) -> 'Section':
-        """A panel's own piece, cloned from one of the Sketch's raw spans.
+        """A pattern's own piece, cloned from one of the Sketch's raw spans.
 
         Only the span and the crossing marks come across: the segment count and
         the sample and mesh offsets are the sampling pass's, and start at their
@@ -140,7 +140,7 @@ class Section:
         split_pos = self.end_pos - cut if reverse else self.start_pos + cut
         new_sec = Section(self.edge, split_pos, self.end_pos)
         new_sec.edge_key = self.edge_key
-        new_sec.panel = self.panel
+        new_sec.pattern = self.pattern
         self.end_pos = split_pos
         # One splice for both directions: the new piece takes over the upper
         # half, this one keeps the lower half.
@@ -177,8 +177,8 @@ class Section:
             Section.link_sections.append(new_link_sections)
         new_sec.outsize = self.outsize
         new_sec.io_state = self.io_state
-        if self.panel is not None:
-            self.panel.register_piece(new_sec)
+        if self.pattern is not None:
+            self.pattern.register_piece(new_sec)
         return self, new_sec
 
     def split_pending(self, min_ratio=None):
@@ -186,7 +186,7 @@ class Section:
 
         `min_ratio` is how close to the piece before it a cut has to be before
         the two count as the same crossing. Left out, the value comes from the
-        panel this piece belongs to (a fraction of its granularity); a caller
+        pattern this piece belongs to (a fraction of its granularity); a caller
         that works on the authored geometry, which has no granularity, passes
         its own.
         """
@@ -195,11 +195,11 @@ class Section:
         abs_l = self.absolute_length()
         sec = self
         if min_ratio is None:
-            if self.panel is None:
+            if self.pattern is None:
                 raise ValueError(
-                    "a cut needs the panel this piece belongs to before it can "
+                    "a cut needs the pattern this piece belongs to before it can "
                     "measure itself against a granularity")
-            min_ratio = self.panel.granularity * 0.02 / abs_l
+            min_ratio = self.pattern.granularity * 0.02 / abs_l
         min_r = min_ratio
         last_r = 0
         end_pos = self.end_pos

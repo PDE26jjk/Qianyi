@@ -14,16 +14,16 @@
       verify nothing invents one for it
 - [x] 1.5 Remove the Sketch of a chain when its last Pattern is removed, and
       verify a probe that deletes the members one by one ends with no Sketch left
-- [x] 1.6 Give no geometry element an accessor that names a panel: a vertex, an
+- [x] 1.6 Give no geometry element an accessor that names a pattern: a vertex, an
       edge, a control point and an internal line answer for the Sketch they are
       stored in - `element.sketch`, resolved once from the element's own path
       and identity-checked (`resolve_sketch`) - and a caller that holds only the
-      element asks `owner_pattern` for the panel that owns that Sketch. An
-      element can no longer be read as a panel of its own (the `pattern`
+      element asks `owner_pattern` for the pattern that owns that Sketch. An
+      element can no longer be read as a pattern of its own (the `pattern`
       property, its `pattern_temp` and the generic "container" of an element are
       gone from `Vertex2D`, `Edge2D` and `InternalLine`), and none of them
       carries a write-back path that pretends otherwise. Verify by reading the
-      same panels back through `tools/probe_pattern_layers.py`, the model,
+      same patterns back through `tools/probe_pattern_layers.py`, the model,
       agent-api and section probes
 - [x] 1.7 Give every geometry element its identity when it is created, in the
       helpers that make one (`Sketch.add_vertex`, `Sketch.add_edge`,
@@ -41,11 +41,11 @@
       `global_uuid` read, 0.2 us) instead of a general "is this wrapper alive"
       helper built on `path_from_id` (0.003-1.1 ms, and it misses a wrapper a
       removal shifted onto another item). The temporary `is_live` helper is
-      gone: a panel a seam side names, a panel a piece belongs to and the edge a
-      piece was cut from are all resolved by uuid, so a removed panel and a
+      gone: a pattern a seam side names, a pattern a piece belongs to and the edge a
+      piece was cut from are all resolved by uuid, so a removed pattern and a
       replaced edge read back as None and the consumers skip them. A seam side
-      no longer asks the geometry which panel it is on - `add_sewing` records
-      the panel at creation (the edge's Sketch owner when the caller names
+      no longer asks the geometry which pattern it is on - `add_sewing` records
+      the pattern at creation (the edge's Sketch owner when the caller names
       none) and the side keeps that answer, so a file saved before sides
       recorded one is reported instead of silently re-homing. Verify with the
       section invariants, the toolkit chain, the seam marks and
@@ -53,7 +53,7 @@
 - [x] 1.9 Delete the instance list: `Pattern.instance_next_uuid`,
       `Pattern.other_instances()`, `collect_unique_instances` and the
       `Pattern.instances` slot are gone, and a chain is read from the Sketch -
-      the panels whose `sketch_uuid` is the one the panel names
+      the patterns whose `sketch_uuid` is the one the pattern names
       (`Pattern.sketch_members()`). The list was a second source of truth for
       something the Sketch already says, and its walk (`while p is not self`)
       had no guard: a chain a copy or a removal left pointing somewhere else
@@ -64,24 +64,24 @@
       the agent api's chain reads (70 checks)
 - [x] 1.10 Stop the topology tools walking the chain: divide, corner, fan,
       delete, add vertex, add spline point, the internal-line pen and the scale
-      tool write the Sketch and mesh the panel they were used on - the other
+      tool write the Sketch and mesh the pattern they were used on - the other
       readers of that Sketch were marked by the write and rebuild when a
       consumer asks them for a mesh. The move gesture keeps the members: it
       draws the whole chain while it drags, and the scale tool does the same for
-      the mesh pass because a panel whose placement did not move must not be
+      the mesh pass because a pattern whose placement did not move must not be
       left drawing a surface the size it used to be. Verify with
       `.agents/scratch/probe_add_vertex.py` (the click that used to freeze) and
       `.agents/scratch/probe_toolkit_chain.py`
       (superseded by 11.2: a member left marked kept drawing the shape that used
       to be there until something else meshed it, so the tools now go through
       the Sketch's own mesh rebuild and every member is meshed with the edit)
-- [x] 1.11 Pick a pair, not an element: the id pass records `(panel, element)`
-      per id and nothing collapses that back to one panel per element
+- [x] 1.11 Pick a pair, not an element: the id pass records `(pattern, element)`
+      per id and nothing collapses that back to one pattern per element
       (`pattern_for` and `pointed_pattern` are gone, and `pattern_of_id` with
       them). Selecting an element makes the member under the pointer the active
-      panel (`QianyiProject.active_pattern`), the tools that work in pattern
-      space read the active panel or the snap they were given, and the seam tool
-      stores the panel with each of its two clicks, so a seam between two
+      pattern (`QianyiProject.active_pattern`), the tools that work in pattern
+      space read the active pattern or the snap they were given, and the seam tool
+      stores the pattern with each of its two clicks, so a seam between two
       members of one chain names those two and not the chain's owner twice.
       Verify with `.agents/scratch/probe_sewing_clicks.py` and
       `.agents/scratch/probe_pick_table.py`
@@ -96,12 +96,12 @@
       `.agents/scratch/probe_add_vertex.py`, which clears the cache first so the
       tool runs the way a fresh session has it
 - [x] 1.13 Read the snap against the shape it was taken on: the edge finder
-      reports an index into a flat array of the panels' samples, and an edit
-      since that snapshot makes the index describe a shape the panels no longer
+      reports an index into a flat array of the patterns' samples, and an edit
+      since that snapshot makes the index describe a shape the patterns no longer
       have - which is what raised a KeyError in `get_nearest_point_data` when a
       vertex was added to one instance and then to another. The snapshot now
       carries the per-edge sample counts it was taken from, a lookup checks them
-      against the panels as they are (and rebuilds the finder and re-finds from
+      against the patterns as they are (and rebuilds the finder and re-finds from
       the pointer when they differ), and every tool that changes an outline
       clears the finder when it is done. Verify with
       `.agents/scratch/probe_add_vertex.py`, which puts the pre-edit snapshot
@@ -129,7 +129,7 @@
       line-to-line crossing, and verify a probe that draws a line across the
       outline reports the outline's and the line's new pieces at the crossing
 - [x] 2.4 Mark the pieces of an internal line that lie outside the outline, and
-      verify a probe reports no outside piece for a line inside the panel and the
+      verify a probe reports no outside piece for a line inside the pattern and the
       expected outside pieces for a line that leaves it
 - [x] 2.5 Assert that the stage does not depend on a pattern: run the stage for a
       Sketch referenced by two patterns with different granularities and verify
@@ -140,7 +140,7 @@
       that length - which is what made an internal line and the outline edge it
       crosses carry several times the samples their own length asked for around
       the crossing. `Sketch._split_section` now ends the lower piece at the cut,
-      the way `Section.split` does on a panel's own copy. Verify with
+      the way `Section.split` does on a pattern's own copy. Verify with
       `.agents/scratch/probe_crossing_seg.py`, which measures the spacing of
       every piece's samples at two granularities and asserts that the pieces of
       one edge do not overlap
@@ -149,9 +149,9 @@
 
 - [x] 3.7 Split the first stage from the sampled one: add `SectionRaw` (edge,
       span, crossing marks only) as what the Sketch stores, make the Pattern clone
-      a raw chain into its own `Section` objects carrying the per-panel segment
+      a raw chain into its own `Section` objects carrying the per-pattern segment
       count and sample and mesh offsets, and verify a probe reads the Sketch's
-      raw spans and the Pattern's sampled pieces on the same panel
+      raw spans and the Pattern's sampled pieces on the same pattern
 - [x] 3.8 Take the sampling state off the shared objects: move `geo_points`,
       `geo_points_temp`, `unique_geo_point_size` and `start_point` off `Edge2D`
       and `mesh_edge_inner_point_size` off `InternalLine` into the Pattern's own
@@ -161,9 +161,9 @@
       other side is a much shorter run, and verify the endpoint check of
       `tools/check_section_invariants.py` passes for a loop-to-loop seam, walked
       each way (the walk's far end carries one extra sample, read one past the
-      piece's own run: on the piece that wraps the panel's sample array that read
-      lands on the first sample of the *next* curve instead of the panel's own
-      first sample, which the panel records as `mesh_end_point`. The override was
+      piece's own run: on the piece that wraps the pattern's sample array that read
+      lands on the first sample of the *next* curve instead of the pattern's own
+      first sample, which the pattern records as `mesh_end_point`. The override was
       skipped for a closing walk and, for a reversed walk, looked at the wrong end
       of the walk: the piece the extra sample belongs to is the last one visited
       forwards and the first one visited backwards)
@@ -171,26 +171,26 @@
       moving a seam marks the section copy, the samples and the mesh of every
       pattern in the chains it reaches, and verify a seam edit leaves every mesh
       as it was while a topology edit still meshes before it returns, and a
-      prepare rebuilds what the seam marked (the seam marks the panels it names
-      and every panel the sewings reach, and no mesh moves on the edit; the
+      prepare rebuilds what the seam marked (the seam marks the patterns it names
+      and every pattern the sewings reach, and no mesh moves on the edit; the
       prepare then rebuilds what was marked and stitches, verified in
       `.agents/scratch/probe_marks_and_granularity.py`)
 - [ ] 3.9c Drop the eager re-clone: `add_sewing` still builds the copies of
-      every panel a sewing touches before the linking run reads them. Deferring
+      every pattern a sewing touches before the linking run reads them. Deferring
       that is blocked by the pieces' own lifetime: a copy that was not rebuilt
       keeps pieces whose edge an earlier divide replaced, and cutting such a
       piece takes the process down (`EXCEPTION_ACCESS_VIOLATION` in Blender's
       RNA, reproduced three times in `tools/test_divide_edge.py`). What landed
       instead is the guard for it - pieces that do not name a live edge are
-      skipped and a piece's own `Section.panel` is what gets marked - so the
-      remaining work is to make the mark cover every panel the linking run will
+      skipped and a piece's own `Section.pattern` is what gets marked - so the
+      remaining work is to make the mark cover every pattern the linking run will
       touch, and only then stop re-cloning
-- [x] 3.9b Rebuild on a granularity change: verify the panel is sampled and
+- [x] 3.9b Rebuild on a granularity change: verify the pattern is sampled and
       meshed again before the change returns and the other members of its chain
       are untouched (`mark_geometry_changed` plus `generate_mesh` in the
-      granularity callback; a panel that has never been meshed is left to
+      granularity callback; a pattern that has never been meshed is left to
       whoever asks for its first mesh, so a script that is still writing the
-      panel is not meshed from under itself)
+      pattern is not meshed from under itself)
 - [x] 3.10 Rebuild a marked pattern by cloning the Sketch's first stage again,
       and verify a probe that cuts a copy with a linking run, changes the seam and
       rebuilds ends with the cuts of the new seam graph only
@@ -206,7 +206,7 @@
       Pattern whose `sketch_uuid` is that Sketch's - its outline state, its own
       copy of the stage, its samples, its render line and the sewings that reach
       it - and a write that leaves the shape as it was sends nothing. Verify a
-      probe reports the panels marked after a written point and nothing marked
+      probe reports the patterns marked after a written point and nothing marked
       when the write repeats the value it already had
 
 ## 4. The Pattern layer
@@ -258,16 +258,16 @@
 
 - [ ] 6.1 Draw a Sketch's draw points per Pattern with that Pattern's transform,
       and verify a headless draw probe draws one Sketch on two patterns at two
-      places (both draw paths already use the panel: the render line is built
-      per panel and the id pass draws a shared edge once per member, recording
+      places (both draw paths already use the pattern: the render line is built
+      per pattern and the id pass draws a shared edge once per member, recording
       which member drew it. The headless probe cannot run - the background
       session has no GPU context - so this needs a UI pass)
 - [x] 6.2 Give a Pattern the temporary table of the selectable things it draws
       (edge, point, spline control point, handle) with a generated id each, and
       verify the id pass draws those entries and a pick reads an id back to the
       element and the Pattern that generated it (`Pattern.pick_id` hands the
-      panel a generated id per (kind, element); the pass records
-      `id -> (panel, kind, element)` in `TempDrawManager.pick_of_id` and draws
+      pattern a generated id per (kind, element); the pass records
+      `id -> (pattern, kind, element)` in `TempDrawManager.pick_of_id` and draws
       each edge once per chain member with that member's transform and its own
       id, so a pointer over a copy's edge reads the copy's id instead of
       whichever member was drawn last. `.agents/scratch/probe_pick_table.py`
@@ -278,24 +278,24 @@
       selects that member's element while a click on the other member selects the
       same element with the other Pattern (the pointer reads the pair out of the
       pick table: `hover_pattern` and `hover_kind` are what the click's pattern
-      space, the hover highlight, the seam's own panel and the sewing preview
+      space, the hover highlight, the seam's own pattern and the sewing preview
       use, while the selection itself keeps storing the element - one Sketch
       element is on screen in every member, so selecting it selects it)
 - [x] 6.4 Store the pair where the Pattern matters and the element alone where it
       does not, and verify moving a picked vertex through either pattern moves
       the one shared Sketch (the pair is stored where it matters - a seam side
-      names its panel, the pointer's panel is kept with the pick - and the
+      names its pattern, the pointer's pattern is kept with the pick - and the
       element alone where it does not; moving a vertex through either member
       moves the one Sketch, verified in `tools/probe_pattern_layers.py`)
-- [ ] 6.5 Verify a pick does not sample: draw the id pass of a marked panel and
+- [ ] 6.5 Verify a pick does not sample: draw the id pass of a marked pattern and
       assert its samples and mesh are unchanged (the id pass only builds draw
       points, never samples or meshes; the verification needs a UI pass)
 - [ ] 6.6 Show a marked Pattern in the editor instead of sampling it during a
       draw, and verify a draw of a marked Pattern rebuilds nothing (a draw only
-      builds draw points; the marker the editor would show is the panel whose
+      builds draw points; the marker the editor would show is the pattern whose
       copy is out of date. The verification needs a UI pass)
 - [x] 6.7 Highlight the first edge of a seam on the member that was clicked:
-      the renderer's default panel is the owner of the edge's Sketch, so the
+      the renderer's default pattern is the owner of the edge's Sketch, so the
       blue mark used to appear on the first member of the chain whatever was
       clicked. The record the click left (`selected_sewing_pattern1`) is what
       the highlight draws with. Verify with
@@ -304,12 +304,12 @@
 - [x] 6.8 Show the preview of a seam between two members of one chain: the
       preview gave up whenever the hovered edge *was* the picked one, so sewing
       one edge of an instance to the same edge of another - a seam along the one
-      edge two members share - drew no end connectors at all. The pair of panel
+      edge two members share - drew no end connectors at all. The pair of pattern
       and edge is what says "the first side is still under the pointer", so the
       same edge of the same member is the only case that draws nothing. Verify
       with `.agents/scratch/probe_sewing_preview.py`
 - [x] 6.9 Rebuild the display of what a tool changed: the id pass ran before
-      the draw and cleared the panel's mark after rebuilding only the outline,
+      the draw and cleared the pattern's mark after rebuilding only the outline,
       so the points and the spline points stayed stale - a new spline point did
       not appear, and a point cloud that no longer matched the model is what made
       a box selection pick nothing. Delete and the spline-point tool also wrote
@@ -345,12 +345,12 @@
       `.agents/scratch/probe_corner_points.py`
 - [x] 6.13 Draw the handles a drag is moving on every member: `draw_instances`
       drew the previewed curve once per member, and the `draw_handles` call that
-      followed it named no panel - so it fell back to the owner of the edge's
+      followed it named no pattern - so it fell back to the owner of the edge's
       Sketch and the dragged handle appeared on the first member alone.
       `draw_instances(..., handles=True, handle_color=...)` draws each member's
       handles where that member's curve was drawn, and the drag uses it. Verify
       with `.agents/scratch/probe_move_preview.py`, which selects a handle,
-      sets the gesture up and records the panel each previewed handle was drawn
+      sets the gesture up and records the pattern each previewed handle was drawn
       for
 
 ## 7. Seams
@@ -358,50 +358,50 @@
 - [x] 7.1 Store a seam side as Pattern, Sketch element and position, and verify a
       seam created on one pattern of a chain reads back with that pattern named
 - [x] 7.2 Make the stitch walk derived data of the two patterns, rebuilt when
-      either panel is marked, and verify an edit that keeps the named edges
-      keeps the seam and rebuilds its walk (the walk is computed from the panels'
+      either pattern is marked, and verify an edit that keeps the named edges
+      keeps the seam and rebuilds its walk (the walk is computed from the patterns'
       current pieces every time it is read, and `tools/test_divide_edge.py`
       verifies that a seam on a divided edge is re-homed and stitches again)
 - [ ] 7.3 Drop and report a side whose named element is gone, and verify a probe
       that deletes the named edge removes exactly that side and reports it
-      (today the whole seam goes with the side, and a side whose panel is gone
+      (today the whole seam goes with the side, and a side whose pattern is gone
       reads back as `None` and takes the seam with it)
 - [x] 7.4 Verify a simulation prepare rebuilds both patterns of a sewn pair, and
-      that a prepare refuses a panel whose outline is invalid, naming it (the
+      that a prepare refuses a pattern whose outline is invalid, naming it (the
       prepare rebuilds what was marked - verified in
       `.agents/scratch/probe_marks_and_granularity.py` and
       `probe_rebuild_and_refusals.py`; the refusal is the outline test, which
       `tools/probe_pattern_validity.py` verifies stops a simulation start. A
-      *marked* panel is not refused: the prepare rebuilds it, which is the rule
+      *marked* pattern is not refused: the prepare rebuilds it, which is the rule
       the two layers ask for)
 
 ## 8. Mesh, prepare and generators
 
-- [x] 8.1 Route the mesh path through the panels' rebuild gate, and verify a
+- [x] 8.1 Route the mesh path through the patterns' rebuild gate, and verify a
       probe that meshes a marked Pattern rebuilds it while an unmarked one
       computes nothing (`.agents/scratch/probe_rebuild_and_refusals.py`)
 - [x] 8.2 Keep the prepare path's validations (crossing outlines, identities) and
       add the rebuild of every participating marked Pattern, and verify a prepare
       exports geometry that matches the Sketch the patterns have now (after an
-      edit the prepare rebuilds the panel, and the mesh it exports follows the
+      edit the prepare rebuilds the pattern, and the mesh it exports follows the
       Sketch - `probe_rebuild_and_refusals.py`)
 - [x] 8.3 Re-point the generators at the Sketch (a rebuild writes the Sketch and
       keeps the patterns), and verify a generator rebuild on a chain keeps one
-      Sketch and reports the patterns it rebuilt (a generator panel and a copy of
+      Sketch and reports the patterns it rebuilt (a generator pattern and a copy of
       it stay on one Sketch across a rebuild, both meshed and current, in
       `probe_rebuild_and_refusals.py`)
 - [x] 8.4 Verify the engine payload is unchanged: compare the payload of a
       one-pattern chain before and after this change on the same scene (what a
       probe can verify today is the rule underneath it - the prepare rebuilds the
-      panel it exports and the exported mesh is that panel's own geometry, in
+      pattern it exports and the exported mesh is that pattern's own geometry, in
       `probe_rebuild_and_refusals.py`; the byte-for-byte comparison with the
       pre-change build would need the old build of the add-on)
 
 ## 9. Surfaces and documentation
 
-- [x] 9.1 Update the script surface so a panel's reads report its Sketch and its
+- [x] 9.1 Update the script surface so a pattern's reads report its Sketch and its
       derived state, and add the detach call, and verify each call round-trips in
-      a scripted session (a panel read reports the `sketch` it reads, and
+      a scripted session (a pattern read reports the `sketch` it reads, and
       `patterns.detach(name)` is the chain's own detach;
       `.agents/scratch/probe_marks_and_granularity.py` round-trips both)
 - [x] 9.2 Update `docs/agent-api.md` with the two layers, the write-signal rule,
@@ -412,14 +412,14 @@
 
 ## 10. Integration verification
 
-- [x] 10.1 Draft a panel set with the editing tools (divide, corner, fan,
+- [x] 10.1 Draft a pattern set with the editing tools (divide, corner, fan,
       internal line, delete), on a chain of three patterns including a mirror,
       and verify every member reports one Sketch, the outlines are valid, and the
       meshes rebuild (`.agents/scratch/probe_toolkit_chain.py`: every tool on the
       chain, one Sketch per chain, valid outlines, every member meshed)
 - [x] 10.2 Detach the mirror, edit both Sketches, and verify no command reports a
       mismatch and both patterns simulate (the same probe: the detach leaves the
-      mirror with its own Sketch, and both panels edit and mesh)
+      mirror with its own Sketch, and both patterns edit and mesh)
 - [x] 10.3 Run the existing probes (`tools/test_divide_edge.py`,
       `tools/check_section_invariants.py`, the model, agent-api and pattern
       validity probes) and verify none of them fails (all clean, see
@@ -428,14 +428,14 @@
       and verify one Sketch per chain and every Pattern attribute read back
       (`.agents/scratch/probe_round_trip.py`: one Sketch per chain, placement,
       granularity, geometry and mesh read back, the sections rebuild on demand
-      and the seam names its panel and stitches again)
+      and the seam names its pattern and stitches again)
 
 ## 11. One mesh call per Sketch, and the merged corner
 
 - [x] 11.1 Merge a corner one side at a time, on the points the outline keeps:
       the arc ends on the vertex beyond a consumed edge and on the new tangent
       vertex of a side that was only trimmed - ending it on the far vertex of an
-      un-reached side spliced the outline onto itself and crossed the panel's
+      un-reached side spliced the outline onto itself and crossed the pattern's
       edges. Both ends are read where they are rather than extrapolated along
       the tangents (a curved edge's far vertex is not on the ray), the circle is
       the one tangent at one end and through the other, the trimmed side is
@@ -449,13 +449,13 @@
       in `tools/test_divide_edge.py`
 - [x] 11.2 Mesh every member through the Sketch: a topology tool writes the
       Sketch once, so the mesh step belongs to the Sketch too - one call builds
-      the mesh of every panel that reads it (`Sketch.rebuild_meshes`, with
-      `Sketch.reading_patterns` as the single reader of "which panels these
+      the mesh of every pattern that reads it (`Sketch.rebuild_meshes`, with
+      `Sketch.reading_patterns` as the single reader of "which patterns these
       are"). Divide, corner, fan, delete, add vertex, add spline point, the
       internal-line pen, the internal-line API and the internal-line removal all
-      ask the Sketch instead of one panel, which used to leave every copy of the
-      edited panel showing the shape that used to be there. Verify with
-      `.agents/scratch/probe_mesh_all_instances.py` (a panel with one linked
+      ask the Sketch instead of one pattern, which used to leave every copy of the
+      edited pattern showing the shape that used to be there. Verify with
+      `.agents/scratch/probe_mesh_all_instances.py` (a pattern with one linked
       copy, four commands: each of them leaves both meshes built from the edit)
 - [x] 11.3 Clamp the corner drag instead of refusing it: the radius a corner
       takes has two windows - up to what fits without merging, and from the
@@ -489,7 +489,7 @@
       the `consume_prev`/`consume_next` flags of the plan), the two plans share
       one arc constructor (`_corner_arc`) and one trim table (the merge plan
       returns `trims` like the treatment plan does), and `invoke` and `execute`
-      share one `prepare` that reads the panel, the corners and the radius
+      share one `prepare` that reads the pattern, the corners and the radius
       windows, so the range is measured once per run instead of once per pointer
       position. Nothing about what the commands write changed: the same probes
       pass (`probe_corner_drag.py`, `probe_corner_merge.py`,

@@ -2,6 +2,8 @@ import bpy
 from bpy.utils import register_tool, unregister_tool
 
 from .add_sewing1 import NODE_T_qmyi_add_sewing1
+from .add_sewing_free import NODE_T_qmyi_add_sewing_free
+from .sewing_edit import NODE_T_qmyi_sewing_edit
 from .add_spline_point import NODE_T_qmyi_add_spline_point
 from .add_vertex import NODE_T_qmyi_add_vertex
 from .internal_line_pen import NODE_T_qmyi_internal_line_pen
@@ -12,6 +14,7 @@ from .add_poly import NODE_T_qmyi_add_poly
 from .select import NODE_T_qmyi_select
 from .corner import NODE_T_qmyi_corner
 from .fan import NODE_T_qmyi_fan
+from .curve_fit import NODE_T_qmyi_curve_fit
 from ._3d import register as register_3d_tool
 from ._3d import unregister as unregister_3d_tool
 from bl_ui.space_toolsystem_toolbar import NODE_PT_tools_active
@@ -24,7 +27,10 @@ tools = (
     (NODE_T_qmyi_add_spline_point, {}),
     (NODE_T_qmyi_corner, {}),
     (NODE_T_qmyi_fan, {}),
+    (NODE_T_qmyi_curve_fit, {}),
     (NODE_T_qmyi_add_sewing1, {}),
+    (NODE_T_qmyi_add_sewing_free, {}),
+    (NODE_T_qmyi_sewing_edit, {}),
     (NODE_T_qmyi_pattern_pen, {}),
     (NODE_T_qmyi_internal_line_pen, {}),
 )

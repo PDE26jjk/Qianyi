@@ -17,7 +17,7 @@ def read_vertex_colors(mesh):
     """The mesh's ``Color`` attribute as an (N, 4) float32 array, or None.
 
     The simulation bridge writes the engine's per-vertex debug colours into
-    this attribute, so a panel mesh that has been stepped carries one entry per
+    this attribute, so a pattern mesh that has been stepped carries one entry per
     vertex. Anything else - no attribute, or a vertex count that no longer
     matches the mesh - reads as "no data".
     """
@@ -65,7 +65,7 @@ def read_shape_key_vertices(mesh, name):
 
 
 def mesh_strain_colors(obj):
-    """Per-vertex strain of a simulated panel, as (N, 4) float32 colours.
+    """Per-vertex strain of a simulated pattern, as (N, 4) float32 colours.
 
     Returns None when the mesh has no rest or no simulated vertex set to compare.
     See ``utilities/strain.py`` for what the value is and what the ramp means.
@@ -134,7 +134,7 @@ class MeshRenderer:
 
         Used by the stress and debug display modes: the bridge writes the
         engine's per-vertex values into the ``Color`` attribute and this shader
-        paints them over the flat panel.
+        paints them over the flat pattern.
         """
         shader_info = GPUShaderCreateInfo()
 
@@ -186,9 +186,9 @@ class MeshRenderer:
 
         pattern = self.pattern
         stored = getattr(pattern, "mesh_triangles", None) if pattern is not None else None
-        # The triangles this mesh was built from are kept on the panel: asking
+        # The triangles this mesh was built from are kept on the pattern: asking
         # Blender for them tessellates every polygon first, which costs about as
-        # much as the whole mesh write on a fine panel.
+        # much as the whole mesh write on a fine pattern.
         if stored is not None and len(stored) == len(mesh.polygons):
             triangles = np.asarray(stored, dtype=np.int32)
         else:
@@ -228,7 +228,7 @@ class MeshRenderer:
         return self.batch_line, self.batch_triangle
 
     def color_source(self, mode):
-        """The (N, 4) colours a display mode paints this panel with, or None.
+        """The (N, 4) colours a display mode paints this pattern with, or None.
 
         ``DEBUG`` is the engine's own per-vertex buffer (the collision debug
         marks). ``STRESS`` is strain derived from the rest and simulated vertex
@@ -257,7 +257,7 @@ class MeshRenderer:
 
         Returns None when the mesh has no readable colours, so the caller can
         fall back to the solid fill. The vertex positions are the mesh's own
-        (the flat panel), which is what the pattern window shows.
+        (the flat pattern), which is what the pattern window shows.
         """
         if not obj or obj.type != 'MESH' or colors is None:
             return None
@@ -282,7 +282,7 @@ class MeshRenderer:
         return self.batch_color_triangle
 
     def draw_fill_mesh_vertex_colors(self, mode):
-        """Fill the panel mesh with one display mode's per-vertex colours.
+        """Fill the pattern mesh with one display mode's per-vertex colours.
 
         Returns False when that mode has no data for this mesh yet, so the
         caller falls back to the solid fabric fill and the header can say why.

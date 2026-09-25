@@ -7,10 +7,10 @@ draws it with a shader of its own.
 
 Passes, each behind its own switch in the 3D sidebar's Overlays panel:
 
-* **vertex colours** - the simulated panels drawn again with a colour per vertex:
+* **vertex colours** - the simulated patterns drawn again with a colour per vertex:
   the pattern editor's strain ramp, or the engine's debug values.
 * **seams** - every seam drawn with its own colour, between the paired stitch
-  vertices, from the panels' *current* meshes. No simulation is needed: the
+  vertices, from the patterns' *current* meshes. No simulation is needed: the
   preview exists so a pattern maker can check that the connections are right,
   and it follows whatever shape the viewport is showing.
 * **HUD** - what the run is doing and how fast, in the corner of the viewport.
@@ -85,7 +85,7 @@ def _camera_position(context):
 
 
 def _pattern_objects(context):
-    """Every panel mesh in the view layer, in object order."""
+    """Every pattern mesh in the view layer, in object order."""
     objects = []
     for obj in context.view_layer.objects:
         if obj.type != 'MESH':
@@ -212,7 +212,7 @@ class View3DOverlay:
 
     # ----------------------------------------------------------------- surface
     def _build_surface(self, context, objects, mode):
-        """One triangle batch per panel, coloured by the requested mode."""
+        """One triangle batch per pattern, coloured by the requested mode."""
         depsgraph = context.evaluated_depsgraph_get()
         cache = {}
         batches = []
@@ -269,13 +269,13 @@ class View3DOverlay:
 
     # ------------------------------------------------------------------- seams
     def _seam_segments(self, context):
-        """The seam preview, as positions in the panel's *current* shape.
+        """The seam preview, as positions in the pattern's *current* shape.
 
         Every seam contributes one line per paired stitch vertex, in the seam's
         own colour, taken from the scene's sewing objects and the evaluated
-        panel meshes - no simulation state is involved, so the preview is there
+        pattern meshes - no simulation state is involved, so the preview is there
         whether or not anything has been simulated and whatever shape key the
-        panels are showing.
+        patterns are showing.
         """
         depsgraph = context.evaluated_depsgraph_get()
         cache = {}

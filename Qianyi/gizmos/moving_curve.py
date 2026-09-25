@@ -26,20 +26,21 @@ class ProxyPoint:
         """Move this point by a pointer offset, in the space of `pattern`.
 
         The offset comes from the pointer and therefore moves in view space; the
-        point lives in the pattern space of the panel the pointer is over. That
-        panel is what the offset is converted with - its own inverse transform
-        carries its mirror and its rotation - because the panel that owns the
+        point lives in the pattern space of the pattern the pointer is over. That
+        pattern is what the offset is converted with - its own inverse transform
+        carries its mirror and its rotation - because the pattern that owns the
         Sketch is the first member of the chain, which need not be the one being
         dragged: converting through the owner moves a mirrored instance's point
         the other way along the mouse.
         """
-        panel = pattern if pattern is not None else owner_pattern(self.vertex)
-        if panel is None:
-            raise ValueError("this point has no panel to move in: the Sketch it "
+        if pattern is None:
+            pattern = owner_pattern(self.vertex)
+        if pattern is None:
+            raise ValueError("this point has no pattern to move in: the Sketch it "
                              "lives in names no owner")
-        if panel.inv_transform_mat_2D is None:
-            panel.calc_inv_matrix()
-        offset_relative = panel.inv_transform_mat_2D @ Vector((offset[0], offset[1], 0, 0))
+        if pattern.inv_transform_mat_2D is None:
+            pattern.calc_inv_matrix()
+        offset_relative = pattern.inv_transform_mat_2D @ Vector((offset[0], offset[1], 0, 0))
         self.co = self.vertex.co + Vector((offset_relative[0], offset_relative[1]))
 
     def apply_proxy(self):

@@ -164,7 +164,7 @@ class ObjectSimulationProperties(PropertyGroup):
         """The weights this add-on last wrote for one group, or None.
 
         Reading a vertex group means visiting every vertex through RNA, which
-        costs tens of milliseconds on a fine panel, and the only writer of these
+        costs tens of milliseconds on a fine pattern, and the only writer of these
         groups is this add-on (`set_vertex_group_weight`, called after a rebuild
         restored them). The array it wrote is kept here and handed back while the
         vertex count still matches; anything else falls back to reading the group.
@@ -215,7 +215,7 @@ class ObjectSimulationProperties(PropertyGroup):
         weights_np = np.asarray(weights_np, dtype=np.float32)
         # One `add` per distinct weight instead of one per vertex: pin weights
         # are normally just 0 and 1, so this is a couple of calls rather than one
-        # call per vertex, which is what made a rebuild of a fine panel slow.
+        # call per vertex, which is what made a rebuild of a fine pattern slow.
         for value in np.unique(weights_np):
             if value == 0.0:
                 continue

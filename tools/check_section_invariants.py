@@ -18,7 +18,7 @@ What is checked, per scenario:
 4.  both sides of a sewing walk the same number of stitches, no stitch index
     is out of range or repeated (a loop may repeat its own closing sample), the
     first and last stitch sit on the sewing's own endpoints, and no stitch
-    comes from a section outside its panel;
+    comes from a section outside its pattern;
 5.  the stitch pairs `Sewing.get_stitch_data` produces have the same length on
     both sides.
 
@@ -59,7 +59,7 @@ def edge_groups(pattern):
     """Every edge of a pattern, with the key its chain is named by.
 
     `None` is the outline, an integer is that internal line's index: the same key
-    the panel uses for its own copy of the Sketch's first stage.
+    the pattern uses for its own copy of the Sketch's first stage.
     """
     groups = [(None, pattern.edges)]
     groups.extend((index, line.edges)
@@ -100,7 +100,7 @@ def check_chain(project):
 
 
 def check_sampling(project):
-    """The panel's own pieces: each has a segment count and the samples agree."""
+    """The pattern's own pieces: each has a segment count and the samples agree."""
     problems = []
     checked = 0
     for pattern in project.patterns:
@@ -217,7 +217,7 @@ def check_stitches(project):
                 walks.append(None)
                 continue
             if np.issubdtype(stitches.dtype, np.unsignedinteger):
-                # The walk marks "outside the panel" with -1; an unsigned array
+                # The walk marks "outside the pattern" with -1; an unsigned array
                 # would read that back as its maximum value.
                 stitches = stitches.astype(np.int64)
             walks.append((label, side, stitches, pair[0] is pair[1]))
@@ -243,13 +243,13 @@ def check_stitches(project):
             continue
         paired = (raw1 >= 0) & (raw2 >= 0)
         if not paired.any():
-            problems.append(f"sewing[{index}]: every pair is outside a panel")
+            problems.append(f"sewing[{index}]: every pair is outside a pattern")
             continue
         positions = np.nonzero(paired)[0]
         data = sewing.get_stitch_data()["stitches"]
         if data.shape[0] != len(positions):
             problems.append(f"sewing[{index}]: {data.shape[0]} pairs built but "
-                            f"{len(positions)} positions are inside both panels")
+                            f"{len(positions)} positions are inside both patterns")
         for column, side_index in ((0, 0), (1, 1)):
             label, side, stitches, is_loop = walks[side_index]
             expected_first = int(stitches[positions[0]])
@@ -279,7 +279,7 @@ def check_stitches(project):
         dropped = int(np.count_nonzero(~paired))
         if dropped:
             log(f"       sewing[{index}]: {dropped} sample pair(s) sit outside a "
-                f"panel and are dropped")
+                f"pattern and are dropped")
         checked += 1
     return checked, problems
 
@@ -315,10 +315,10 @@ def check_grouping(project):
         fractions = []
         for side in (sewing.side1, sewing.side2):
             try:
-                # The pieces are the panel's own copy of the Sketch's stage.
-                panel = owner_pattern(side.line1)
-                start = panel.boundary_section(side.line1, side.pos1, side.reverse)
-                end = panel.boundary_section(side.line2, side.pos2, side.reverse)
+                # The pieces are the pattern's own copy of the Sketch's stage.
+                pattern = owner_pattern(side.line1)
+                start = pattern.boundary_section(side.line1, side.pos1, side.reverse)
+                end = pattern.boundary_section(side.line2, side.pos2, side.reverse)
             except ValueError as error:
                 problems.append(f"sewing[{index}]: {error}")
                 fractions.append(None)
@@ -350,9 +350,9 @@ def check_recorded_pair(project):
         for label, side, holder in (("side1", sewing.side1, sewing.sections1),
                                     ("side2", sewing.side2, sewing.sections2)):
             try:
-                panel = owner_pattern(side.line1)
-                start = panel.boundary_section(side.line1, side.pos1, side.reverse)
-                end = panel.boundary_section(side.line2, side.pos2, side.reverse)
+                pattern = owner_pattern(side.line1)
+                start = pattern.boundary_section(side.line1, side.pos1, side.reverse)
+                end = pattern.boundary_section(side.line2, side.pos2, side.reverse)
             except ValueError as error:
                 problems.append(f"sewing[{index}] {label}: {error}")
                 continue
@@ -434,10 +434,10 @@ def scenario_divide_every_side(project):
     for parts in (2, 4):
         for sewing in list(project.sewings):
             for side in (sewing.side1, sewing.side2):
-                panel = owner_pattern(side.line1)
+                pattern = owner_pattern(side.line1)
                 index = side.line1.get_index()
-                if index < len(panel.edges):
-                    divide_tools.divide_edges(panel, [index], parts=parts)
+                if index < len(pattern.edges):
+                    divide_tools.divide_edges(pattern, [index], parts=parts)
     for pattern in project.patterns:
         pattern.need_sewing_update = True
     project.setup_sewings_for_simulation()
@@ -465,7 +465,7 @@ def scenario_reversed_both_sides(project):
 
 
 def scenario_hole(project):
-    """A closed internal line inside the panel, the 'cut a hole' case."""
+    """A closed internal line inside the pattern, the 'cut a hole' case."""
     pattern = project.patterns[0]
     bbox = np.asarray(pattern.get_bbox(), dtype=np.float64)
     center = (float(bbox[0][0] + bbox[1][0]) * 0.5,
@@ -542,7 +542,7 @@ def scenario_internal_line(project):
 
 
 def scenario_sewing_on_internal_line(project):
-    """A sewing whose side is an internal line, part of it outside the panel."""
+    """A sewing whose side is an internal line, part of it outside the pattern."""
     scenario_internal_line(project)
     pattern = project.patterns[0]
     line = pattern.internal_lines[-1]

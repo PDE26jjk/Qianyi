@@ -40,7 +40,7 @@ class NODE_OT_divide_edge(Operator2DBase):
     """Divide the selected edge or run of edges, by arc length.
 
     The command acts on the current selection - outline edges, internal line
-    edges, on one panel or across several - and its numbers are the operator's
+    edges, on one pattern or across several - and its numbers are the operator's
     own properties, so Blender's adjust-last-operation panel re-runs it from
     the state that existed before it: a new part count or distance replaces
     the previous division instead of adding a second one. The first apply and
@@ -94,9 +94,9 @@ class NODE_OT_divide_edge(Operator2DBase):
         ensure_edit_mode(context, "EDGE", "EDGE_VERTEX")
         result = self.execute(context)
         if result == {'FINISHED'}:
-            # Only the invoke path asks for the panel: a re-run from that panel
+            # Only the invoke path asks for the pattern: a re-run from that pattern
             # comes through `execute` alone, and asking again would stack one
-            # panel on top of the other.
+            # pattern on top of the other.
             show_redo_panel(context)
         return result
 
@@ -108,8 +108,8 @@ class NODE_OT_divide_edge(Operator2DBase):
             groups = selected_division_groups(project)
         except geometry.GeometryRefused as refused:
             return self.refuse(refused)
-        # Every panel is refused or none is: the lock is checked before the
-        # first write, so one generated panel among the selection leaves them
+        # Every pattern is refused or none is: the lock is checked before the
+        # first write, so one generated pattern among the selection leaves them
         # all as they were.
         for group in groups:
             if refuse_generated_edit(self, project, group["pattern"]):
@@ -157,16 +157,16 @@ def arguments(mode, parts, distance, cuts, reverse=False) -> dict:
 def describe(report) -> str:
     """One line for the info area: what the division produced."""
     if not report["cut_count"] and report["mode"] == "length":
-        message = (f"nothing to divide on {report['panel']} "
+        message = (f"nothing to divide on {report['pattern']} "
                    f"at {report['distance']:g} mm")
         if report["merged"]:
-            message += f", {report['merged']} cut(s) landed on points the panel already has"
+            message += f", {report['merged']} cut(s) landed on points the pattern already has"
         elif report["capped"]:
             message += (", the pieces it would leave are shorter than "
                         f"{geometry.MERGE_THRESHOLD_MM:g} mm")
         return message
     edges = len(report.get("edges", ())) or 1
-    message = (f"divided {edges} edge(s) of {report['panel']} into "
+    message = (f"divided {edges} edge(s) of {report['pattern']} into "
                f"{report['parts']} pieces")
     if report["copies"]:
         message += f", with {report['copies']} linked copies"
@@ -181,40 +181,40 @@ def describe(report) -> str:
 
 
 def describe_sewing(project, index) -> str:
-    """One seam as text: both sides, their panels, positions and directions."""
+    """One seam as text: both sides, their patterns, positions and directions."""
     sewing = project.sewings[index]
     sides = []
     for side in sewing.sides:  # loop: the two sides of one seam
         line1, line2 = side.line1, side.line2
         sides.append(
-            f"{_panel_name(line1)}"
+            f"{_pattern_name(line1)}"
             f"[{line1.get_index() if line1 else -1}]@{side.pos1:.4f} -> "
-            f"{_panel_name(line2)}"
+            f"{_pattern_name(line2)}"
             f"[{line2.get_index() if line2 else -1}]@{side.pos2:.4f} "
             f"rev={side.reverse}")
     return f"seam {index}: " + " | ".join(sides)
 
 
-def _panel_name(edge) -> str:
-    """The panel an edge is on, as text: the owner of the Sketch it lives in."""
+def _pattern_name(edge) -> str:
+    """The pattern an edge is on, as text: the owner of the Sketch it lives in."""
     if edge is None:
         return "?"
-    panel = owner_pattern(edge)
-    return panel.name if panel is not None else "?"
+    pattern = owner_pattern(edge)
+    return pattern.name if pattern is not None else "?"
 
 
 def print_sewings(project, label) -> None:
-    """Print every seam and every panel's relink flag.
+    """Print every seam and every pattern's relink flag.
 
     A division re-points seam sides and sets the signal that says a seam has to
     be linked again; this is what both of those look like before and after.
     """
     console.info(f"[divide] --- {label}: {len(project.sewings)} seam(s), "
-                 f"{len(project.patterns)} panel(s)")
+                 f"{len(project.patterns)} pattern(s)")
     for index in range(len(project.sewings)):  # loop: one seam per line
         console.info(f"[divide]     {describe_sewing(project, index)}")
     flags = ", ".join(f"{pattern.name}={pattern.need_sewing_update}"
-                      for pattern in project.patterns)  # loop: one panel per flag
+                      for pattern in project.patterns)  # loop: one pattern per flag
     console.info(f"[divide]     need_sewing_update: {flags}")
 
 
@@ -223,7 +223,7 @@ def select_pieces(project, report) -> int:
 
     The result of a command is what the next one works on, and the pattern
     editor draws its selection, so the pieces a division left behind stay
-    visible instead of the panel appearing to have lost its selection.
+    visible instead of the pattern appearing to have lost its selection.
     """
     return select_edges(project, report.get("piece_uuids") or [])
 
@@ -234,10 +234,10 @@ def selected_division_groups(project) -> list:
     """The selected edges, as division groups: one per chain of copies.
 
     A selection may mix outline edges with internal line edges, and reach
-    across panels. Edges of panels that are copies of one another form one
+    across patterns. Edges of patterns that are copies of one another form one
     group - copies are edited together, so a chain's selected edges are pooled
     into the division of the copy the selection reached first - and every
-    other panel starts a group of its own.
+    other pattern starts a group of its own.
 
     A selection is stored as uuids and the uuid map is not something Blender's
     undo restores, so a selection that does not resolve is retried once after
@@ -264,9 +264,9 @@ def selected_division_groups(project) -> list:
 
 
 def _group_of(groups, pattern) -> dict:
-    """The group this panel's edges belong to: one it joined, or its own.
+    """The group this pattern's edges belong to: one it joined, or its own.
 
-    A chain is what shares a Sketch, so the group is keyed by the panels that
+    A chain is what shares a Sketch, so the group is keyed by the patterns that
     read it: dividing through two members of one chain would cut one shape
     twice.
     """
@@ -286,7 +286,7 @@ def edge_target(obj) -> tuple:
     The property path decides - `<owner>.edges[7]` is an outline edge and
     `<owner>.internal_lines[2].edges[7]` is the seventh edge of that line - so an
     edge is placed by where it is stored, not by a check the model could grow out
-    of. The owner is the Sketch a panel draws through, or the panel itself when
+    of. The owner is the Sketch a pattern draws through, or the pattern itself when
     something still stores its geometry there; the pattern the command names is
     the one that owns that Sketch.
     """
@@ -294,7 +294,7 @@ def edge_target(obj) -> tuple:
     if (len(segments) < 2 or segments[0][0] not in ("patterns", "sketches")
             or segments[-1][0] != "edges"):
         raise geometry.GeometryRefused(
-            "that selection is not an edge of a panel or of an internal line",
+            "that selection is not an edge of a pattern or of an internal line",
             "select the edges to divide in the pattern editor")
     line_index = None
     if len(segments) >= 3 and segments[1][0] == "internal_lines":
@@ -338,13 +338,13 @@ def _too_close(point, existing, cuts) -> bool:
 def divide_edges_on(groups, *, parts=None, distance=None, cuts=1, reverse=False) -> dict:
     """Divide whole groups of edges, by equal parts or a target length.
 
-    `groups` is one entry per panel chain: the panel the numbers are measured
+    `groups` is one entry per pattern chain: the pattern the numbers are measured
     on, and the edges to divide as `{line index or None: [edge indices]}` -
     `None` for the outline, a line's index in `internal_lines` for one of its
     internal lines. Every member of a chain is written with the same pieces -
     the outline and the internal lines alike, by index - so linked copies stay
     one shape. Every group is planned before any of them is written, so a
-    refusal leaves every panel as it was.
+    refusal leaves every pattern as it was.
 
     Equal parts are measured along each edge; a target length is measured from
     each edge's own start - or from its end, when `reverse` is set - so its
@@ -385,16 +385,16 @@ def divide_edges_on(groups, *, parts=None, distance=None, cuts=1, reverse=False)
     for group in groups:
         pattern = group["pattern"]
         members = geometry._chain_members(pattern)
-        # Two groups that share a member would write one panel twice: the
+        # Two groups that share a member would write one pattern twice: the
         # selection pools a chain into one group, and this guards the groups
         # that are built by hand against getting that wrong.
         overlapping = claimed.intersection(member.global_uuid for member in members)
         if overlapping:
             raise geometry.GeometryRefused(
-                "the selection divides a panel twice through its copies",
+                "the selection divides a pattern twice through its copies",
                 "one group per chain of copies, the way the operator builds them")
         claimed.update(member.global_uuid for member in members)
-        # One table of the points a cut may not land on, per panel: an internal
+        # One table of the points a cut may not land on, per pattern: an internal
         # line's vertices are in the same pool as the outline's.
         existing = np.array([[float(vertex.co[0]), float(vertex.co[1])]
                              for vertex in pattern.vertices], dtype=np.float64)
@@ -451,7 +451,7 @@ def divide_edges_on(groups, *, parts=None, distance=None, cuts=1, reverse=False)
     # A distance that places no cut is not a refusal: the redo panel re-runs
     # the command on every slider tick, and dragging it across the range where
     # nothing fits must not turn into an error popup. The report says so and
-    # the panels stand as they were. Equal parts are an explicit request, and
+    # the patterns stand as they were. Equal parts are an explicit request, and
     # failing it stays a refusal.
     if mode == "count" and not any(plan["cuts"] for entry in planned
                                    for plan in entry["plans"]):
@@ -471,13 +471,13 @@ def divide_edges_on(groups, *, parts=None, distance=None, cuts=1, reverse=False)
 def _divide_group(entry) -> dict:
     """Write one chain's cuts once, and return what happened.
 
-    One Sketch serves the whole chain, so the cuts are written on the panel the
+    One Sketch serves the whole chain, so the cuts are written on the pattern the
     numbers were measured on - its pieces are the ones the selection names. That
-    panel meshes from the cut Sketch; the other readers of the Sketch were
+    pattern meshes from the cut Sketch; the other readers of the Sketch were
     marked by the write and rebuild when they are next needed.
     """
     first = _divide_member(entry["pattern"], entry["plans"])
-    first["panel"] = entry["pattern"].name
+    first["pattern"] = entry["pattern"].name
     first["copies"] = len(entry["members"]) - 1
     first["capped"] = any((plan["wanted"] < plan["asked"]) or plan["short"]
                           for plan in entry["plans"])
@@ -551,10 +551,10 @@ def _divide_member(pattern, plans) -> dict:
 
 
 def _combine_reports(reports, mode, requested_parts, per_edge, edge_total) -> dict:
-    """One report out of one per chain: sums, and the names of the panels."""
+    """One report out of one per chain: sums, and the names of the patterns."""
     combined = {
         "action": "divide_edges", "mode": mode,
-        "panel": ", ".join(report["panel"] for report in reports),
+        "pattern": ", ".join(report["pattern"] for report in reports),
         "requested_cuts": ((requested_parts - 1 if mode == "count" else per_edge)
                            * edge_total),
         "parts": sum(report["parts"] for report in reports),
@@ -576,7 +576,7 @@ def _combine_reports(reports, mode, requested_parts, per_edge, edge_total) -> di
 
 def divide_edges(pattern, edge_indices, *, parts=None, distance=None, cuts=1,
                  reverse=False) -> dict:
-    """Divide one panel's outline edges; kept for the checker and the api."""
+    """Divide one pattern's outline edges; kept for the checker and the api."""
     return divide_edges_on([{"pattern": pattern,
                              "edges": {None: list(edge_indices)}}],
                            parts=parts, distance=distance, cuts=cuts,

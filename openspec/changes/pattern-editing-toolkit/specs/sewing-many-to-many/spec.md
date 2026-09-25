@@ -8,12 +8,12 @@ garments are sewn and how the section linker already works internally.
 
 ### Requirement: Each side of a seam is a set of spans
 
-A seam SHALL have two sides. A span SHALL be a run of edges on one panel - a
+A seam SHALL have two sides. A span SHALL be a run of edges on one pattern - a
 start edge with a start position, an end edge with an end position - together
 with the direction it was drawn in, which is what today's one side already is.
 Each side SHALL hold a set of one or more spans, in the order they were drawn,
 so the spans of a set need not be geometrically contiguous or ordered. Both
-sides SHALL be on one panel each, so a seam joins exactly two panels.
+sides SHALL be on one pattern each, so a seam joins exactly two patterns.
 
 #### Scenario: One long edge to two short edges
 
@@ -28,10 +28,10 @@ sides SHALL be on one panel each, so a seam joins exactly two panels.
   sewing tool already does
 - **THEN** each side holds exactly one span and the seam behaves as before
 
-#### Scenario: A set on more than one panel is refused
+#### Scenario: A set on more than one pattern is refused
 
-- **WHEN** a span is added to a set whose other spans are on a different panel
-- **THEN** the span is refused with the reason, because a seam joins two panels
+- **WHEN** a span is added to a set whose other spans are on a different pattern
+- **THEN** the span is refused with the reason, because a seam joins two patterns
 
 ### Requirement: The two sides are matched by proportional section mapping
 
@@ -67,7 +67,7 @@ tolerance.
 
 A seam SHALL remain one object in the project, the UI, the undo stack and the
 script surface however many spans its sides hold. Because both sides are on one
-panel each, its stitches SHALL be handed to the engine as the existing
+pattern each, its stitches SHALL be handed to the engine as the existing
 two-pattern stitch group, so no engine change is required.
 
 #### Scenario: One seam in the list
@@ -79,7 +79,7 @@ two-pattern stitch group, so no engine change is required.
 #### Scenario: Undo and redo
 
 - **WHEN** a seam with several spans is created and then undone
-- **THEN** the seam is gone, the panels and their sections are as they were, and
+- **THEN** the seam is gone, the patterns and their sections are as they were, and
   redoing restores the same seam
 
 ### Requirement: Drawing a seam builds its two sets in turn
@@ -99,7 +99,7 @@ of both sets before it does.
 #### Scenario: The first set is abandoned
 
 - **WHEN** the tool is cancelled after the first set was drawn
-- **THEN** no seam is created and the panels are unchanged
+- **THEN** no seam is created and the patterns are unchanged
 
 ### Requirement: Editing a side re-runs the mapping and reports the change
 

@@ -2,7 +2,7 @@
 
 The direction of a seam is the add-on's own: both calls here forward to the
 sewing the editor uses, including its two flags, and derive nothing themselves.
-An edge is named as ``(panel, index)`` or ``(panel, label)``.
+An edge is named as ``(pattern, index)`` or ``(pattern, label)``.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ def list(project=None):  # noqa: A001 - the surface's name for this call
 
 
 def of(pattern, project=None):
-    """The seams that touch one panel, plus that panel's side of each."""
+    """The seams that touch one pattern, plus that pattern's side of each."""
     project = address.project_or_refuse(project)
     target = address.pattern_or_refuse(project, pattern)
-    return address.jsonify({"panel": target.name,
+    return address.jsonify({"pattern": target.name,
                             "sewings": address.sewing_entries(project, target)})
 
 
@@ -75,8 +75,9 @@ def remove(index, project=None):
     project = address.project_or_refuse(project)
     sewing = _sewing_at(project, index)
     entry = address.sewing_entry(project, sewing, int(index))
-    project.sewings.remove(int(index))
-    project.refresh_collection_uuid(project.sewings)
+    # The project's own removal: it links the seams that are left again (and lets
+    # the guard look at them), which a bare `sewings.remove()` would leave stale.
+    project.remove_sewing(int(index))
     address.write_done(f"remove a sewing of {project.name}")
     entry["removed"] = True
     entry["sewings_left"] = len(project.sewings)
@@ -95,14 +96,14 @@ def _sewing_at(project, index):
 
 
 def _resolve(project, reference):
-    """An edge from ``(panel, index_or_label)``; returns (edge, index, pattern)."""
+    """An edge from ``(pattern, index_or_label)``; returns (edge, index, pattern)."""
     try:
-        panel, edge_reference = reference
+        pattern_name, edge_reference = reference
     except Exception as error:
         raise QyapiError(
-            f"an edge is named as (panel, index) or (panel, label), got {reference!r}"
+            f"an edge is named as (pattern, index) or (pattern, label), got {reference!r}"
         ) from error
-    pattern = address.pattern_or_refuse(project, panel)
+    pattern = address.pattern_or_refuse(project, pattern_name)
     edge, index = address.edge_or_refuse(pattern, edge_reference)
     return edge, index, pattern
 
@@ -112,9 +113,9 @@ def _stitch(project, first, first_position, second, second_position, color):
 
     `edge_point_at` is the add-on's helper for "the end this position refers
     to"; the sewing then decides the direction from the two points, which is
-    what it does when the editor clicks them. Each edge is passed with the panel
+    what it does when the editor clicks them. Each edge is passed with the pattern
     the position was asked on: one edge serves its whole instance chain, so the
-    pair of panels is what says which members are being stitched.
+    pair of patterns is what says which members are being stitched.
     """
     edge_a, pattern_a = first
     edge_b, pattern_b = second
@@ -131,6 +132,6 @@ def _created(project, sewing, message):
         raise QyapiError(f"that seam was refused: {reason}",
                          ("the add-on refuses a seam whose two edges overlap",
                           "or whose side has no sections to stitch",
-                          "qyapi.patterns.get() shows the edges of a panel"))
+                          "qyapi.patterns.get() shows the edges of a pattern"))
     address.write_done(message)
     return address.jsonify(address.sewing_entry(project, sewing, sewing.get_index()))

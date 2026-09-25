@@ -6,7 +6,7 @@ design:
 1. The authored vector geometry and everything derived from it are the same RNA
    object, so a cache (samples, sections, mesh, stitch walk) and a source of
    truth (a vertex position) have the same lifetime and the same addressing.
-2. An instance chain is a list of panels that each hold their own copy of that
+2. An instance chain is a list of patterns that each hold their own copy of that
    geometry, kept in step by index; the copies are not derivable from each other,
    which is what makes drift possible and every write N-fold.
 3. Caches are invalidated by flags that each caller has to set and clear
@@ -36,7 +36,7 @@ know how the Pattern was authored.
 - Carrying a file saved by an earlier build over. The add-on is not released and
   the maintainer converts a scene by hand when one has to be carried over; see
   D9.
-- Editing rules for generated panels, seam spans and display modes; the changes
+- Editing rules for generated patterns, seam spans and display modes; the changes
   in flight for those keep their own contracts and only have to respect the layer
   boundary.
 
@@ -44,9 +44,9 @@ know how the Pattern was authored.
 
 ### D1 - Two layers, named Sketch and Pattern
 
-The authored vector geometry becomes one object, the **Sketch**; the placed panel
+The authored vector geometry becomes one object, the **Sketch**; the placed pattern
 stays the **Pattern** and keeps identity, placement and derived data. The Sketch
-is one per instance chain and the Pattern is one per placed panel, so the layer
+is one per instance chain and the Pattern is one per placed pattern, so the layer
 count is two.
 
 Alternatives: **topology/geometry** - rejected, both words are already used for
@@ -75,13 +75,13 @@ of one origin with different Sketches.
 
 ### D3 - The Sketch sends the signal, the flags carry it
 
-Every edit of a panel's geometry goes through the Sketch it reads, and the Sketch
-is what tells the panels about it: `Sketch.geometry_written` walks the patterns
+Every edit of a pattern's geometry goes through the Sketch it reads, and the Sketch
+is what tells the patterns about it: `Sketch.geometry_written` walks the patterns
 whose `sketch_uuid` is its own and calls `Pattern.mark_geometry_changed` on each,
-which marks the outline state, the panel's own copy of the first stage, its
+which marks the outline state, the pattern's own copy of the first stage, its
 samples, its render line and the sewings that reach it. A tool that edits writes
 the Sketch and lets that call do the marking; a tool that changes only what a
-panel owns (placement, granularity, fabric, collision layer) marks the panel
+pattern owns (placement, granularity, fabric, collision layer) marks the pattern
 itself and nothing else.
 
 An earlier draft carried a `revision` counter on the Sketch and a
@@ -102,12 +102,12 @@ The Sketch owns the sections of its edges, the pieces crossings cut them into,
 and the inside/outside marking of an internal line. This stage is measured on the
 Sketch's own curve samples and MUST NOT use a pattern's granularity, so the
 decomposition of a Sketch is the same for every Pattern that references it, so it
-is built once and only the panels clone it.
+is built once and only the patterns clone it.
 
 The measurement is a fixed step in millimetres (`MEASURE_STEP_MM`, 0.5 mm, and no
 piece shorter than `MIN_PIECE_MM` is cut): the crossing search needs uniform
 samples to map a returned position back onto a piece, and a step that came from a
-panel would put the decomposition back under that panel's control. Sampling for a
+pattern would put the decomposition back under that pattern's control. Sampling for a
 mesh stays where it is - a Pattern's own pass, at its own granularity - because
 two patterns of one Sketch may sample it differently.
 
@@ -115,16 +115,16 @@ Alternatives: **keep the crossing pass in the Pattern path over
 granularity-resampled points** - rejected: the number of pieces would then follow
 the sampling density, so two patterns of one Sketch could disagree about what the
 Sketch is, and the result could not be cached on the Sketch; **compute the cuts
-lazily when a panel clones the stage** - rejected: the cuts are what the editor marks as inside
+lazily when a pattern clones the stage** - rejected: the cuts are what the editor marks as inside
 and outside, so they belong to the stage the editor reads.
 
 ### D5 - The consumers rebuild, the drawing path only draws
 
-`ensure_sections` is where a marked panel rebuilds: it refreshes the Sketch's
-first stage, clones the panel's own copy and samples it. The mesh path runs it
-before it samples, and a simulation prepare runs it for every panel it is about
+`ensure_sections` is where a marked pattern rebuilds: it refreshes the Sketch's
+first stage, clones the pattern's own copy and samples it. The mesh path runs it
+before it samples, and a simulation prepare runs it for every pattern it is about
 to send. It is never called by an edit's marking and never by the drawing path -
-the editor draws what the Sketch has and leaves a marked panel alone. A rebuild
+the editor draws what the Sketch has and leaves a marked pattern alone. A rebuild
 that cannot run (crossing or degenerate outline) keeps the last good derived data
 and records the reason in `mesh_error`, which is the existing crossing policy.
 
@@ -143,9 +143,9 @@ because none of them is a property of the Sketch.
 
 A seam side names its Pattern, a Sketch element of that Pattern and a position on
 it; the stitch walk (sections, link identities, stitch pairs) is derived data of
-the two patterns and is rebuilt when either panel is marked. This is the
+the two patterns and is rebuilt when either pattern is marked. This is the
 same direction the `sewing-many-to-many` change in flight already takes by making
-a span name its panel; that change and this one agree, and the only thing this
+a span name its pattern; that change and this one agree, and the only thing this
 change adds is that the walk follows the same marked/rebuild rule as the rest.
 
 Alternatives: **let the seam name an edge identity alone** - rejected, one Sketch
@@ -166,19 +166,19 @@ is the duplicated model again and it is what forces per-member write loops.
 ### D9 - No compatibility path
 
 The two layers are what is stored and read. A scene saved before this change is
-not converted, and nothing invents a Sketch for a panel that has none: the
+not converted, and nothing invents a Sketch for a pattern that has none: the
 maintainer converts a scene by hand when one has to be carried over, because the
 add-on has not been released and there is no installed base to keep.
 
-Alternatives: **adopt a panel's existing collections into a private Sketch on
+Alternatives: **adopt a pattern's existing collections into a private Sketch on
 first touch** - rejected by the maintainer as unnecessary work for an unreleased
-add-on; **guess which panels used to be copies** - rejected, the old data does
+add-on; **guess which patterns used to be copies** - rejected, the old data does
 not say, and a wrong guess silently welds two Sketches together.
 
 ### D10 - The editing contract for tools
 
 A tool that changes topology writes the Sketch and stops: no sampling and no seam
-relink inside the write. The Sketch marks the panels that read it, and the tool
+relink inside the write. The Sketch marks the patterns that read it, and the tool
 then meshes them - "a topology edit meshes before it returns". The tools keep
 their own immediate checks - a self-intersection test on the candidate points is
 a question about the Sketch and stays in the tool - but a tool MUST NOT ask for
@@ -207,25 +207,25 @@ decides what a click means.
 
 Alternatives: **keep picking by the element's own identity** - rejected, one
 Sketch element is on screen in every member of its chain, so the pick cannot say
-which panel was clicked - and a drag then has to guess which member's settings
+which pattern was clicked - and a drag then has to guess which member's settings
 (granularity, fabric, transform) to use; **one table for the whole project** -
-rejected, the ids would have to be rebuilt on every change of any panel, and the
-table is exactly the per-panel state this change is separating out.
+rejected, the ids would have to be rebuilt on every change of any pattern, and the
+table is exactly the per-pattern state this change is separating out.
 
 ### D13 - A seam change invalidates copies, it does not rebuild them at once
 
-Linking a seam splits sections, and the sections of a seam reach every panel of
+Linking a seam splits sections, and the sections of a seam reach every pattern of
 its connected component, so adding, removing or moving one seam can invalidate the
 section copy of any of them, and a linking run can leave a copy cut where the new
 seam graph does not agree. The rule is therefore: a change to the sewing graph, or
 to a Sketch, marks the section copy, the samples and the mesh of every pattern in
 the affected chains stale, and the rebuild happens when a consumer asks for it -
-the display path when it draws a panel, the simulation when it prepares. An edit
-that changes topology is not in this group: it rebuilds the mesh of the panel it
+the display path when it draws a pattern, the simulation when it prepares. An edit
+that changes topology is not in this group: it rebuilds the mesh of the pattern it
 changed before it returns, as it does today. What is deferred is only a change
 that can move the pieces a mesh is built from without being a topology edit: a
 seam edit, whose linking run cuts sections in every pattern it reaches. A change
-of granularity is not deferred: it is the panel's own sampling size, so the panel
+of granularity is not deferred: it is the pattern's own sampling size, so the pattern
 it was changed on is sampled and meshed again there and then, like a topology
 edit. A fabric, a
 placement, a display setting, a collision layer, a grain direction or a
@@ -237,19 +237,19 @@ Sketch, so a wrongly cut copy cannot survive.
 ### D15 - The samples are kept on the pattern, as a copy written before the mesh
 
 The samples a mesh is built from are session data: they are taken from the Sketch
-at this panel's granularity whenever they are needed, and a reload takes them
+at this pattern's granularity whenever they are needed, and a reload takes them
 again. They are also written to the pattern's own `geo_points` right before the
 mesh is generated, from the very points that mesh is generated from. That copy is
 not read by the add-on - it exists so a check that runs without opening Blender
-can read a panel's shape out of the saved file, at that panel's own granularity.
+can read a pattern's shape out of the saved file, at that pattern's own granularity.
 
 Alternatives: **keep the copy on the edge, as before** - rejected, one edge is
-shared by every member of a chain, so two panels with different granularities
+shared by every member of a chain, so two patterns with different granularities
 would overwrite each other's copy; **write it at save time** - rejected, a save
 can happen with stale or missing samples, and the rule "the copy is what the mesh
 was built from" only holds at the moment the mesh is built.
 
-Alternatives: **rebuild every affected panel on every seam edit** - rejected, that
+Alternatives: **rebuild every affected pattern on every seam edit** - rejected, that
 is what makes editing a seam slow today, and the result is thrown away by the next
 edit in the same gesture; **patch the existing copy** - rejected, a cut that a
 later linking run disowns is not something the copy can undo, which is why the
@@ -261,13 +261,13 @@ stage it came from has to be the source.
 (`start_pos`, `end_pos`), and the crossing marks (`io_state`, `outsize`). It
 carries no sampling state at all - no segment count, no sample offsets, no mesh
 offsets. A Pattern clones a raw chain into its own `Section` objects, and those
-carry what is per panel: the segment count at that panel's granularity, the sample
+carry what is per pattern: the segment count at that pattern's granularity, the sample
 offsets and the mesh offsets. Cloning is then a cheap copy of spans, and there is
-no place on the shared object where two panels could fight over a number.
+no place on the shared object where two patterns could fight over a number.
 
 Alternatives: **one Section class with the sampling fields left unset on the
 Sketch's copy** - rejected: nothing stops a caller from reading a field that only
-makes sense after a panel filled it in, which is the class of bug this whole
+makes sense after a pattern filled it in, which is the class of bug this whole
 change exists to remove; **store the raw stage as plain tuples** - rejected, the
 crossing marks and spans are read by name throughout the section code and the
 chain links are what make a walk cheap.
@@ -292,10 +292,10 @@ chain links are what make a walk cheap.
   import or first call rather than producing a wrong mesh, and the probes cover
   the interactive tools end to end.
 - **Two changes in flight touch the same seam model** -> `sewing-many-to-many`
-  already makes a span name its panel. Mitigation: D7 adopts that rule instead of
+  already makes a span name its pattern. Mitigation: D7 adopts that rule instead of
   inventing a second one, and this change does not restate span behaviour.
-- **Script-compatibility** -> a caller that reads a panel's vertices keeps its
-  call; the answer is the panel's Sketch. Mitigation: the surface keeps its names
+- **Script-compatibility** -> a caller that reads a pattern's vertices keeps its
+  call; the answer is the pattern's Sketch. Mitigation: the surface keeps its names
   where behavior is unchanged, and `docs/agent-api.md` is updated in the same
   change.
 
@@ -319,5 +319,5 @@ before a session is used to try it, not a switch.
 ## Open Questions
 
 - Where the detach affordance lives in the UI (pattern editor context menu versus
-  the panel list) is deferred; the behavior and the script call are specified,
+  the pattern list) is deferred; the behavior and the script call are specified,
   the affordance is not.

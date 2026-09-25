@@ -120,10 +120,10 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     # The authored geometry is one Sketch per instance chain; a pattern reads it
     # through the properties below and never holds a copy of its own.
     sketch_uuid: IntProperty(name="Sketch", default=-1, options={"HIDDEN"})
-    # The boundary samples this panel's last mesh was built from, kept as a copy
+    # The boundary samples this pattern's last mesh was built from, kept as a copy
     # in the file. Session data would do for the editor, but a check that runs
     # without opening the add-on - a script reading the saved file - can only see
-    # what was written, and this is the panel's own shape at its own granularity.
+    # what was written, and this is the pattern's own shape at its own granularity.
     geo_points: CollectionProperty(type=Vertex2D, name="geoPoints")
     fabric_uuid: IntProperty(name="fabricUUID", default=-1)
     is_mirror: BoolProperty(name="Is Mirror", default=False)
@@ -133,22 +133,22 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         default=0)
     generator_uuid: IntProperty(
         name="Generator",
-        description="Generator that produced this panel; -1 for a hand-drawn panel.",
+        description="Generator that produced this pattern; -1 for a hand-drawn pattern.",
         default=-1)
 
     def update_granularity(self, context):
-        """A granularity change resamples this panel and meshes it again.
+        """A granularity change resamples this pattern and meshes it again.
 
-        The number the user just typed is what this panel's samples and its mesh
+        The number the user just typed is what this pattern's samples and its mesh
         are built from, before the change returns. The other members of its
         chain keep their own granularity and their own mesh: the number is a
-        panel's field, not something its copies follow.
+        pattern's field, not something its copies follow.
         """
         self.mark_samples_changed()
         if self.mesh_object is not None:
-            # A panel that has never been meshed is built by whoever asks for
+            # A pattern that has never been meshed is built by whoever asks for
             # its first mesh; meshing here would run in the middle of a script
-            # that is still writing the panel.
+            # that is still writing the pattern.
             self.generate_mesh()
 
     @property
@@ -159,7 +159,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         sketch = global_data.get_obj_by_uuid(self.sketch_uuid, check_uuid=False)
         if sketch is not None:
             return sketch
-        # Undo, redo and a file reload clear the identity map, and a panel that
+        # Undo, redo and a file reload clear the identity map, and a pattern that
         # names a Sketch has to find it again without one: the project's
         # collection is the other half of the reference.
         for candidate in self.id_data.sketches:  # loop: one comparison per Sketch
@@ -175,7 +175,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     def require_sketch(self):
         """The Sketch this pattern reads, refusing when it carries none.
 
-        A panel with no Sketch has no geometry: nothing invents one for it, so
+        A pattern with no Sketch has no geometry: nothing invents one for it, so
         a caller that asks for its points is told why instead of getting an
         empty shape.
         """
@@ -287,7 +287,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         self.validity_state = VALIDITY_UNKNOWN
         self.invalid_point = None
         # A shape change earns a new mesh attempt: the reason the last one was
-        # refused no longer describes what the panel is now.
+        # refused no longer describes what the pattern is now.
         self.mesh_error = None
 
     def get_boundary_points(self):
@@ -326,6 +326,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
     def validate(self, force=False):
         """Cached state of the outline: only an unknown state costs a test."""
+        if self.sewing_error:
+            # A seam this pattern is on cannot be paired (see `sewing_guard`): the
+            # pattern has no mesh and a simulation will not start, whatever the
+            # outline itself says. The outline test is asked for below only when
+            # there is no such seam.
+            return VALIDITY_INVALID
         if force or self.validity_state not in (VALIDITY_VALID, VALIDITY_INVALID):
             return self.check_self_intersection()
         return self.validity_state
@@ -336,9 +342,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return bool(self.mesh_error) or self.validity_state == VALIDITY_INVALID
 
     def get_connected_patterns_and_sewings(self):
-        """The panels and sewings this panel's seam graph reaches.
+        """The patterns and sewings this pattern's seam graph reaches.
 
-        A seam side names its panel by identity, so a side whose panel an editor
+        A seam side names its pattern by identity, so a side whose pattern an editor
         removed reads back as None and the walk skips it rather than touching
         what is not there.
         """
@@ -386,28 +392,28 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             p.need_sewing_update = True
 
     def mark_geometry_changed(self):
-        """The geometry this panel reads changed: its derived data is stale.
+        """The geometry this pattern reads changed: its derived data is stale.
 
-        Marking, not rebuilding: the outline is unchecked, and this panel's own
+        Marking, not rebuilding: the outline is unchecked, and this pattern's own
         copy of the section stage, its samples and its render line are marked.
         The consumers do the work - `ensure_sections` refreshes the Sketch's
-        stage and clones this panel's copy from it, the mesh path runs that
+        stage and clones this pattern's copy from it, the mesh path runs that
         before it samples - so a tool that has to mesh at once still does, and a
         change that moves no geometry costs nothing here.
 
-        The patches a seam cuts into this panel's copy are dropped by that
+        The patches a seam cuts into this pattern's copy are dropped by that
         rebuild: they were cut against the pieces the old geometry had, so a
         rebuild clones the stage as it is now and the linking run cuts again.
         """
         self.mark_shape_changed()
         if self.sketch is not None:
-            # The curves are this panel's geometry as it is drawn, and the draw
+            # The curves are this pattern's geometry as it is drawn, and the draw
             # path, the outline test and the measuring passes all read them: say
             # they moved, so the next reader of an edge builds it again.
             self.sketch.mark_curves_changed()
             # The edit itself is counted where it is written - a tool's write
             # helper calls `Sketch.touch`, and so does a write of a curve
-            # (`Edge2D.set_curve`) - not here: marking a panel a consumer walks
+            # (`Edge2D.set_curve`) - not here: marking a pattern a consumer walks
             # past (a prepare does that) is not an edit, and counting it would
             # invalidate the baked data for nothing.
             self.need_sections = True
@@ -416,11 +422,11 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         self.update_connected_pattern_sewing_state()
 
     def mark_sections_changed(self) -> None:
-        """The seam graph this panel is part of changed: its copy is stale.
+        """The seam graph this pattern is part of changed: its copy is stale.
 
         The geometry did not move, so the curves and the outline's state stay as
-        they are; only this panel's copy of the stage, its samples and its mesh
-        are marked, and every panel the sewings reach is marked with it. A seam
+        they are; only this pattern's copy of the stage, its samples and its mesh
+        are marked, and every pattern the sewings reach is marked with it. A seam
         edit costs this much, which is what lets it leave the meshes alone until
         a consumer needs them.
         """
@@ -430,7 +436,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         self.update_connected_pattern_sewing_state()
 
     def mark_samples_changed(self) -> None:
-        """This panel's samples and its mesh are out of date; nothing else.
+        """This pattern's samples and its mesh are out of date; nothing else.
 
         A field that changes the sampling rather than the geometry - the
         granularity - needs exactly this: the pieces are cut at the same places,
@@ -441,36 +447,37 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         self.need_sections = True
         self.need_geo_update = True
         self.need_render_update = True
+        self.need_sewing_update = True
 
-    # ------------------------------------------- this panel's sections and samples
+    # ------------------------------------------- this pattern's sections and samples
 
-    def ensure_sections(self) -> None:
-        """Build this panel's sections and samples when they are missing or stale.
+    def ensure_sections(self) -> bool:
+        """Build this pattern's sections and samples when they are missing or stale.
 
-        They are session data: a panel a file was saved with has none of them,
+        They are session data: a pattern a file was saved with has none of them,
         and a geometry or seam change marks them. The first consumer that asks
         for a piece, a sample or a mesh builds them here, which is what makes a
-        seam edit cheap and the work land where the data is needed.
+        seam edit cheap and the work land where the data is needed. Answers
+        whether it built them, which is also whether it took the samples.
         """
         if not self.need_sections and self.sections_by_edge:
-            return
+            return False
         self.need_sections = False
         if self.sketch is not None:
-            # The stage is always rebuilt from one section per edge before it is
-            # cloned: a cut read against sections that a previous cut or a seam
-            # boundary already split would land on the wrong pieces, and this
-            # panel's copy is only ever cloned from the curves as they are now.
+            # The stage is rebuilt from one section per edge before it is cloned:
+            # a cut read against already split pieces lands on the wrong ones.
             self.sketch.update()
         self.clone_sections()
         self.sample_all()
         self.calc_bbox()
         self.need_geo_update = True
+        return True
 
     def clone_sections(self) -> None:
-        """Take this panel's own copy of the Sketch's first section stage.
+        """Take this pattern's own copy of the Sketch's first section stage.
 
         Deep, head to tail: what a linking run cuts at seam boundaries is this
-        copy, and those cuts must never reach the Sketch or another panel of the
+        copy, and those cuts must never reach the Sketch or another pattern of the
         chain. Nothing is patched into a copy that already exists - a copy cut by
         an older seam graph is dropped and cloned again from the stage the Sketch
         has now.
@@ -492,7 +499,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
                 pieces = [Section.from_raw(raw) for raw in edge.raw_sections()]
                 for piece in pieces:  # loop: one span per piece of this edge
                     piece.edge_key = (key, index)
-                    piece.panel = self
+                    piece.pattern = self
                 self.sections_by_edge[(key, index)] = pieces
                 chain.extend(pieces)
             if not chain:
@@ -506,12 +513,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             self.section_heads[key] = chain[0]
 
     def sections_for_edge(self, key, index) -> list:
-        """This panel's pieces of one edge, in chain order."""
+        """This pattern's pieces of one edge, in chain order."""
         self.ensure_sections()
         return self.sections_by_edge.get((key, index), [])
 
     def pieces_of(self, key) -> list:
-        """This panel's pieces of one chain: the outline, or one internal line."""
+        """This pattern's pieces of one chain: the outline, or one internal line."""
         self.ensure_sections()
         count = (len(self.edges) if key is None
                  else len(self.internal_lines[key].edges))
@@ -521,7 +528,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return pieces
 
     def sample_all(self) -> None:
-        """Take this panel's samples from its own copy of the stage."""
+        """Take this pattern's samples from its own copy of the stage."""
         self.sample_points = {}
         self.sample_starts = {}
         self.sample_sizes = {}
@@ -533,12 +540,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
                 self.sample_edge(line_index, index)
 
     def sample_edge(self, key, index) -> None:
-        """Sample one chain edge's pieces at this panel's granularity.
+        """Sample one chain edge's pieces at this pattern's granularity.
 
         `key` is None for the outline and a line's index for one of its internal
-        lines. The samples land on the panel (`self.sample_points`) and the
-        segment count and the sample offsets on the panel's own pieces, so two
-        panels of one chain can sample the same edge differently.
+        lines. The samples land on the pattern (`self.sample_points`) and the
+        segment count and the sample offsets on the pattern's own pieces, so two
+        patterns of one chain can sample the same edge differently.
         """
         sections = self.sections_for_edge(key, index)
         if not sections:
@@ -576,9 +583,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return resample_polyline(temp_points, [(0, point_size)], True)
 
     def key_of(self, edge) -> tuple:
-        """Where one of the Sketch's edges sits in this panel: (line or None, index).
+        """Where one of the Sketch's edges sits in this pattern: (line or None, index).
 
-        The table is part of this panel's copy of the stage, so the copy is asked
+        The table is part of this pattern's copy of the stage, so the copy is asked
         for first: a caller that reaches here before a marked rebuild - the
         linking run is one, and it asks for the edge before it asks for a piece -
         would otherwise read a table that is empty or one edit old.
@@ -589,12 +596,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
     # --------------------------------------------------------------- picking
 
     def pick_id(self, kind, element) -> int:
-        """The id this panel draws one of its elements with in the pick pass.
+        """The id this pattern draws one of its elements with in the pick pass.
 
         A Sketch element is on screen once per pattern of its chain, so the
         element's own identity cannot be what a pick reads back: the id belongs
         to the pair. It is generated here, kept for the session, and the pass
-        records which panel and which element it stood for, so a pointer over
+        records which pattern and which element it stood for, so a pointer over
         one member's edge resolves to that member and not to its copy.
         """
         key = (kind, int(element.global_uuid))
@@ -606,12 +613,12 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return identifier
 
     def find_or_add_section(self, edge, pos):
-        """The piece of one edge a position falls in, cutting this panel's copy.
+        """The piece of one edge a position falls in, cutting this pattern's copy.
 
         The linking run uses this: a seam boundary has to sit on a piece boundary
-        before a walk can be read off. The cut is made on this panel's own pieces
+        before a walk can be read off. The cut is made on this pattern's own pieces
         (`Section.split` keeps the chain, the linking table and the per-edge
-        pieces in step), so it never reaches the Sketch or another panel.
+        pieces in step), so it never reaches the Sketch or another pattern.
         """
         eps = 1e-5
         key, index = self.key_of(edge)
@@ -636,10 +643,10 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return None
 
     def register_piece(self, section) -> None:
-        """Put a piece a split produced into this panel's per-edge list.
+        """Put a piece a split produced into this pattern's per-edge list.
 
         `Section.split` calls this, so a piece a linking run cut is in the list
-        the panel samples as well as in the chain a sewing walk follows: a piece
+        the pattern samples as well as in the chain a sewing walk follows: a piece
         missing from the list would never be given a segment count, and the two
         sides of the seam would end up with different stitch counts.
         """
@@ -658,7 +665,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
         Read-only: the stitch walk reads its boundaries back from the seam's own
         parameters with this instead of trusting a stored pair, so a later split
-        cannot leave it pointing at the wrong piece. It reads this panel's own
+        cannot leave it pointing at the wrong piece. It reads this pattern's own
         pieces - the ones a linking run cut - and never changes them.
 
         `reverse` asks for the piece below the boundary, which is where a walk
@@ -696,11 +703,11 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return section
 
     def gen_mesh_edge_points_and_sections(self):
-        """The outline's samples and the panel's own pieces they came from.
+        """The outline's samples and the pattern's own pieces they came from.
 
         Each piece's `mesh_start_point` says where the edge's samples start in
         the array the mesh is built from, so the mesh indices a piece produces
-        are read from the panel's own copy rather than from a shared stage.
+        are read from the pattern's own copy rather than from a shared stage.
         """
         sections = []
         points = self.get_geo_points_unique()
@@ -718,14 +725,11 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return points, sections
 
     def calc_mesh_edge_points(self):
-        # The pieces are this panel's own copy of the stage; a consumer that got
-        # here before a marked rebuild asked for a mesh, not for pieces.
-        self.ensure_sections()
-        # The linking run cuts this panel's pieces at seam boundaries after the
-        # samples were taken (`Section.split` leaves the new pieces unsegmented),
-        # so the samples are brought up to date with the pieces here, once per
-        # mesh build.
-        self.sample_all()
+        # Samples are taken here only when `ensure_sections` did not just copy
+        # the pieces: a linking run cuts pieces after they were sampled, and a
+        # piece it cut carries no count of its own.
+        if not self.ensure_sections():
+            self.sample_all()
         edge_points, edge_sections = self.gen_mesh_edge_points_and_sections()
         secion_index_offset = len(edge_points)
         self.mesh_edge_point_outer_size = secion_index_offset
@@ -926,9 +930,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
         Called right before the mesh is generated, from the points that mesh is
         generated from. The samples themselves are session data - they are taken
-        again from the Sketch at this panel's granularity whenever they are
+        again from the Sketch at this pattern's granularity whenever they are
         needed - but a check that runs without opening the add-on can only read
-        what was written to the file, so the panel's own shape is kept there.
+        what was written to the file, so the pattern's own shape is kept there.
         """
         self.geo_points.clear()
         points = self.mesh_edge_points
@@ -942,8 +946,8 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         """One line's samples that lie inside the outline, and their pieces.
 
         Pieces marked outside are dropped, and a piece that continues into the
-        next one shares its end point. Both come from this panel's own copy of
-        the stage, so the mesh a panel builds cannot be read off another panel's
+        next one shares its end point. Both come from this pattern's own copy of
+        the stage, so the mesh a pattern builds cannot be read off another pattern's
         cuts.
         """
         pieces = [section for section in self.pieces_of(line_index)
@@ -979,7 +983,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return list_vertices
 
     def calc_bbox(self):
-        """The panel's bounding box, measured on the curves themselves.
+        """The pattern's bounding box, measured on the curves themselves.
 
         The draw points are the shape; the samples are one rendering of it, so a
         box that needed them would be missing before a mesh pass and would move
@@ -1011,9 +1015,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return (bbox[0] + bbox[1]) * 0.5
 
     def generate_mesh(self, scale_data=None, force=False):
-        """Build this panel's mesh from the samples it has.
+        """Build this pattern's mesh from the samples it has.
 
-        A panel whose samples did not move since its mesh was built keeps the
+        A pattern whose samples did not move since its mesh was built keeps the
         mesh it has: calling this again with nothing marked is a no-op, which is
         what makes a repeated call - a repair pass, a redraw that asks for the
         mesh - cost nothing. `force` and `scale_data` are for a caller that
@@ -1045,9 +1049,9 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             self.mesh_object = generate_pattern_mesh(self, granularity, self.mesh_object,
                                                      scale_data)
         except Exception as error:
-            # The sampler refuses geometry it cannot triangulate - a panel thinner
+            # The sampler refuses geometry it cannot triangulate - a pattern thinner
             # than one sampling cell, samples that merged onto each other, a
-            # section chain that does not add up. The panel is left invalid with
+            # section chain that does not add up. The pattern is left invalid with
             # the reason kept, so the editor stays alive and a simulation will not
             # start on it, instead of the error escaping into an operator.
             self.mesh_error = str(error) or error.__class__.__name__
@@ -1102,13 +1106,26 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         pos = self.calc_matrix() @ Vector((pos[0], pos[1], 0, 1))
         return pos[0], pos[1]
 
+    def view_points(self, points) -> np.ndarray:
+        """These points of the pattern in view space, through its matrix once.
+
+        A tool that previews a curve does this on every mouse move, over a whole
+        run of samples: asking for one point at a time builds the pattern's matrix
+        again for each of them, which costs several times what the shape the
+        preview draws from costs.
+        """
+        matrix = np.asarray(self.calc_matrix(), dtype=np.float64)
+        points = np.asarray(points, dtype=np.float64).reshape((-1, 2))
+        columns = np.column_stack((points, np.zeros(len(points)), np.ones(len(points))))
+        return np.asarray(columns @ matrix.T, dtype=np.float64)[:, :2]
+
     def copy_pattern(self, as_instance=False, mirror=False, project=None, anchor=None):
-        """Copy this panel and return the copy.
+        """Copy this pattern and return the copy.
 
         The copy references the same Sketch: one Sketch per instance chain, so
-        copying a panel costs no geometry. A mirror is expressed by the
+        copying a pattern costs no geometry. A mirror is expressed by the
         transform matrix and the mesh scale, so `mirror` only flips the copy's
-        flag. Nothing links the two panels - they are one chain because they
+        flag. Nothing links the two patterns - they are one chain because they
         read one Sketch - and a copy that is to have a shape of its own is
         detached afterwards.
         """
@@ -1157,21 +1174,21 @@ class Pattern(PropertyGroup, ModelData, Selectable):
                 "reason": "the copy now holds its own Sketch"}
 
     def sketch_members(self) -> list:
-        """Every panel that reads this panel's Sketch, this one first.
+        """Every pattern that reads this pattern's Sketch, this one first.
 
         A chain is what shares a Sketch, so it is read from the project instead
-        of being kept as a list of its own: a panel that names no Sketch is
-        alone, and a panel that names one is with the panels that name it too.
+        of being kept as a list of its own: a pattern that names no Sketch is
+        alone, and a pattern that names one is with the patterns that name it too.
         Only the drawing of a selection and a generator rebuild have any use for
         this - a length-1 answer is the common case and the honest one for a
-        panel that was never copied.
+        pattern that was never copied.
         """
         members = [self]
         if self.sketch_uuid == -1:
-            # A panel with no Sketch has no geometry, so there is nothing for a
+            # A pattern with no Sketch has no geometry, so there is nothing for a
             # copy to share and nothing to look for: it is alone.
             return members
-        for candidate in self.project.patterns:  # loop: one comparison per panel
+        for candidate in self.project.patterns:  # loop: one comparison per pattern
             if candidate.global_uuid == self.global_uuid:
                 continue
             if candidate.sketch_uuid == self.sketch_uuid:
@@ -1194,32 +1211,39 @@ define_temp_prop(Pattern, "inv_transform_mat_2D", None)
 define_temp_prop(Pattern, "impacted", False)
 define_temp_prop(Pattern, "mesh_edge_points", None)
 define_temp_prop(Pattern, "mesh_edge_index_map", None)
-define_temp_prop(Pattern, "mesh_point_indices", None)
+# The constraint edges the mesh is built from - the samples paired up, one row
+# per segment. Session data: it is taken again from the pieces whenever the
+# samples are. It was written as a plain attribute while this declaration still
+# carried its old name, and a plain attribute belongs to one Python wrapper of
+# the pattern: a build that reached the same pattern through another wrapper read the
+# rows of an older build, which is what made the engine refuse a mesh with
+# "curve 0 claims 10 edges and 8 are left of 8".
+define_temp_prop(Pattern, "mesh_edge_point_indices", None)
 # The triangles the last mesh build wrote, for the next build's attribute
 # mapping: reading them back from Blender re-tessellates the old mesh first.
 define_temp_prop(Pattern, "mesh_triangles", None)
 define_temp_prop(Pattern, "mesh_edge_point_outer_size", -1)
-# The panel's own copy of the Sketch's first section stage, and the samples taken
-# from it. Session data: it is rebuilt from the Sketch whenever this panel asks
+# The pattern's own copy of the Sketch's first section stage, and the samples taken
+# from it. Session data: it is rebuilt from the Sketch whenever this pattern asks
 # for a mesh, and a reload starts with none of it.
 define_temp_prop(Pattern, "sections_by_edge", dict)
 define_temp_prop(Pattern, "section_heads", dict)
 define_temp_prop(Pattern, "key_of_edge", dict)
-# The ids this panel draws its own elements with in the pick pass, one per
+# The ids this pattern draws its own elements with in the pick pass, one per
 # (kind, element). Session data: a pick only ever reads what the pass left.
 define_temp_prop(Pattern, "pick_ids", dict)
 define_temp_prop(Pattern, "sample_points", dict)
 define_temp_prop(Pattern, "sample_starts", dict)
 define_temp_prop(Pattern, "sample_sizes", dict)
 define_temp_prop(Pattern, "line_sizes", dict)
-# Whether this panel's own copy of the Sketch's stage and its samples are up to
+# Whether this pattern's own copy of the Sketch's stage and its samples are up to
 # date. Session data, and true at the start of a session: nothing is stored.
 define_temp_prop(Pattern, "need_sections", True)
 # Outline validity. A temp prop on purpose: it is a cache of an engine answer,
 # so it is never written to the file and a reopened scene starts as unknown.
 define_temp_prop(Pattern, "validity_state", VALIDITY_UNKNOWN)
 define_temp_prop(Pattern, "invalid_point", None)
-# Why the last mesh attempt was refused, or None. Kept as text so the panel can
+# Why the last mesh attempt was refused, or None. Kept as text so the pattern can
 # show what the engine said instead of only that something is wrong.
 define_temp_prop(Pattern, "mesh_error", None)
 

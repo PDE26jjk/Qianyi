@@ -25,6 +25,11 @@ STITCH_LINE_SEGMENTS_MAX = 32
 # than the sewing so a selected chain stays readable.
 STITCH_LINE_WIDTH = 1.0
 
+# A seam whose two sides cannot be paired is drawn in this color instead of its
+# own: it takes its patterns out of the mesh and the simulation, so it has to be
+# visible as the thing to fix.
+BROKEN_SEAM_COLOR = (1.0, 0.15, 0.1)
+
 
 def polyline_length(points):
     pts = np.asarray(points, dtype=np.float64)
@@ -99,7 +104,7 @@ class SewingRenderer(BaseRenderer):
         p1 = self.sewing.pattern1
         p2 = self.sewing.pattern2
         if p1 is None or p2 is None:
-            # A seam whose panel is gone has nothing to draw; the seam is what
+            # A seam whose pattern is gone has nothing to draw; the seam is what
             # the editor drops, this only keeps the frame alive until it does.
             return
         # Both halves are drawn as their polylines whatever their direction:
@@ -126,7 +131,8 @@ class SewingRenderer(BaseRenderer):
             self.sewing.update()
         gpu.state.blend_set('ALPHA')
         self.shader.bind()
-        self.shader.uniform_float("color", (*self.sewing.color, alpha))
+        color = BROKEN_SEAM_COLOR if self.sewing.stitch_error else self.sewing.color
+        self.shader.uniform_float("color", (*color, alpha))
         p1 = self.sewing.pattern1
         p2 = self.sewing.pattern2
         if p1 is None or p2 is None:
@@ -146,7 +152,7 @@ class SewingRenderer(BaseRenderer):
             previous_width = gpu.state.line_width_get()
             gpu.state.line_width_set(STITCH_LINE_WIDTH)
             self.update_model_matrix(Matrix.Identity(4))
-            self.shader.uniform_float("color", (*self.sewing.color, alpha))
+            self.shader.uniform_float("color", (*color, alpha))
             self.batch_stitch_lines.draw(self.shader)
             gpu.state.line_width_set(previous_width)
 

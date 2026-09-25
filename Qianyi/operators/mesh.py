@@ -25,7 +25,7 @@ class NODE_OT_qmyi_generate_all_mesh(Operator):
         project.calc_all_sewings_sections()
         for p in project.patterns:
             p.calc_mesh_edge_points()
-            p.generate_mesh()
+            p.generate_mesh(force=True)
         context.area.tag_redraw()
         return {"FINISHED"}
 

@@ -14,12 +14,12 @@ context: |
     A pattern is a 2D outline of vertices and edges (a two-point edge with
     handles is a cubic Bezier, a multi-point edge is an interpolating cubic
     spline, vector handles make a straight line) plus optional internal lines.
-    Panel meshes are sampled from the boundary at the pattern's granularity.
+    Pattern meshes are sampled from the boundary at the pattern's granularity.
     A sewing stores an edge identity plus a normalized position for each side
     and can span consecutive edges.
   - The simulation bridge sends one mesh payload per object (vertices, edges,
     triangles, world matrix, fabric, collision layer, grain direction, pins)
-    plus the sewing list to the engine; the engine does not care how a panel
+    plus the sewing list to the engine; the engine does not care how a pattern
     was created.
   - Code comments and committed artifacts are written in English.
   - Numeric work is written with numpy vector operations rather than Python

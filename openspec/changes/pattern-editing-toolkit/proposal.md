@@ -5,7 +5,7 @@ the edits a pattern maker performs while drafting: divide an edge into equal
 parts or at measured distances, round or chamfer a corner, open a fan at a
 pivot, place a rectangle or a circle, turn an internal line into a real outline,
 space internal lines by distance, or sew one long edge to several short ones.
-Without those commands the add-on can only consume panels that were drafted
+Without those commands the add-on can only consume patterns that were drafted
 elsewhere.
 
 ## What Changes
@@ -19,13 +19,13 @@ elsewhere.
 - Edge commands: divide an edge or an edge chain into N equal parts by arc
   length, or by a target length with a cut count (default one, capped at what
   the selection holds, the last piece absorbing the remainder); round, chamfer
-  or hollow a corner; open a fan at a pivot by rotating one half of the panel
+  or hollow a corner; open a fan at a pivot by rotating one half of the pattern
   and filling the sector that opens; drag a curve into the shape the pointer
   describes.
-- Panel primitives: rectangle and circle/annulus generators in the panel
+- Pattern primitives: rectangle and circle/annulus generators in the pattern
   library, with parameter schemas and preview, reusing the existing generator
   pipeline so a placed primitive stays parametric until it is detached.
-- Internal lines: cut a panel along an internal line that crosses the outline
+- Internal lines: cut a pattern along an internal line that crosses the outline
   exactly twice (both halves join the source's instance chain, with an optional
   seam along the cut); convert a run of outline edges into an internal line;
   create a run of internal lines at a signed distance with the ends clipped,
@@ -33,9 +33,9 @@ elsewhere.
   so it is never left self-crossing; allow an internal line to be a sewing side.
 - Many-to-many sewing: each side of a seam becomes a set of drawn spans, matched
   by the section linker's proportional mapping, with the tolerance calibrated by
-  experiment. A seam stays one object, both of its sides stay on one panel each,
+  experiment. A seam stays one object, both of its sides stay on one pattern each,
   and the engine payload is unchanged.
-- Copy options: flip an existing panel in place, copy with internal lines
+- Copy options: flip an existing pattern in place, copy with internal lines
   included, and copy carrying the sewings that lie entirely inside the copied
   selection. An instance or mirror copy carries no seams.
 - Keep the editor's mode-based structure, but remove its cost: picking a tool
@@ -43,7 +43,7 @@ elsewhere.
   mode change (it is drawn dimmed while another mode is active). A unified
   selection model was considered and rejected - see `design.md`.
 - Make the geometry commands act on the current selection and keep them
-  re-runnable, so Blender's own **adjust last operation** panel can change a
+  re-runnable, so Blender's own **adjust last operation** pattern can change a
   parameter after the fact (part count, target length, corner radius, fan
   angle). The drawing tools - the pens, the sewing tool, box select, the 3D
   pick - are documented exceptions: they have no parameter to adjust.
@@ -60,8 +60,8 @@ needs the engine to carry an angle on that line, and it does not do so yet.
   length or by a target length, rounding/chamfering/hollowing a corner, opening
   a fan at a pivot, editing a curve by dragging it, and the shared rules that
   keep the written geometry fitted and above the merge threshold.
-- `pattern-primitive-generators`: rectangle and circle/annulus panel generators
-  in the panel library, with parameters, preview and the same rebuild/sewing
+- `pattern-primitive-generators`: rectangle and circle/annulus pattern generators
+  in the pattern library, with parameters, preview and the same rebuild/sewing
   remap behaviour as the other components.
 - `internal-line-tools`: converting between internal lines and outlines, spacing
   a run of internal lines by a signed distance, and using an internal line as a
@@ -69,7 +69,7 @@ needs the engine to carry an angle on that line, and it does not do so yet.
 - `sewing-many-to-many`: a seam whose two sides each hold a set of drawn spans,
   matched by proportional section mapping, including its UI, its stitch
   generation and its behaviour when a side's edges change.
-- `pattern-copy-options`: flipping a panel in place, copying internal lines, and
+- `pattern-copy-options`: flipping a pattern in place, copying internal lines, and
   copying the sewings contained in a copied selection.
 - `pattern-tool-interaction`: how a tool relates to the editor's modes (a tool
   activates its own mode, a selection survives a mode change), what a command
@@ -87,7 +87,7 @@ needs the engine to carry an angle on that line, and it does not do so yet.
 ## Impact
 
 - Model: `Qianyi/model/pattern.py` (edge division, corner tools, the fan,
-  duplicated-panel construction), `Qianyi/model/geometry.py` (curve fitting and
+  duplicated-pattern construction), `Qianyi/model/geometry.py` (curve fitting and
   the merge threshold), `Qianyi/model/section.py` (split sections on refitted
   edges), `Qianyi/model/sewing.py` (span sets and proportional section
   matching), `Qianyi/model/internal_line.py` (outline conversion and offsets),
@@ -97,7 +97,7 @@ needs the engine to carry an angle on that line, and it does not do so yet.
 - Operators and tools: `Qianyi/operators/_2d_*.py` (the new edge commands, copy
   options), `Qianyi/declarations.py`, `Qianyi/keymaps.py`, and
   `Qianyi/workspacetools/`.
-- Library: `Qianyi/panellib/components/` (rectangle, circle) and
+- Library: `Qianyi/patternlib/components/` (rectangle, circle) and
   `Qianyi/generators.py` (preview and rebuild for a primitive).
 - Script surface: `Qianyi/qyapi/patterns.py`, `Qianyi/qyapi/sewings.py`,
   `Qianyi/qyapi/components.py`, and `docs/agent-api.md`.

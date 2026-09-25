@@ -155,11 +155,11 @@ def _touched_line_indices(pattern, vertices, spline_points) -> list:
 def _splice_line(member, line_index, deleted, marks, sewing_map, mark_impacted) -> None:
     """Take the marked elements out of one member's copy of one internal line.
 
-    `deleted` and `marks` are indices into the panel the selection named; every
+    `deleted` and `marks` are indices into the pattern the selection named; every
     member of the chain holds the same chain by index, which is what lets an
     edit be written to the whole chain. A sewing that named an edge which goes
     is marked for the project to drop, a line left without edges is removed,
-    and the vertices nothing references any more leave the panel's pool - a
+    and the vertices nothing references any more leave the pattern's pool - a
     vertex the outline or another line still uses stays for its own chain's
     surgery to decide about.
     """
@@ -208,7 +208,7 @@ def _splice_line(member, line_index, deleted, marks, sewing_map, mark_impacted) 
 
 def delete_line_elements(pattern, line_index, vertices=(), spline_points=(), *,
                          sewing_map=None, mark_impacted=None) -> None:
-    """Take these elements out of one internal line, on every copy of the panel.
+    """Take these elements out of one internal line, on every copy of the pattern.
 
     `vertices` are points of the line and `spline_points` are control points of
     its edges, both the objects the selection picked on `pattern`. They are
@@ -222,7 +222,7 @@ def delete_line_elements(pattern, line_index, vertices=(), spline_points=(), *,
     to, so the edge that ran to it goes with it - which is why deleting the
     last edge of an open line takes the edge before it as well, the point the
     two shared being deleted - and a line left without an edge is removed. The
-    points no remaining edge references leave the panel's pool; a point the
+    points no remaining edge references leave the pattern's pool; a point the
     outline or another line still uses stays in it.
     """
     line = pattern.internal_lines[line_index]
@@ -266,14 +266,14 @@ class NODE_OT_elements_delete(Operator2DBase):
             point_set = set()
             objs = project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
             for obj in objs:
-                panel = owner_pattern(obj)
-                if panel is not None:
-                    pattern_set.add(panel)
+                pattern = owner_pattern(obj)
+                if pattern is not None:
+                    pattern_set.add(pattern)
             # One Sketch serves a whole instance chain, so two selected elements
             # of two members are one edit: the set is keyed by Sketch.
             by_sketch = {}
-            for panel in pattern_set:
-                by_sketch.setdefault(int(panel.sketch_uuid), panel)
+            for pattern in pattern_set:
+                by_sketch.setdefault(int(pattern.sketch_uuid), pattern)
             pattern_set = set(by_sketch.values())
             for candidate in pattern_set:
                 if refuse_generated_edit(self, project, candidate):
@@ -408,14 +408,14 @@ class NODE_OT_elements_delete(Operator2DBase):
                         for j in sorted(sps, reverse=True):
                             e.spline_points.remove(j)
                         e.refresh_collection_uuid(e.spline_points)
-                # The sewings that lost a line have to go before the panels are
+                # The sewings that lost a line have to go before the patterns are
                 # marked: marking walks every sewing in the project and a
                 # deleted edge no longer resolves.
                 project.remove_impacted_sewings()
                 # Every write above went straight into the Sketch's own
                 # collections - edges and vertices removed, indices shifted,
                 # spline points dropped - so the write signal is sent here: the
-                # panels that read the Sketch are marked and their display is
+                # patterns that read the Sketch are marked and their display is
                 # rebuilt.
                 sketch = p.sketch
                 if sketch is not None:
@@ -448,13 +448,18 @@ class NODE_OT_elements_delete(Operator2DBase):
                     console.warning("a selected seam is gone, skipping it")
                     continue
                 del_idx_list.add(index)
+            patterns = project.patterns_of(project.sewings[i] for i in sorted(del_idx_list))
             for i in sorted(del_idx_list, reverse=True):
-                for attribute in ("pattern1", "pattern2"):  # loop: the two panels
+                for attribute in ("pattern1", "pattern2"):  # loop: the two patterns
                     target = getattr(project.sewings[i], attribute, None)
                     if target is not None:
                         target.need_sewing_update = True
                 project.sewings.remove(i)
             project.refresh_collection_uuid(project.sewings)
+            # The seams that are left have to be linked again: the ones that went
+            # were the only reason their pieces were cut where they are, and a
+            # pattern held out of the mesh by one of them has to come back.
+            project.sewings_changed(patterns)
         project.clear_selected_objects_by_mode(edit_mode)
         context.area.tag_redraw()
         return {"FINISHED"}

@@ -31,7 +31,7 @@ def gesture_edges(patterns) -> list:
     """
     edges = []
     seen = set()
-    for pattern in patterns:  # loop: one panel of the selection
+    for pattern in patterns:  # loop: one pattern of the selection
         sketch = pattern.sketch
         if sketch is None:
             continue
@@ -58,7 +58,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
         project = get_active_node_tree(context)
         if project is not None:
             objs = project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
-            # A generated panel refuses geometry edits; its parameters own its shape.
+            # A generated pattern refuses geometry edits; its parameters own its shape.
             if any(generation_lock(project, owner_pattern(obj)) for obj in objs):
                 return False
             if len(objs) > 0:
@@ -85,9 +85,9 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
         self.point_proxys = []
         objs = self.project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
         for obj in objs:
-            panel = owner_pattern(obj)
-            if panel is not None:
-                self.pattern_set.add(panel)
+            pattern = owner_pattern(obj)
+            if pattern is not None:
+                self.pattern_set.add(pattern)
         for obj in objs:
             if isinstance(obj, Edge2D):
                 move_point_set.add(obj.vertex0)
@@ -133,7 +133,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
                 # mirrored instance moves with the mouse instead of against it.
                 # The member the gesture started on: the id pass knows which one
                 # the pointer was over, and the selection has already made it
-                # the active panel.
+                # the active pattern.
                 self.drag_pattern = (self.draw_manager.picked_pattern()
                                      or self.project.active_pattern)
                 return
@@ -174,7 +174,7 @@ class NODE_OT_edge_mode_move(Operator2DBase, StateOperator):
             # members of that chain while it drags: they have all been showing
             # the moved outline, so all of them have to leave with the new
             # mesh. Both steps are the Sketch's - the write signal and the mesh
-            # rebuild reach every panel that reads it.
+            # rebuild reach every pattern that reads it.
             sketch = p.require_sketch()
             sketch.geometry_written()
             sketch.rebuild_meshes()

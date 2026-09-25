@@ -17,7 +17,7 @@ from ..utilities.coords_transform import create_2d_matrix, create_2d_matrix_inve
 # The grain line is drawn rotated a quarter turn: every other garment tool
 # draws the default warp direction vertically on the pattern, while this
 # add-on's stored grain direction of 0 is the +X axis. Only the drawing is
-# rotated - the value handed to the engine is the panel's own `grain_dir`.
+# rotated - the value handed to the engine is the pattern's own `grain_dir`.
 GRAIN_DISPLAY_ROTATION = math.pi / 2
 
 

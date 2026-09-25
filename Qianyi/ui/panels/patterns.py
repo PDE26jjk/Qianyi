@@ -116,7 +116,7 @@ class QY_PT_patternProperty(NODE_PT_qmyi_base):
         if pattern.is_invalid:
             if pattern.mesh_error:
                 box.label(text=pattern.mesh_error, icon="ERROR")
-                box.label(text="no mesh could be built for this panel")
+                box.label(text="no mesh could be built for this pattern")
             else:
                 box.label(text="this outline crosses itself" if pattern.invalid_point is not None
                           else "this outline is not a closed loop", icon="ERROR")

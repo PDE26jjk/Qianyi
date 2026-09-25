@@ -1,35 +1,35 @@
 ## Purpose
 
 Lets a pattern maker move between the two things a drawn line can be inside a
-panel - a cut and a boundary - and lay out repeated internal lines by distance,
+pattern - a cut and a boundary - and lay out repeated internal lines by distance,
 which is how darts, fold lines and cut lines are actually made.
 
 ## ADDED Requirements
 
-### Requirement: A panel can be cut along an internal line
+### Requirement: A pattern can be cut along an internal line
 
-The editor SHALL cut a panel along a selected internal line that crosses its
-outline exactly twice, replacing the panel with two panels whose shared boundary
-is the cut. Both resulting panels SHALL keep the source's fabric, granularity,
+The editor SHALL cut a pattern along a selected internal line that crosses its
+outline exactly twice, replacing the pattern with two patterns whose shared boundary
+is the cut. Both resulting patterns SHALL keep the source's fabric, granularity,
 grain direction, collision layer, simulation state and generator link, and both
-SHALL join the source's instance chain so a linked panel stays linked. The
+SHALL join the source's instance chain so a linked pattern stays linked. The
 command SHALL be one undo step. The cut SHALL be creatable as a sewing along the
 new boundary through an option that is off by default, and when it is on the
 report SHALL name the seam it created.
 
-#### Scenario: Cut a panel in two
+#### Scenario: Cut a pattern in two
 
 - **WHEN** an internal line that crosses the outline at two points is cut
-- **THEN** two panels replace the original, their outlines share the cut
+- **THEN** two patterns replace the original, their outlines share the cut
   geometry exactly, and the total area equals the original area
 
 #### Scenario: Cut rejected
 
 - **WHEN** the internal line does not cross the outline, crosses it once, or
   crosses it more than twice
-- **THEN** the cut is refused with the reason and the panel is unchanged
+- **THEN** the cut is refused with the reason and the pattern is unchanged
 
-#### Scenario: A closed line inside the panel is a hole
+#### Scenario: A closed line inside the pattern is a hole
 
 - **WHEN** the selected internal line is closed and lies inside the outline
 - **THEN** the cut is refused with the reason, because a hole is the existing
@@ -37,21 +37,21 @@ report SHALL name the seam it created.
 
 #### Scenario: Sewings survive the cut
 
-- **WHEN** a panel that carries sewings is cut
+- **WHEN** a pattern that carries sewings is cut
 - **THEN** every sewing whose edge is unchanged still points at that edge, a
   sewing whose edge was split follows the piece that replaced it, and a sewing
   that can no longer be resolved is dropped with a report naming it
 
 #### Scenario: Linked halves
 
-- **WHEN** a panel that has copies is cut
+- **WHEN** a pattern that has copies is cut
 - **THEN** both halves join the same instance chain as the source, so the
   chain's members stay in step
 
 #### Scenario: Cutting without a seam
 
 - **WHEN** the cut is applied with the seam option off
-- **THEN** the two panels share the cut boundary as plain outline edges and the
+- **THEN** the two patterns share the cut boundary as plain outline edges and the
   seam list is unchanged
 
 ### Requirement: A run of outline edges can become an internal line
@@ -63,9 +63,9 @@ crosses the remaining outline.
 
 #### Scenario: Inset a corner as an internal line
 
-- **WHEN** two consecutive edges of a panel are converted into an internal line
+- **WHEN** two consecutive edges of a pattern are converted into an internal line
 - **THEN** the outline is the chord between the run's ends, the run's geometry
-  is an internal line inside the panel, and the panel area is smaller by the
+  is an internal line inside the pattern, and the pattern area is smaller by the
   triangle between the chord and the run
 
 ### Requirement: Internal lines can be repeated at a signed distance
@@ -81,9 +81,9 @@ outline only and SHALL NOT be extended against other internal lines.
 #### Scenario: Five fold lines at 20 mm
 
 - **WHEN** five internal lines are requested at 20 mm from a source line across
-  a panel that is wide enough
+  a pattern that is wide enough
 - **THEN** five internal lines are created at 20, 40, 60, 80 and 100 mm, each
-  spanning the panel according to the selected end mode
+  spanning the pattern according to the selected end mode
 
 #### Scenario: Negative distance offsets the other way
 
@@ -93,11 +93,11 @@ outline only and SHALL NOT be extended against other internal lines.
 #### Scenario: Ends projected onto the outline
 
 - **WHEN** `EXTEND_TO_OUTLINE` is selected and an offset line ends inside the
-  panel
+  pattern
 - **THEN** both of its ends are moved onto the nearest point of the outline and
-  the line spans the panel
+  the line spans the pattern
 
-#### Scenario: An offset line leaves the panel
+#### Scenario: An offset line leaves the pattern
 
 - **WHEN** an offset line lies completely outside the outline
 - **THEN** no internal line is created for it and the report names the offset

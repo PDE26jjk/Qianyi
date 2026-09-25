@@ -490,7 +490,7 @@ def _plain(value):
 def reset():
     """Discard the simulated positions and go back to the rest pose.
 
-    Panels, sewings and solver parameters are untouched. The session becomes
+    Patterns, sewings and solver parameters are untouched. The session becomes
     idle, so the next run needs a ``prepare()`` - which is also what re-binds
     the engine, and therefore what makes the following run start from rest.
     """

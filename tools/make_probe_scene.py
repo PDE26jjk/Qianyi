@@ -4,9 +4,9 @@
         --out extracted_files/test/layers.blend
 
 The scene-file probes (the agent api, the model api, the section invariants and
-the delete regression) open a scene and work on the panels it holds. A scene
+the delete regression) open a scene and work on the patterns it holds. A scene
 saved before the Sketch layer carries no Sketch and is not converted, so this
-builds the fixture they need: two sewn panels and a third with a copy, the same
+builds the fixture they need: two sewn patterns and a third with a copy, the same
 shape the probes were written against.
 
 ``build_fixture()`` is the shared entry point: a probe imports it and builds the
@@ -41,7 +41,7 @@ def import_addon(path, module_name):
 
 
 def build_square(project, name, size, origin=(0.0, 0.0), granularity=20.0):
-    """A closed square panel with one internal line across it."""
+    """A closed square pattern with one internal line across it."""
     pattern = project.add_pattern()
     pattern.name = name
     pattern.granularity = granularity
@@ -79,7 +79,7 @@ def register_core():
 def build_fixture():
     """Build the fixture in the current session and return the project.
 
-    Two sewn panels plus a copy, in the two-layer format the probes were written
+    Two sewn patterns plus a copy, in the two-layer format the probes were written
     against. No file is opened and nothing is saved; the caller owns the session.
     """
     from qmyi.model.model_data import refresh_all_uuids

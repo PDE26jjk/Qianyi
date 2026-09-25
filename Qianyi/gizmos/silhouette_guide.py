@@ -1,16 +1,16 @@
-"""Draw the project's silhouette objects behind the panels.
+"""Draw the project's silhouette objects behind the patterns.
 
-The pattern window is a 2D space in millimetres, and every panel is drawn
+The pattern window is a 2D space in millimetres, and every pattern is drawn
 through its own anchor and rotation. The silhouette is drawn in the same space:
 the chosen collection's meshes are taken in world space, projected along one
 world axis into a plane, scaled from metres to millimetres and offset by the
 project's own view offset. A one metre body edge therefore lands on 1000 mm of
 pattern space, which is what makes the guide usable for alignment by eye. The
 projected triangles are drawn filled and, optionally, with their mesh edges, so
-a panel can be aligned against the body's surface and its seams.
+a pattern can be aligned against the body's surface and its seams.
 
 Nothing here touches the scene: the guide reads evaluated meshes and draws, and
-the projection never enters a panel, a mesh or the engine payload.
+the projection never enters a pattern, a mesh or the engine payload.
 
 Cost: the projection and the two batches are rebuilt only when the object set,
 their transforms, the settings or the engine's frame change. A settled avatar
@@ -205,7 +205,7 @@ class SilhouetteGuide:
 
     # ------------------------------------------------------------------ draw
     def draw(self, context, project):
-        """Draw the guide behind the panels; does nothing when it is off."""
+        """Draw the guide behind the patterns; does nothing when it is off."""
         if project is None or not getattr(project, "show_silhouette", False):
             return
         if not self._ensure_shader():

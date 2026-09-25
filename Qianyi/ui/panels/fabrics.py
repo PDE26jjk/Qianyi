@@ -101,7 +101,7 @@ class QY_PT_fabricProperty(NODE_PT_qmyi_base):
         col.prop(fabric, "thickness")
         col.prop(fabric, "friction")
         col.prop(fabric, "weight")
-        # Display colour: what the pattern editor fills this fabric's panels
+        # Display colour: what the pattern editor fills this fabric's patterns
         # with in the "Solid" display mode. It is not a simulation parameter.
         col.prop(fabric, "color")
         col.prop(fabric, "stretch")

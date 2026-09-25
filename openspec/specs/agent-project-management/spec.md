@@ -3,7 +3,7 @@
 ## Purpose
 Let a script or an agent start from a blank file: make a project, make it the one
 the other calls work on, and address projects by a name that the editor's own
-panel and the script surface agree on.
+pattern and the script surface agree on.
 
 ## Requirements
 
@@ -11,16 +11,16 @@ panel and the script surface agree on.
 
 Creating a project SHALL make the node tree, give the project and its default
 fabric an identity, name it, and select it. Everything else SHALL work on it
-straight away: a panel created in the same session SHALL need no further setup.
+straight away: a pattern created in the same session SHALL need no further setup.
 
-#### Scenario: From a blank file to a panel
+#### Scenario: From a blank file to a pattern
 
-- **WHEN** a project is created in a scene that has none and a panel is created in it
-- **THEN** the panel exists with its mesh, and no call reports a missing project
+- **WHEN** a project is created in a scene that has none and a pattern is created in it
+- **THEN** the pattern exists with its mesh, and no call reports a missing project
 
 #### Scenario: A scene with no project
 
-- **WHEN** a panel call is made before any project exists
+- **WHEN** a pattern call is made before any project exists
 - **THEN** it is refused with a reason, and the answer names the call that makes a project
 
 ### Requirement: A project carries the name it is addressed by
@@ -65,7 +65,7 @@ readable, and `state()` SHALL report it.
 ### Requirement: Projects can be listed and removed
 
 Listing SHALL report, for every project, the name to address it by, whether it is
-active, and how many panels, sewings, fabrics and generators it holds. Removing
+active, and how many patterns, sewings, fabrics and generators it holds. Removing
 SHALL take a project away and report what went with it.
 
 #### Scenario: The listing
@@ -76,4 +76,4 @@ SHALL take a project away and report what went with it.
 #### Scenario: Removing a project
 
 - **WHEN** a project is removed
-- **THEN** it is gone from the listing and the answer reports the panels and sewings that went with it
+- **THEN** it is gone from the listing and the answer reports the patterns and sewings that went with it

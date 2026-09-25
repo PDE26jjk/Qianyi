@@ -1,4 +1,4 @@
-"""Operators for parametric panel generators."""
+"""Operators for parametric pattern generators."""
 
 import bpy
 from bpy.props import StringProperty
@@ -7,14 +7,14 @@ from bpy.utils import register_classes_factory
 from .. import generators
 from .. import preferences
 from ..declarations import Operators
-from ..panellib import registry
+from ..patternlib import registry
 from ..utilities.node_tree import get_active_node_tree
 
 
 class QY_OT_AddGenerator(bpy.types.Operator):
     bl_idname = Operators.AddGenerator
     bl_label = "Add Generator"
-    bl_description = "Add this panel generator to the project"
+    bl_description = "Add this pattern generator to the project"
     bl_options = {"REGISTER", "UNDO", "INTERNAL"}
 
     component_id: StringProperty(default="", options={"SKIP_SAVE"})
@@ -26,14 +26,14 @@ class QY_OT_AddGenerator(bpy.types.Operator):
     def execute(self, context):
         project = get_active_node_tree(context)
         if not self.component_id:
-            self.report({"ERROR"}, "no panel component selected")
+            self.report({"ERROR"}, "no pattern component selected")
             return {"CANCELLED"}
         try:
             generator = generators.create_generator(project, self.component_id)
         except Exception as error:  # a broken component must not kill the UI
             self.report({"ERROR"}, f"could not build '{self.component_id}': {error}")
             return {"CANCELLED"}
-        self.report({"INFO"}, f"added {generator.name} with {len(generator.outputs)} panel(s)")
+        self.report({"INFO"}, f"added {generator.name} with {len(generator.outputs)} pattern(s)")
         if context.area:
             context.area.tag_redraw()
         return {"FINISHED"}
@@ -42,7 +42,7 @@ class QY_OT_AddGenerator(bpy.types.Operator):
 class QY_OT_DetachGenerator(bpy.types.Operator):
     bl_idname = Operators.DetachGenerator
     bl_label = "Detach"
-    bl_description = "Turn this generator's panels into ordinary panels"
+    bl_description = "Turn this generator's patterns into ordinary patterns"
     bl_options = {"REGISTER", "UNDO", "INTERNAL"}
 
     @classmethod
@@ -54,8 +54,8 @@ class QY_OT_DetachGenerator(bpy.types.Operator):
         index = project.active_generator_index
         if not (0 <= index < len(project.generators)):
             return {"CANCELLED"}
-        panels = generators.detach_generator(project, project.generators[index])
-        self.report({"INFO"}, f"detached {len(panels)} panel(s)")
+        patterns = generators.detach_generator(project, project.generators[index])
+        self.report({"INFO"}, f"detached {len(patterns)} pattern(s)")
         if context.area:
             context.area.tag_redraw()
         return {"FINISHED"}

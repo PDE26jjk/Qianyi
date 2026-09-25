@@ -80,9 +80,9 @@ def main():
     if args.blank:
         log("blank session; no scene file")
         check("projects.list() on an empty scene", lambda: qyapi.projects.list())
-        check("a panel call before any project", lambda: _no_project(qyapi))
+        check("a pattern call before any project", lambda: _no_project(qyapi))
         check("projects.create()", lambda: _project_create(qyapi))
-        check("a panel works straight after a create", lambda: _panel_after_create(qyapi))
+        check("a pattern works straight after a create", lambda: _pattern_after_create(qyapi))
         check("projects.rename()", lambda: _project_rename(qyapi))
         check("a second project takes the work", lambda: _second_project(qyapi))
         check("projects.activate() switches back", lambda: _project_activate(qyapi))
@@ -171,7 +171,7 @@ def main():
                       ("solver", "objects", "vertices", "stitches", "step_h_s")))
     check("status() after prepare", lambda: qyapi.sim.status())
 
-    # 6. Caller parameters win over the panel.
+    # 6. Caller parameters win over the pattern.
     caller = check("sim.prepare(solver=Explicit, parameters={...})",
                    lambda: qyapi.sim.prepare(solver="Explicit",
                                              parameters={"step_h": 0.003,
@@ -241,8 +241,8 @@ def main():
     # 16. A generator, a collar and a seam between them.
     check("generators.create()", lambda: _generator_create(qyapi))
     check("patterns.get() reports the edges and the sewings",
-          lambda: _panel_read(qyapi))
-    check("patterns.create()", lambda: _panel_create(qyapi))
+          lambda: _pattern_read(qyapi))
+    check("patterns.create()", lambda: _pattern_create(qyapi))
     check("a taken name is suffixed", lambda: _name_suffix(qyapi))
     check("sewings.sew() forwards the flags", lambda: _sew_checks(qyapi))
     check("sewings.of() agrees with sewings.list()", lambda: _sewing_agreement(qyapi))
@@ -253,14 +253,14 @@ def main():
           lambda: _internal_line_check(qyapi))
     check("patterns.fabrics() / assign_fabric()", lambda: _fabric_check(qyapi))
     check("sewings.set_color() / remove()", lambda: _sewing_edit_check(qyapi))
-    check("generators.detach() keeps the panels", lambda: _detach_check(qyapi))
-    check("pattern edits", lambda: _panel_edits(qyapi))
+    check("generators.detach() keeps the patterns", lambda: _detach_check(qyapi))
+    check("pattern edits", lambda: _pattern_edits(qyapi))
     check("a crossing handle change is refused and put back",
           lambda: _handle_refusal(qyapi))
-    check("patterns.copy() chains a copy", lambda: _panel_copy(qyapi))
-    check("a generated panel is refused by patterns.remove()",
+    check("patterns.copy() chains a copy", lambda: _pattern_copy(qyapi))
+    check("a generated pattern is refused by patterns.remove()",
           lambda: _remove_refusal(qyapi))
-    check("patterns.validate() and clean up", lambda: _panel_cleanup(qyapi))
+    check("patterns.validate() and clean up", lambda: _pattern_cleanup(qyapi))
 
     log(f"checks: {results['ok']} ok, {results['failed']} failed")
     return 0 if results["failed"] == 0 else 3
@@ -460,7 +460,7 @@ def _induced_failure(qyapi):
 
 
 def _refusal_check(qyapi):
-    """Drag a meshed panel into a crossing and ask the surface to prepare.
+    """Drag a meshed pattern into a crossing and ask the surface to prepare.
 
     The square is meshed while it is valid, then its outline is reshaped into a
     bowtie without regenerating the mesh - the case where a stale mesh would
@@ -520,7 +520,7 @@ def _no_project(qyapi):
 
 
 def _project_create(qyapi):
-    """A create must leave a project a panel call can use, and the tree alone must not."""
+    """A create must leave a project a pattern call can use, and the tree alone must not."""
     from qmyi.declarations import Panels
 
     created = qyapi.projects.create("probe project")
@@ -542,11 +542,11 @@ def _project_create(qyapi):
             "node_tree_alone_error": type(raw_error).__name__}
 
 
-def _panel_after_create(qyapi):
+def _pattern_after_create(qyapi):
     made = qyapi.patterns.create([[0.0, 0.0], [100.0, 0.0], [100.0, 80.0], [0.0, 80.0]],
                                  name="probe square", granularity_mm=10.0)
     projects = qyapi.projects.list()
-    return {"panel": made["name"], "mesh_vertices": made["mesh_vertices"],
+    return {"pattern": made["name"], "mesh_vertices": made["mesh_vertices"],
             "fabric": made["fabric"], "validity": made["outline_validity"],
             "mesh_stale": made["mesh_stale"],
             "project_patterns": [entry["patterns"] for entry in projects["projects"]]}
@@ -572,21 +572,21 @@ def _second_project(qyapi):
     return {"second": second["name"], "made_in": made["name"],
             "counts": [(entry["name"], entry["patterns"]) for entry in listing["projects"]],
             "active": first["name"],
-            "first_project_panels": [panel["name"]
-                                     for panel in qyapi.patterns.list()["panels"]]}
+            "first_project_patterns": [pattern["name"]
+                                     for pattern in qyapi.patterns.list()["patterns"]]}
 
 
 def _project_activate(qyapi):
     activated = qyapi.projects.activate("second")
     return {"active": activated["name"],
-            "panels": [panel["name"] for panel in qyapi.patterns.list()["panels"]],
+            "patterns": [pattern["name"] for pattern in qyapi.patterns.list()["patterns"]],
             "active_from_list": qyapi.projects.list()["active"]}
 
 
 def _project_remove(qyapi):
     removed = qyapi.projects.remove("second")
     listing = qyapi.projects.list()
-    return {"removed": removed["removed"], "panels": removed["patterns"],
+    return {"removed": removed["removed"], "patterns": removed["patterns"],
             "projects_left": removed["projects_left"],
             "names": [entry["name"] for entry in listing["projects"]],
             "active": listing["active"]}
@@ -613,7 +613,7 @@ def _crossing_allowed(qyapi):
             "crossing": crossed["crossing"],
             "allowed_crossing": crossed.get("allowed_crossing"),
             "simulation_refused": refusal,
-            "new_crossing_panel": (bowtie["mesh_object"], bowtie["mesh_stale"]),
+            "new_crossing_pattern": (bowtie["mesh_object"], bowtie["mesh_stale"]),
             "handle_allowed": (handle["outline_validity"], handle["mesh_stale"],
                                handle.get("allowed_crossing"))}
 
@@ -640,18 +640,18 @@ def _rebuild_policy(qyapi):
     """A parameter change that crosses is applied and named, with no flag."""
     import inspect
 
-    created = qyapi.generators.create("notched_panel",
+    created = qyapi.generators.create("notched_pattern",
                                       {"width": 300.0, "height": 100.0, "notch_depth": 10.0},
                                       name="probe bow")
-    # A notch deeper than the panel folds past its bottom edge.
+    # A notch deeper than the pattern folds past its bottom edge.
     changed = qyapi.generators.set_params("probe bow", {"notch_depth": 200.0})
     report = changed["report"]
-    return {"panels": [panel["name"] for panel in created["panels"]],
-            "valid_before": created["panels"][0]["outline_validity"],
-            "invalid_panels": report.get("invalid_panels"),
-            "invalid_panel_names": report.get("invalid_panel_names"),
+    return {"patterns": [pattern["name"] for pattern in created["patterns"]],
+            "valid_before": created["patterns"][0]["outline_validity"],
+            "invalid_patterns": report.get("invalid_patterns"),
+            "invalid_pattern_names": report.get("invalid_pattern_names"),
             "stale_meshes": report.get("stale_meshes"),
-            "first_panel_stale": changed["panels"][0]["mesh_stale"],
+            "first_pattern_stale": changed["patterns"][0]["mesh_stale"],
             "takes_flag": "allow_crossing" in
             inspect.signature(qyapi.generators.set_params).parameters}
 
@@ -660,7 +660,7 @@ def _crossing_fixed(qyapi):
     import inspect
 
     fixed = qyapi.patterns.set_point("probe square", 2, [100.0, 80.0])
-    # The earlier checks left a crossing panel and a crossing generator behind:
+    # The earlier checks left a crossing pattern and a crossing generator behind:
     # fix or clear them, then a simulation can start.
     qyapi.patterns.remove("bowtie")
     qyapi.patterns.remove("probe triangle")
@@ -669,8 +669,8 @@ def _crossing_fixed(qyapi):
     prepared = qyapi.sim.prepare()
     return {"validity": fixed["outline_validity"], "mesh_stale": fixed["mesh_stale"],
             "mesh_vertices": fixed["mesh_vertices"],
-            "validated": [(entry["panel"], entry["valid"])
-                          for entry in validated["panels"]],
+            "validated": [(entry["pattern"], entry["valid"])
+                          for entry in validated["patterns"]],
             "simulation_prepared": prepared["objects"],
             "cleaned": cleaned["removed"],
             "set_point_takes_flag": "allow_crossing" in
@@ -696,10 +696,10 @@ def _component_build(qyapi):
     unchanged = snapshot_identity() == before
     return {"unchanged": unchanged,
             "params_used": {key: built["params"][key] for key in ("bust", "shirt_length")},
-            "panels": [(panel["name"], len(panel["edges"]), panel["valid"])
-                       for panel in built["panels"]],
-            "labels": [edge["label"] for edge in built["panels"][0]["edges"]],
-            "outline_points": len(built["panels"][0]["outline"])}
+            "patterns": [(pattern["name"], len(pattern["edges"]), pattern["valid"])
+                       for pattern in built["patterns"]],
+            "labels": [edge["label"] for edge in built["patterns"][0]["edges"]],
+            "outline_points": len(built["patterns"][0]["outline"])}
 
 
 def _component_refusals(qyapi):
@@ -709,7 +709,7 @@ def _component_refusals(qyapi):
     crossing = qyapi.components.build("square", {"width": 300.0, "height": 400.0,
                                                  "top_bow": 1.0})
     return {"unknown_id": unknown_id, "unknown_param": unknown_param,
-            "bow_valid": crossing["panels"][0]["valid"]}
+            "bow_valid": crossing["patterns"][0]["valid"]}
 
 
 def _generator_create(qyapi):
@@ -718,17 +718,17 @@ def _generator_create(qyapi):
                                       name="probe torso")
     return {"name": created["name"], "component": created["component"],
             "slots": created["slots"],
-            "panels": [(panel["name"], panel["vertices"], panel["edges"],
-                        panel["mesh_vertices"]) for panel in created["panels"]],
+            "patterns": [(pattern["name"], pattern["vertices"], pattern["edges"],
+                        pattern["mesh_vertices"]) for pattern in created["patterns"]],
             "bust": created["parameters"]["bust"],
             "shirt_length": created["parameters"]["shirt_length"]}
 
 
-def _panel_read(qyapi):
-    panel = qyapi.generators.get("probe torso")["panels"][0]["name"]
-    entry = qyapi.patterns.get(panel)
-    points = qyapi.patterns.points(panel)
-    return {"panel": entry["name"],
+def _pattern_read(qyapi):
+    pattern = qyapi.generators.get("probe torso")["patterns"][0]["name"]
+    entry = qyapi.patterns.get(pattern)
+    points = qyapi.patterns.points(pattern)
+    return {"pattern": entry["name"],
             "edges": [(edge["index"], edge["label"], edge["kind"],
                        round(edge["length_mm"], 1)) for edge in entry["edges"]],
             "points_match": points["count"] == entry["vertices"],
@@ -737,7 +737,7 @@ def _panel_read(qyapi):
             "generated": entry["generated"]}
 
 
-def _panel_create(qyapi):
+def _pattern_create(qyapi):
     created = qyapi.patterns.create([[0.0, 0.0], [250.0, 0.0], [260.0, 45.0],
                                      [-50.0, 45.0]],
                                     name="collar", granularity_mm=10.0)
@@ -756,7 +756,7 @@ def _name_suffix(qyapi):
 
 
 def _sew_checks(qyapi):
-    torso = qyapi.generators.get("probe torso")["panels"][0]["name"]
+    torso = qyapi.generators.get("probe torso")["patterns"][0]["name"]
     plain = qyapi.sewings.sew(("collar", 2), (torso, 0))
     flipped = qyapi.sewings.sew(("collar", 0), (torso, 2), flip=True)
     from_points = qyapi.sewings.sew_at("collar", 1, 0.1, torso, 1, 0.9)
@@ -772,7 +772,7 @@ def _sew_checks(qyapi):
 
 def _sides(entry):
     """What the add-on's own sewing recorded, reported, not interpreted."""
-    return [(side["side"], side["panel"], side["edge_index"], side["pos1"],
+    return [(side["side"], side["pattern"], side["edge_index"], side["pos1"],
              side["pos2"], side["reverse"]) for side in entry["sides"]]
 
 
@@ -780,7 +780,7 @@ def _sewing_agreement(qyapi):
     everywhere = qyapi.sewings.list()["sewings"]
     on_collar = qyapi.sewings.of("collar")["sewings"]
     expected = [entry for entry in everywhere
-                if any(side["panel"] == "collar" for side in entry["sides"])]
+                if any(side["pattern"] == "collar" for side in entry["sides"])]
     return {"all": len(everywhere), "on_collar": len(on_collar),
             "agree": [entry["index"] for entry in on_collar]
             == [entry["index"] for entry in expected],
@@ -796,7 +796,7 @@ def _set_params(qyapi):
     clamped = qyapi.generators.set_params("probe torso", {"shirt_length": 99.0})
     return {"report": {key: changed["report"][key] for key in
                        ("in_place", "rebuilt", "created", "removed", "remapped",
-                        "dropped_sewings", "invalid_panels")},
+                        "dropped_sewings", "invalid_patterns")},
             "simulation_before": changed["simulation_before"],
             "simulation_carried": changed["simulation_carried"],
             "sewings_before": len(before), "sewings_after": len(after),
@@ -804,7 +804,7 @@ def _set_params(qyapi):
             "clamped_shirt_length": clamped["parameters"]["shirt_length"]}
 
 
-def _panel_edits(qyapi):
+def _pattern_edits(qyapi):
     kinds_before = [edge["kind"]
                     for edge in qyapi.patterns.get("collar")["edges"]]
     moved = qyapi.patterns.set_point("collar", 0, [-5.0, -5.0])
@@ -834,14 +834,14 @@ def _panel_edits(qyapi):
 
 
 def _settle(qyapi):
-    """The acceptance ending: the rebuilt panels settle over a few frames."""
+    """The acceptance ending: the rebuilt patterns settle over a few frames."""
     prepared = qyapi.sim.prepare()
     before = qyapi.sim.read("collar")["objects"][0]["local"]
     stepped = qyapi.sim.step(4)
     after = qyapi.sim.read("collar")["objects"][0]["local"]
     delta = np.asarray(after, dtype=np.float64) - np.asarray(before, dtype=np.float64)
     distance = np.sqrt((delta ** 2).sum(axis=1))
-    # The panels have run now, so a parameter change has positions to carry.
+    # The patterns have run now, so a parameter change has positions to carry.
     rebuilt = qyapi.generators.set_params("probe torso", {"bust": 104.0})
     return {"objects": prepared["objects"], "substeps": stepped["substeps"],
             "max_move_mm": round(float(distance.max()) * 1000.0, 3),
@@ -889,9 +889,9 @@ def _detach_check(qyapi):
                                       name="probe square")
     untouched = qyapi.generators.set_params("probe square", {"height": 120.0})
     detached = qyapi.generators.detach("probe square")
-    panels = qyapi.patterns.list()["panels"]
+    patterns = qyapi.patterns.list()["patterns"]
     names = detached["detached"]
-    still_there = [entry for entry in panels if entry["name"] in names]
+    still_there = [entry for entry in patterns if entry["name"] in names]
     cleanup = qyapi.patterns.remove(names)
     return {"detached": names, "kept": len(still_there),
             "generated_flag_after": [entry["generated"] for entry in still_there],
@@ -901,7 +901,7 @@ def _detach_check(qyapi):
             "simulation_carried": untouched["simulation_carried"]}
 
 
-def _panel_copy(qyapi):
+def _pattern_copy(qyapi):
     curly = qyapi.patterns.create([[0.0, 0.0], [80.0, 0.0], [80.0, 60.0], [0.0, 60.0]],
                                   name="probe curvy", granularity_mm=10.0)
     qyapi.patterns.set_handle("probe curvy", 0, 1, [20.0, -30.0], "FREE")
@@ -922,7 +922,7 @@ def _panel_copy(qyapi):
     cleanup = qyapi.patterns.remove([curly_copy["name"], curly["name"]])
     return {"copy": copied["name"],
             "chain": sorted(chain), "chain_from_copy": sorted(back),
-            "removed": removed["removed"], "left": removed["panels_left"],
+            "removed": removed["removed"], "left": removed["patterns_left"],
             "source_kinds": source_kinds, "copy_kinds": copy_kinds,
             "kinds_match": source_kinds == copy_kinds,
             "chain_edit": {"source_p0": edited[0], "copy_p0": edited[1],
@@ -932,7 +932,7 @@ def _panel_copy(qyapi):
 
 def _handle_refusal(qyapi):
     """A handle change the quick check cannot see: the outline is tested and restored."""
-    panel = qyapi.patterns.create([[0.0, 0.0], [80.0, 0.0], [80.0, 60.0]],
+    pattern = qyapi.patterns.create([[0.0, 0.0], [80.0, 0.0], [80.0, 60.0]],
                                   name="probe crossing", granularity_mm=10.0)
     accepted = qyapi.patterns.set_handle("probe crossing", 0, 2, [60.0, 10.0], "FREE")
     before = qyapi.patterns.get("probe crossing")["edges"][0]["handle1"]
@@ -948,24 +948,24 @@ def _handle_refusal(qyapi):
 
 
 def _remove_refusal(qyapi):
-    torso = qyapi.generators.get("probe torso")["panels"][0]["name"]
+    torso = qyapi.generators.get("probe torso")["patterns"][0]["name"]
     return {"refused": str(_raise(lambda: qyapi.patterns.remove(torso)))}
 
 
-def _panel_cleanup(qyapi):
+def _pattern_cleanup(qyapi):
     validation = qyapi.patterns.validate()
-    all_valid = all(entry["valid"] for entry in validation["panels"])
+    all_valid = all(entry["valid"] for entry in validation["patterns"])
     alias = qyapi.patterns.remove("collar.001")
     generator = qyapi.generators.remove("probe torso")
     collar = qyapi.patterns.remove(["collar"])
     return {"all_valid": all_valid,
-            "panels_checked": len(validation["panels"]),
+            "patterns_checked": len(validation["patterns"]),
             "removed_alias": alias["removed"],
             "removed_generator": generator["removed"],
             "generator_dropped_sewings": generator["dropped_sewings"],
             "removed_collar": collar["removed"],
             "dropped_sewings": collar["dropped_sewings"],
-            "projects_panels": len(qyapi.state()["projects"][0]["patterns"])}
+            "projects_gcd_patterns": len(qyapi.state()["projects"][0]["patterns"])}
 
 
 if __name__ == "__main__":

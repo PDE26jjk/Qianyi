@@ -65,7 +65,7 @@ def select_edges(project, uuids) -> int:
 
     The result of a command is what the next one works on, and the pattern
     editor draws its selection, so the edges a command produced stay visible
-    instead of the panel appearing to have lost its selection.
+    instead of the pattern appearing to have lost its selection.
     """
     project.selected_edges.clear()
     count = 0
@@ -92,5 +92,4 @@ def select_vertices(project, vertices) -> int:
         entry.uuid = vertex.global_uuid
         count += 1
     return count
-
 

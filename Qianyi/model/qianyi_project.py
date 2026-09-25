@@ -12,18 +12,19 @@ from .generator import (PatternGenerator, generator_of_pattern,
                         refresh_generators)
 from .model_data import ModelData, define_temp_prop, owner_pattern
 from .sewing import Sewing, calc_sewing_sections
+from .sewing_guard import check_sewings
 from .sketch import Sketch
 from ..declarations import Panels
 
 
 def outline_sample_counts(pattern) -> tuple:
-    """How many outline points the edge finder takes from each edge of a panel.
+    """How many outline points the edge finder takes from each edge of a pattern.
 
     Each edge contributes its samples except the last one - the outline is a
     loop, so an edge's last sample is the next edge's first, which is what
-    `Pattern.get_geo_points_unique` hands the finder. The panel is brought up to
+    `Pattern.get_geo_points_unique` hands the finder. The pattern is brought up to
     date first: the counts are compared against the snapshot the finder took,
-    and a marked panel has to answer with the shape it has now. One number per
+    and a marked pattern has to answer with the shape it has now. One number per
     edge and not the total: a split moves the points from one edge onto two
     without changing how many there are.
     """
@@ -32,7 +33,7 @@ def outline_sample_counts(pattern) -> tuple:
     for index in range(len(pattern.edges)):  # loop: one run per outline edge
         points = pattern.sample_points.get((None, index))
         if points is None:
-            raise ValueError(f"panel {pattern.name or '(unnamed)'} has no samples "
+            raise ValueError(f"pattern {pattern.name or '(unnamed)'} has no samples "
                              f"for its edge {index}")
         counts.append(max(len(points) - 1, 0))
     return tuple(counts)
@@ -43,7 +44,7 @@ def section_grid(pattern):
 
     Every piece's boundaries and segment count decide the sampled points, so
     two equal signatures mean the same mesh. Used to tell whether a linking run
-    actually changed a panel before spending a triangulation on it.
+    actually changed a pattern before spending a triangulation on it.
     """
     grid = []
     groups = [(None, pattern.edges)]
@@ -55,9 +56,9 @@ def section_grid(pattern):
             # samples even when the piece grid stays as it is.
             grid.append(("edge", int(edge.vertex_index[0]), int(edge.vertex_index[1]),
                          round(float(edge.length or 0.0), 6)))
-            # The pieces are this panel's own copy of the Sketch's stage: two
-            # panels of one chain may have been cut differently by their seams,
-            # and it is the panel's own grid that decides its mesh.
+            # The pieces are this pattern's own copy of the Sketch's stage: two
+            # patterns of one chain may have been cut differently by their seams,
+            # and it is the pattern's own grid that decides its mesh.
             for section in pattern.sections_for_edge(key, index):
                 grid.append((round(section.start_pos, 6), round(section.end_pos, 6),
                              section.seg))
@@ -65,10 +66,10 @@ def section_grid(pattern):
 
 
 def library_category_items(self=None, context=None):
-    """Categories offered by the panel library, evaluated when the UI asks."""
-    from ..panellib import registry
+    """Categories offered by the pattern library, evaluated when the UI asks."""
+    from ..patternlib import registry
 
-    items = [("ALL", "All", "Every panel component")]
+    items = [("ALL", "All", "Every pattern component")]
     try:
         categories = sorted({info.category for info in registry.infos()})
     except Exception:
@@ -173,13 +174,13 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     generators: bpy.props.CollectionProperty(
         type=PatternGenerator,
         name="generators",
-        description="Parametric panel generators of this project",
+        description="Parametric pattern generators of this project",
     )
 
     sketches: bpy.props.CollectionProperty(
         type=Sketch,
         name="sketches",
-        description="The authored vector geometry of this project's panels. One "
+        description="The authored vector geometry of this project's patterns. One "
                     "Sketch is shared by every member of an instance chain.",
     )
 
@@ -206,7 +207,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     library_filter: bpy.props.StringProperty(
         name="Search",
         default="",
-        description="Filter the panel library by name, category or description",
+        description="Filter the pattern library by name, category or description",
     )
     library_category: bpy.props.EnumProperty(
         name="Category",
@@ -225,7 +226,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     show_silhouette: bpy.props.BoolProperty(
         name="Show Silhouette",
         description="Draw the silhouette of the collection below behind the "
-                    "panels of the pattern editor",
+                    "patterns of the pattern editor",
         default=False,
     )
     silhouette_collection: bpy.props.PointerProperty(
@@ -307,7 +308,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         # different ids walk into the list that was just emptied. It also needs
         # the edge geometry (length, sampled points, sections) built, which a
         # freshly opened file or a just created pattern does not have yet -
-        # that used to fail inside with a NoneType error. Marking the panels
+        # that used to fail inside with a NoneType error. Marking the patterns
         # says their copies are stale, and the linking run builds each copy
         # here - which refreshes the Sketch's own stage first - so this is that
         # sequence for the sewings the editor is about to link.
@@ -320,6 +321,10 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         calc_sewing_sections(self.sewings)
         for p in self.patterns:
             p.need_sewing_update = False
+        # A seam whose two sides the linking could not bring into step is flagged
+        # here, with the patterns it joins: they build no mesh and a simulation
+        # will not start while it stands.
+        check_sewings(self)
 
     def sewing_patterns(self):
         """Every pattern the current sewings touch, each one once."""
@@ -335,10 +340,10 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
 
     @property
     def active_pattern(self):
-        """The panel the pattern list is on, or None when there is none.
+        """The pattern the pattern list is on, or None when there is none.
 
-        The tools that need "which panel is this about" read it here: selecting
-        an element of a member of a chain makes that member active, so the panel
+        The tools that need "which pattern is this about" read it here: selecting
+        an element of a member of a chain makes that member active, so the pattern
         and the tool always talk about the same one.
         """
         index = int(self.active_pattern_index)
@@ -347,10 +352,10 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         return None
 
     def set_active_pattern(self, pattern) -> bool:
-        """Make one panel the active one; False when it is not in the project."""
+        """Make one pattern the active one; False when it is not in the project."""
         if pattern is None:
             return False
-        for index, candidate in enumerate(self.patterns):  # loop: one per panel
+        for index, candidate in enumerate(self.patterns):  # loop: one per pattern
             if candidate.global_uuid == pattern.global_uuid:
                 self.active_pattern_index = index
                 return True
@@ -358,11 +363,12 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
 
     def calc_sewings_sections(self, sewings):
         calc_sewing_sections(sewings)
+        check_sewings(self)
 
     def get_default_fabric(self):
         if len(self.fabrics) < 1:
             fabric = self.fabrics.add()
-            # The fabric is named by uuid wherever a panel refers to it, so it
+            # The fabric is named by uuid wherever a pattern refers to it, so it
             # gets its identity as soon as it exists.
             fabric.get_temp_data()
             fabric.name = "Default Fabric"
@@ -448,10 +454,10 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     def add_sewing(self, side1_line1, side1_pos1, side1_line2, side1_pos2, side1_reverse,
                    side2_line1, side2_pos1, side2_line2, side2_pos2, side2_reverse, update=True,
                    color=None, pattern1=None, pattern2=None):
-        """Add one sewing; `pattern1` / `pattern2` name the panels it is made on.
+        """Add one sewing; `pattern1` / `pattern2` name the patterns it is made on.
 
         The edges alone cannot say that: one edge serves every member of its
-        instance chain. A caller that does not name a panel gets the one that
+        instance chain. A caller that does not name a pattern gets the one that
         owns the edge's Sketch - the chain's first member - and that is what the
         seam records; a caller making a seam on a copy names that copy.
         """
@@ -460,7 +466,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         if pattern2 is None:
             pattern2 = owner_pattern(side2_line1)
         if pattern1 is None or pattern2 is None:
-            self.last_sewing_error = ("a seam needs the panel of each side, and "
+            self.last_sewing_error = ("a seam needs the pattern of each side, and "
                                       "these edges name none")
             return None
         sw = self.sewings.add()
@@ -471,7 +477,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         sw.color = normalize_sewing_color(color)
         if update:
             try:
-                # Every panel a sewing touches has its copy built here, before
+                # Every pattern a sewing touches has its copy built here, before
                 # the linking run reads pieces: a copy that was marked but never
                 # rebuilt still holds pieces whose edge an earlier edit replaced,
                 # and the run walks every sewing, not only this one. The meshes
@@ -497,7 +503,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         """The patterns a sewing joins, in a stable order."""
         patterns = []
         for side in (sewing.side1, sewing.side2):
-            # The panel the side was made on, by identity: a side whose panel an
+            # The pattern the side was made on, by identity: a side whose pattern an
             # editor removed reads back as None.
             pattern = side.pattern
             if pattern is not None and pattern not in patterns:
@@ -519,7 +525,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         `point1` / `point2` are the click positions in the pattern space of
         their edge. Clicks near the same end of both edges keep the original
         pairing; clicks near different ends flip the second half - which is the
-        only way this editor can express the two stitch directions. The panels
+        only way this editor can express the two stitch directions. The patterns
         the clicks were made on are passed with them, because the edges do not
         say which member of an instance chain a seam belongs to.
         """
@@ -538,18 +544,18 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
                 for p in connected_patterns:
                     p.mark_geometry_changed()
                     # The mesh is sampled from the piece grid, so this is what
-                    # says whether a panel has to be triangulated again. It is
+                    # says whether a pattern has to be triangulated again. It is
                     # taken after the resample and compared after the link, so
-                    # a panel the linking run did not cut keeps its mesh -
+                    # a pattern the linking run did not cut keeps its mesh -
                     # `generate_pattern_mesh` is the single most expensive step
-                    # here (about 90 ms per panel).
+                    # here (about 90 ms per pattern).
                     grids[p] = section_grid(p)
                 self.calc_sewings_sections(involved_sewings)
                 for p in connected_patterns:
                     p.need_sewing_update = False
                     rebuild = p.mesh_object is None or section_grid(p) != grids[p]
                     if global_data.renderers_enabled and p.mesh_renderer is None:
-                        # A panel that lost its render batch (reload, undo) has
+                        # A pattern that lost its render batch (reload, undo) has
                         # to go through `generate_mesh` again to get one.
                         rebuild = True
                     if rebuild:
@@ -567,8 +573,8 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
             ps = p.get_geo_points_unique()
             edge_points.append(ps)
             edge_point_sizes.append(len(ps))
-            # What this snapshot was taken from, per panel: the offsets the snap
-            # reports are indices into these arrays, and a panel that grew an
+            # What this snapshot was taken from, per pattern: the offsets the snap
+            # reports are indices into these arrays, and a pattern that grew an
             # edge - or split one into two - has an array they do not fit.
             layout.append((int(p.global_uuid), outline_sample_counts(p)))
             matrices.append(np.array(p.calc_matrix()))
@@ -588,23 +594,23 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         self.edge_finder_layout = None
 
     def edge_finder_is_current(self) -> bool:
-        """Whether the edge finder's snapshot still describes the panels.
+        """Whether the edge finder's snapshot still describes the patterns.
 
-        The snapshot is a flat array of every panel's outline points, and the
+        The snapshot is a flat array of every pattern's outline points, and the
         snap's answer is an index into it. An edit that added or removed an edge
-        makes those indices describe a shape the panels no longer have, so the
-        snapshot is compared against the panels before it is read.
+        makes those indices describe a shape the patterns no longer have, so the
+        snapshot is compared against the patterns before it is read.
         """
         layout = getattr(self, "edge_finder_layout", None)
         if self.edge_points is None or layout is None or len(layout) != len(self.patterns):
             return False
-        for pattern, entry in zip(self.patterns, layout):  # loop: one panel each
+        for pattern, entry in zip(self.patterns, layout):  # loop: one pattern each
             if int(pattern.global_uuid) != entry[0]:
                 return False
             try:
                 counts = outline_sample_counts(pattern)
             except Exception:
-                # A panel that cannot answer for its outline is not one the
+                # A pattern that cannot answer for its outline is not one the
                 # snapshot can be read against: the finder is rebuilt.
                 return False
             if counts != entry[1]:
@@ -637,12 +643,12 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         # console.warning('self.nearest_point', self.nearest_point)
 
     def get_nearest_point_data(self):
-        """Where the snap is: the panel, its edge, the point and the fraction.
+        """Where the snap is: the pattern, its edge, the point and the fraction.
 
-        The numbers come from the edge finder's snapshot. A panel edited since
+        The numbers come from the edge finder's snapshot. A pattern edited since
         that snapshot has edges its offsets were never taken over - reading them
-        against the edges the panel has now is what raised a KeyError - so the
-        snapshot is checked against the panels, and rebuilt from the pointer
+        against the edges the pattern has now is what raised a KeyError - so the
+        snapshot is checked against the patterns, and rebuilt from the pointer
         that asked for it when it is out of date.
         """
         if not self.edge_finder_is_current():
@@ -651,10 +657,10 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
             if self.query_point is not None:
                 self.find_nearest_point_on_edge(self.query_point)
         if not 0 <= int(self.nearest_pattern) < len(self.patterns):
-            raise ValueError("the snap names a panel that is not in the project")
+            raise ValueError("the snap names a pattern that is not in the project")
         pattern: Pattern = self.patterns[self.nearest_pattern]
         # The samples are the ones the snapshot used, taken from the Sketch
-        # again if this panel was marked since.
+        # again if this pattern was marked since.
         pattern.ensure_sections()
         samples = [pattern.sample_points[(None, index)]
                    for index in range(len(pattern.edges))]
@@ -665,7 +671,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
             count += max(len(points) - 1, 0)
         edge_index = np.searchsorted(point_offsets, self.edge_point_offset, side='right') - 1
         if not 0 <= edge_index < len(pattern.edges):
-            raise ValueError("the snap does not land on an edge of the panel it names")
+            raise ValueError("the snap does not land on an edge of the pattern it names")
         edge = pattern.edges[edge_index]
         edge_points = np.asarray(samples[edge_index], dtype=np.float32)
         point_index = int(self.edge_point_offset - point_offsets[edge_index])
@@ -679,7 +685,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         return pattern, edge, self.nearest_point, t
 
     def add_pattern(self, sketch=None):
-        """Add one panel, taking `sketch` as its geometry or a new one."""
+        """Add one pattern, taking `sketch` as its geometry or a new one."""
         p = self.patterns.add()
         # Give it its identity before anything names it: the Sketch it takes is
         # owned by this pattern, and that is a uuid reference.
@@ -687,7 +693,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         self.refresh_collection_uuid(self.patterns)
         name = f"pattern_{len(self.patterns):03d}"
         p.name = get_unique_name(self.patterns, name)
-        # A panel starts with a Sketch of its own; a copy is handed its source's
+        # A pattern starts with a Sketch of its own; a copy is handed its source's
         # instead, so no Sketch is made and thrown away.
         p.sketch = sketch if sketch is not None else self.add_sketch(owner=p)
         if sketch is not None and sketch.owner is None:
@@ -714,12 +720,79 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         `get_connected_patterns_and_sewings`.
         """
         indexes = [sewing.get_index() for sewing in self.sewings if sewing.impacted]
+        patterns = self.patterns_of(sewing for sewing in self.sewings if sewing.impacted)
         for index in sorted(indexes, reverse=True):
             self.sewings.remove(index)
         if indexes:
             self.refresh_collection_uuid(self.sewings)
             self.selected_sewings.clear()
+            self.sewings_changed(patterns)
         return len(indexes)
+
+    def remove_sewing(self, index) -> None:
+        """Drop one sewing, by its index in the project's list."""
+        sewing = self.sewings[int(index)]
+        patterns = self.patterns_of([sewing])
+        self.sewings.remove(int(index))
+        self.refresh_collection_uuid(self.sewings)
+        self.sewings_changed(patterns)
+
+    @staticmethod
+    def patterns_of(sewings) -> list:
+        """The patterns a set of sewings is made on, each one once.
+
+        A caller that is about to remove a seam reads this first: after the
+        removal the seam's own patterns cannot be asked for any more.
+        """
+        patterns = []
+        for sewing in sewings:  # loop: one seam's two sides per entry
+            for pattern in (sewing.pattern1, sewing.pattern2):
+                if pattern is not None and pattern not in patterns:
+                    patterns.append(pattern)
+        return patterns
+
+    def sewings_changed(self, patterns=None) -> None:
+        """The seam graph changed around `patterns`: link that component again.
+
+        Dropping a seam leaves two things behind: the cuts it made on the
+        patterns' own copies of the section stage, and a linking table that answers about a
+        graph that is no longer there. Both are rebuilt for the component the
+        changed patterns are in - `get_connected_patterns_and_sewings` answers the
+        patterns and the seams a change can reach, which is the same walk the mesh
+        path uses, so a seam edit never relinking the whole project.
+
+        The patterns are left marked (`need_sewing_update`): their meshes were built
+        from the pieces this run has just replaced, and the consumer that needs
+        them - the mesh operator, or a simulation start - rebuilds them and then
+        clears the mark. `patterns=None` means the caller does not know which
+        patterns moved, and every seam pattern is taken.
+        """
+        if patterns is None:
+            patterns = self.sewing_patterns()
+        component, involved = [], []
+        for pattern in patterns:  # loop: one changed pattern per walk
+            if pattern is None:
+                continue
+            reached, seams = pattern.get_connected_patterns_and_sewings()
+            for entry in reached:
+                if entry not in component:
+                    component.append(entry)
+            for seam in seams:
+                if seam not in involved:
+                    involved.append(seam)
+        for pattern in component:  # loop: one clone and sample per pattern
+            pattern.mark_sections_changed()
+            # The copy has to be in place before the linking run reads it: it is
+            # this pattern's own, cloned from the Sketch as the Sketch is now.
+            pattern.ensure_sections()
+        if involved:
+            calc_sewing_sections(involved)
+        for pattern in component:
+            pattern.need_sewing_update = True
+        # The guard walks every seam: it has to see the ones that were flagged
+        # before as well, or a pattern would stay out of the mesh for a seam that
+        # is no longer a problem.
+        check_sewings(self)
 
     def remove_patterns(self, patterns_to_delete, expand_groups=True):
         if expand_groups:
@@ -729,10 +802,10 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         del_idx_list = []
         for sw in self.sewings:
             for side in (sw.side1, sw.side2):
-                # The panel the side was made on; a side whose panel is gone
-                # (or a panel that is going now) takes the seam with it.
-                panel = side.pattern
-                if panel is None or panel.global_uuid in selected_patterns_uuid:
+                # The pattern the side was made on; a side whose pattern is gone
+                # (or a pattern that is going now) takes the seam with it.
+                pattern = side.pattern
+                if pattern is None or pattern.global_uuid in selected_patterns_uuid:
                     del_idx_list.append(sw.get_index())
                     break
 
@@ -761,7 +834,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         """Drop every Sketch no pattern uses and return how many went.
 
         A Sketch is the geometry of an instance chain, so it lives exactly as
-        long as some panel reads it; Blender does not collect an unreferenced
+        long as some pattern reads it; Blender does not collect an unreferenced
         property group on its own.
         """
         used = {pattern.sketch_uuid for pattern in self.patterns}
@@ -774,9 +847,9 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         return len(drop)
 
     def _expand_pattern_groups(self, patterns_to_delete):
-        """Deleting one panel of a generator deletes the whole group.
+        """Deleting one pattern of a generator deletes the whole group.
 
-        A generated panel is not a standalone object: its siblings and the
+        A generated pattern is not a standalone object: its siblings and the
         generator that produced them are one unit, so removing any of them
         removes the unit.
         """
@@ -792,7 +865,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
                 if output.pattern_uuid == -1:
                     continue
                 sibling = global_data.get_obj_by_uuid(output.pattern_uuid, check_uuid=False)
-                # A copy of a generated panel belongs to the same group.
+                # A copy of a generated pattern belongs to the same group.
                 for member in sibling.sketch_members() if sibling is not None else ():
                     if member.global_uuid not in seen:
                         expanded.append(member)
@@ -825,10 +898,17 @@ define_temp_prop(QianyiProject, "nearest_pattern", None)
 define_temp_prop(QianyiProject, "edge_point_offset", None)
 define_temp_prop(QianyiProject, "selected_sewing_edge1", None)
 define_temp_prop(QianyiProject, "selected_sewing_point1", None)
-# The panel the first click was made on. An edge serves its whole instance
+# The pattern the first click was made on. An edge serves its whole instance
 # chain, so the edge alone does not say which member a seam is made on.
 define_temp_prop(QianyiProject, "selected_sewing_pattern1", None)
 define_temp_prop(QianyiProject, "last_sewing_error", "")
+
+# The free-sewing tool's first half, waiting for the pattern it joins: the pattern's
+# uuid, the distance around its outline the drag started at, and how far it ran
+# (a negative run went the other way round). It is the gesture's own state, so it
+# lives on the project the way the fan's two points do - the two halves are two
+# operator runs, and the view stays usable between them.
+define_temp_prop(QianyiProject, "sewing_free_half", None)
 # The fan tool's gesture, built one click at a time: the pivot, then the target,
 # then the click that opens the angle. It lives on the project because the tool,
 # the operator and the drawing code all have to see the same thing, and because

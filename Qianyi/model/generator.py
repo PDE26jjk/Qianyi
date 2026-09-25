@@ -1,4 +1,4 @@
-"""Panel generators: parametric panel sources stored in a project."""
+"""pattern generators: parametric pattern sources stored in a project."""
 
 from __future__ import annotations
 
@@ -100,7 +100,7 @@ class GeneratorParam(PropertyGroup):
     kind: StringProperty(name="Kind", default="float")   # float | int | bool | text
     unit: StringProperty(name="Unit")
     # The schema range is enforced when a rebuild reads the values (see
-    # Qianyi.panellib.component.clamp_to_schema): Blender can only give an RNA
+    # Qianyi.patternlib.component.clamp_to_schema): Blender can only give an RNA
     # property a fixed range at registration time, and this parameter list is
     # built at runtime, so the range cannot live on the property itself. These
     # two fields carry it for the rebuild and for the UI.
@@ -143,19 +143,19 @@ class GeneratorParam(PropertyGroup):
 
 
 class GeneratorOutput(PropertyGroup):
-    """One panel a generator produced, addressed by its slot name."""
+    """One pattern a generator produced, addressed by its slot name."""
 
     slot: StringProperty(name="Slot")
-    pattern_uuid: IntProperty(name="Panel", default=-1)
+    pattern_uuid: IntProperty(name="pattern", default=-1)
 
 
 class PatternGenerator(PropertyGroup, ModelData):
-    """A component plus a parameter block, owning the panels it produces."""
+    """A component plus a parameter block, owning the patterns it produces."""
 
     component_id: StringProperty(name="Component", default="")
     version: IntProperty(name="Component Version", default=1)
     params: CollectionProperty(type=GeneratorParam, name="Parameters")
-    outputs: CollectionProperty(type=GeneratorOutput, name="Panels")
+    outputs: CollectionProperty(type=GeneratorOutput, name="patterns")
 
     def values(self) -> dict:
         return {param.key: param.value() for param in self.params}
@@ -214,7 +214,7 @@ def owner_of_param(param) -> PatternGenerator | None:
 
 
 def generator_of_pattern(project, pattern) -> PatternGenerator | None:
-    """The generator that owns a panel, or None for a hand-drawn panel."""
+    """The generator that owns a pattern, or None for a hand-drawn pattern."""
     if project is None or pattern is None:
         return None
     owner_uuid = getattr(pattern, "generator_uuid", -1)
@@ -238,17 +238,17 @@ def refresh_generators(project) -> None:
         global_data.uuid2obj[generator.global_uuid] = generator
 
 
-LOCKED_EDIT_MESSAGE = ("'{name}' is a generated panel: change its parameters in the "
+LOCKED_EDIT_MESSAGE = ("'{name}' is a generated pattern: change its parameters in the "
                        "GC Library panel, or detach it first")
 
 
 def generation_lock(project, pattern) -> str | None:
-    """Why a geometry edit of this panel is refused, or None when it is free.
+    """Why a geometry edit of this pattern is refused, or None when it is free.
 
     Sewing, simulation, fabric settings and 2D placement are not affected: only
     the edits a rebuild would overwrite are locked, and a chain shares one
-    Sketch, so editing a free copy of a generated panel would reach the
-    generated panel: every panel reading that Sketch is examined.
+    Sketch, so editing a free copy of a generated pattern would reach the
+    generated pattern: every pattern reading that Sketch is examined.
     """
     if pattern is None:
         return None

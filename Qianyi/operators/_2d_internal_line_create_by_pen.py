@@ -57,7 +57,7 @@ class NODE_OT_internal_line_create_by_pen(Operator2DBase, StateOperator):
                     if obj:
                         self.pattern = obj
                         break
-        # A generated panel refuses geometry edits, internal lines included.
+        # A generated pattern refuses geometry edits, internal lines included.
         if refuse_generated_edit(self, self.project, self.pattern):
             self.return_state = ReturnState.CANCELLED
             return
@@ -98,18 +98,17 @@ class NODE_OT_internal_line_create_by_pen(Operator2DBase, StateOperator):
         pattern = self.pattern
         # View coordinates to pattern space once, then let the model layer write
         # the line. One Sketch serves the whole instance chain, so the line is
-        # written once; this panel meshes from it and the other readers of the
-        # Sketch were marked by the write. The panel is the one this pen was
-        # started on - the panel under the pointer then, or the selected one -
+        # written once; this pattern meshes from it and the other readers of the
+        # Sketch were marked by the write. The pattern is the one this pen was
+        # started on - the pattern under the pointer then, or the selected one -
         # which is the space the points were drawn in.
-        panel = pattern
         segments = []
         for mc in state.moving_curves:
             segments.append({
-                "p0": panel.view_to_pattern_pos(mc.vertex0.co),
-                "p1": panel.view_to_pattern_pos(mc.vertex1.co),
-                "h1": panel.view_to_pattern_pos(mc.handle1.co),
-                "h2": panel.view_to_pattern_pos(mc.handle2.co),
+                "p0": pattern.view_to_pattern_pos(mc.vertex0.co),
+                "p1": pattern.view_to_pattern_pos(mc.vertex1.co),
+                "h1": pattern.view_to_pattern_pos(mc.handle1.co),
+                "h2": pattern.view_to_pattern_pos(mc.handle2.co),
                 "h1_type": mc.handle1_type,
                 "h2_type": mc.handle2_type,
             })

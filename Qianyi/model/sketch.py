@@ -1,4 +1,4 @@
-"""The Sketch: the authored vector geometry of a panel, one per instance chain.
+"""The Sketch: the authored vector geometry of a pattern, one per instance chain.
 
 A Sketch holds what a pattern maker draws - its vertices, its edges with their
 handles and spline points, and its internal lines - together with the first
@@ -6,7 +6,7 @@ section stage built from them: one section per edge, the pieces every crossing
 cuts those sections into, and which pieces of an internal line lie outside the
 outline.
 
-A write goes through this Sketch, and this Sketch is what marks the panels that
+A write goes through this Sketch, and this Sketch is what marks the patterns that
 read it: one Sketch serves a whole instance chain, so one write reaches every
 member and every member's derived data is out of date. Nothing here samples for a
 mesh: the points the editor draws are the curves themselves, and the crossing
@@ -36,7 +36,7 @@ from .section import SectionRaw
 DRAW_SAMPLES = 1024
 # The parametric samples a measured edge is taken from before it is resampled
 # at equal arc steps. Dense enough that the arc length of a curve is right, and
-# fixed, so the measurement never follows a panel's granularity.
+# fixed, so the measurement never follows a pattern's granularity.
 MEASURE_SAMPLES = 512
 # How far apart the crossing search measures a curve, in millimetres, and the
 # shortest piece it will cut: a piece below this would be merged away by any
@@ -66,10 +66,10 @@ class Sketch(PropertyGroup, ModelData, Selectable):
         pattern = global_data.get_obj_by_uuid(self.owner_uuid, check_uuid=False)
         if pattern is not None:
             return pattern
-        # Undo, redo and a file reload clear the identity map, and a panel that
+        # Undo, redo and a file reload clear the identity map, and a pattern that
         # owns a Sketch has to be found again without one: the project's own
         # collection is the other half of the reference.
-        for candidate in self.id_data.patterns:  # loop: one comparison per panel
+        for candidate in self.id_data.patterns:  # loop: one comparison per pattern
             if candidate.global_uuid == self.owner_uuid:
                 global_data.uuid2obj[self.owner_uuid] = candidate
                 return candidate
@@ -80,44 +80,44 @@ class Sketch(PropertyGroup, ModelData, Selectable):
         self.owner_uuid = pattern.global_uuid if pattern is not None else -1
 
     def geometry_written(self) -> int:
-        """A write went in: tell every panel that reads this Sketch about it.
+        """A write went in: tell every pattern that reads this Sketch about it.
 
         Every write path of this Sketch ends here. A write through the Sketch is
-        a write for the whole instance chain, so each panel that reads it gets
+        a write for the whole instance chain, so each pattern that reads it gets
         the signal a tool sends after an edit of its own: its outline state, its
         own copy of the stage, its samples, its render line and the sewings that
-        reach it (`Pattern.mark_geometry_changed`). Returns how many panels were
+        reach it (`Pattern.mark_geometry_changed`). Returns how many patterns were
         told.
         """
         told = 0
-        for pattern in self.reading_patterns():  # loop: one signal per panel
+        for pattern in self.reading_patterns():  # loop: one signal per pattern
             pattern.mark_geometry_changed()
             told += 1
         return told
 
     def reading_patterns(self) -> list:
-        """Every panel that reads this Sketch, in the project's own order.
+        """Every pattern that reads this Sketch, in the project's own order.
 
-        A panel belongs to the Sketch it names and to no other, so this is the
-        instance chain: one entry for a panel that was never copied, all of them
+        A pattern belongs to the Sketch it names and to no other, so this is the
+        instance chain: one entry for a pattern that was never copied, all of them
         for a chain. An edit written here is an edit of every one, which is why
-        the signals below are sent to the list rather than to a single panel.
+        the signals below are sent to the list rather than to a single pattern.
         """
         project = self.id_data
         return [pattern for pattern in project.patterns
                 if pattern.sketch_uuid == self.global_uuid]
 
     def rebuild_meshes(self) -> int:
-        """Build the mesh of every panel that reads this Sketch.
+        """Build the mesh of every pattern that reads this Sketch.
 
-        The meshes are not shared: a panel samples the geometry of the chain at
+        The meshes are not shared: a pattern samples the geometry of the chain at
         its own granularity and keeps its own mesh object, so an edit of the
         Sketch leaves one stale mesh per member. A tool that changed the
         topology calls this after its write, because what the editor draws is
         the mesh - a member left marked would show the shape that used to be
         there until something else meshed it.
 
-        A panel with nothing marked keeps the mesh it has (`generate_mesh` is a
+        A pattern with nothing marked keeps the mesh it has (`generate_mesh` is a
         no-op for it), so a caller does not have to sort the members out first.
         Returns how many members were asked.
         """
@@ -282,7 +282,7 @@ class Sketch(PropertyGroup, ModelData, Selectable):
 
         Deliberately not the samples a mesh is built from: these are the points
         of the curves as drawn, so the editor shows the shape the pattern maker
-        made whatever sampling size a panel uses.
+        made whatever sampling size a pattern uses.
         """
         for edge in self.all_edges():  # loop: one RNA array write per edge
             points = self.edge_points(edge, DRAW_SAMPLES)
@@ -324,7 +324,7 @@ class Sketch(PropertyGroup, ModelData, Selectable):
     def measured_points(self, edge) -> np.ndarray:
         """One edge measured at equal arc steps, for the crossing search.
 
-        The step is the Sketch's own constant, not a panel's granularity: which
+        The step is the Sketch's own constant, not a pattern's granularity: which
         pieces a Sketch is cut into must not move when the sampling size of the
         patterns using it changes.
         """
@@ -345,7 +345,7 @@ class Sketch(PropertyGroup, ModelData, Selectable):
         split the piece it lands in.
 
         What is stored is `SectionRaw`: a span and its crossing marks. Nothing a
-        panel samples is written here - a panel clones this stage into its own
+        pattern samples is written here - a pattern clones this stage into its own
         pieces before it samples anything.
         """
         for edge in self.edges:
@@ -448,7 +448,7 @@ class Sketch(PropertyGroup, ModelData, Selectable):
         """Cut one section at these ``(t, state)`` positions, lowest first.
 
         The same splice the pattern path uses, with the shortest-piece guard
-        measured on this Sketch instead of on a panel's granularity: a cut
+        measured on this Sketch instead of on a pattern's granularity: a cut
         closer than `MIN_PIECE_MM` to the one before it is the same crossing.
         """
         length = section.end_pos - section.start_pos
@@ -527,11 +527,11 @@ class Sketch(PropertyGroup, ModelData, Selectable):
         section stage: one section per edge, cut where the curves cross, with the
         pieces of an internal line that lie outside the outline marked as
         outside. Nothing here samples for a mesh, and nothing here belongs to a
-        single panel: the panels that use this Sketch copy the stage and take
+        single pattern: the patterns that use this Sketch copy the stage and take
         their own samples from the copy.
 
         It is derived work, so it sends no signal of its own: rebuilding the
-        stage is driven by a caller - a panel that was marked asks for it.
+        stage is driven by a caller - a pattern that was marked asks for it.
         """
         self.refresh_collection_uuid(self.vertices)
         self.refresh_collection_uuid(self.edges)

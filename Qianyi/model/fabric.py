@@ -10,10 +10,10 @@ class Fabric(PropertyGroup, ModelData):
     friction: FloatProperty(name="friction", default=0.03)
     weight: FloatProperty(name="weight", default=100., min=1.)
     # Display colour only: it is not part of the simulation payload, it is what
-    # the pattern editor's "Solid" display mode fills the panel with.
+    # the pattern editor's "Solid" display mode fills the pattern with.
     color: FloatVectorProperty(
         name="Color",
-        description="Colour this fabric's panels are filled with in the pattern editor",
+        description="Colour this fabric's patterns are filled with in the pattern editor",
         subtype='COLOR',
         size=3,
         default=(0.85, 0.85, 0.9),

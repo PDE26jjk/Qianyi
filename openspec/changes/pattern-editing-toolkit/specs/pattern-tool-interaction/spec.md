@@ -47,11 +47,11 @@ current one again.
 - **THEN** the two edges are still selected and are drawn dimmed, and switching
   back to the edge mode shows them as selected again
 
-#### Scenario: Panels selected, then the edge mode
+#### Scenario: Patterns selected, then the edge mode
 
-- **WHEN** a panel is selected in the pattern mode and the editor switches to
+- **WHEN** a pattern is selected in the pattern mode and the editor switches to
   the edge mode
-- **THEN** the panel is still selected and still drawn with its selection
+- **THEN** the pattern is still selected and still drawn with its selection
   outline
 
 ### Requirement: A geometry command acts on the selection
@@ -137,5 +137,5 @@ name them and say why.
 #### Scenario: A gesture tool after it runs
 
 - **WHEN** a seam is created by clicking two edges
-- **THEN** the tool finishes without an adjustable parameter panel, which the
+- **THEN** the tool finishes without an adjustable parameter pattern, which the
   documentation explains

@@ -72,9 +72,9 @@ class CurveRenderer(BaseRenderer):
             color: 颜色 (R, G, B, A)
             thickness: 线宽
             draw_id: draw_id
-            pattern: the panel to draw this edge for. An edge serves the whole
+            pattern: the pattern to draw this edge for. An edge serves the whole
                 instance chain, so it is drawn once per member, and each draw
-                needs that member's transform; left out, the panel that owns the
+                needs that member's transform; left out, the pattern that owns the
                 edge's Sketch (the chain's first member) is used.
         """
         if not self.edge:
@@ -87,7 +87,8 @@ class CurveRenderer(BaseRenderer):
         else:
             gpu.state.blend_set('ALPHA')
 
-        pattern = pattern if pattern is not None else owner_pattern(self.edge)
+        if pattern is None:
+            pattern = owner_pattern(self.edge)
         if pattern is None:
             return
 
@@ -106,7 +107,7 @@ class CurveRenderer(BaseRenderer):
         """Draw this edge once for every member of its instance chain.
 
         `handles` also draws the handles of each member, where that member is:
-        a preview that moves a handle has to show it on every panel the edge is
+        a preview that moves a handle has to show it on every pattern the edge is
         drawn on, and drawing them once would put them on the member that owns
         the Sketch and nowhere else.
         """
@@ -138,7 +139,7 @@ class CurveRenderer(BaseRenderer):
         """Draw an edge's handles, for `pattern` when one is given.
 
         `handle_ids` are the ids to draw the two handle points with in the pick
-        pass; they come from the panel, because each member draws its own pair.
+        pass; they come from the pattern, because each member draws its own pair.
         """
         if not self.edge:
             return
@@ -151,7 +152,8 @@ class CurveRenderer(BaseRenderer):
             gpu.state.blend_set('ALPHA')
 
         edge = self.edge
-        pattern = pattern if pattern is not None else owner_pattern(edge)
+        if pattern is None:
+            pattern = owner_pattern(edge)
         if pattern is None:
             return
 

@@ -1,13 +1,13 @@
 ## Why
 
 An agent that starts from a blank file cannot do anything today. Measured: on an
-empty scene `qyapi.state()` reports no project and every panel call refuses with
+empty scene `qyapi.state()` reports no project and every pattern call refuses with
 "this scene has no project", and a script cannot make one either - the obvious
 creation leaves the project and its default fabric without identities, so the
 first `patterns.create` raises an `AssertionError`, and the project's own name
 stays empty while the node tree carries another one, so the UI and the surface
 disagree about what a project is called. The second half is the shape of a
-build: laying out a panel step by step passes through outlines that cross, and
+build: laying out a pattern step by step passes through outlines that cross, and
 every geometry write refuses that, so a caller cannot take the intermediate step
 the work needs.
 
@@ -25,7 +25,7 @@ the work needs.
 - Add a per-call `allow_crossing=False` to the geometry writes, so a caller that
   is building a shape may leave an outline that crosses itself for a step.
 - Report a crossing outline in every answer that produced one: the validity, the
-  crossing point, and whether the panel's mesh is now stale because the mesh
+  crossing point, and whether the pattern's mesh is now stale because the mesh
   stage refused to rebuild it.
 - Keep the rules that do not bend: a crossing outline is never handed to the
   mesh sampler, never starts a simulation, and the read-only outline check still

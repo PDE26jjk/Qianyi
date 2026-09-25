@@ -78,7 +78,7 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
     geometry = qydp.geometry
     is_holes = np.array((0, *[il.is_hole for il in pattern.internal_lines]), dtype=np.int32)
     # The size of each curve's sample run: the outline's first, then one per
-    # internal line. Both live on the panel, because the samples do.
+    # internal line. Both live on the pattern, because the samples do.
     curve_sizes = np.array([pattern.mesh_edge_point_outer_size,
                             *[pattern.line_sizes[index]
                               for index in range(len(pattern.internal_lines))]],

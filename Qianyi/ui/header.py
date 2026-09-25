@@ -50,7 +50,7 @@ def header_append(self, context):
         sub_row.prop_enum(qmyi, "edit_mode", 'EDGE', text="")
         sub_row.prop_enum(qmyi, "edit_mode", 'SEWING', text="")
         row.separator()
-        # What the pattern editor draws for each panel. The modes only change
+        # What the pattern editor draws for each pattern. The modes only change
         # the drawing; stress and debug read the colours the engine wrote into
         # each mesh, so they say so while no frame has produced any.
         row.prop(qmyi, "pattern_display_mode", text="")

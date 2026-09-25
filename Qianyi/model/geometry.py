@@ -106,8 +106,8 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
 
         These are the points of the curve the handles describe: what the editor
         draws and what the crossing search measures. The samples a mesh is built
-        from are a panel's own (`Pattern.sample_edge`), taken at that panel's
-        granularity from these same points, so nothing here depends on a panel.
+        from are a pattern's own (`Pattern.sample_edge`), taken at that pattern's
+        granularity from these same points, so nothing here depends on a pattern.
         """
         if not self.need_update_points:
             return
@@ -188,7 +188,7 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
         sketch = self.sketch
         if sketch is not None:
             # One write path for "this edge is a line, a Bezier or a spline": the
-            # Sketch tells every panel that reads it that its geometry moved.
+            # Sketch tells every pattern that reads it that its geometry moved.
             sketch.geometry_written()
         return self
 
@@ -208,8 +208,8 @@ class Edge2D(PropertyGroup, ModelData, Selectable):
     def raw_sections(self) -> list:
         """The Sketch's own pieces of this edge, in chain order.
 
-        These are the first stage: spans and crossing marks only. What a panel
-        samples lives on that panel's copy of this stage, not here.
+        These are the first stage: spans and crossing marks only. What a pattern
+        samples lives on that pattern's copy of this stage, not here.
         """
         sections = []
         section = self.section_start

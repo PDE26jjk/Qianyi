@@ -1,8 +1,8 @@
-"""Bridge between the Blender-free panel library and the add-on project.
+"""Bridge between the Blender-free pattern library and the add-on project.
 
 Everything that has to touch Blender data lives here: creating a generator,
-writing the library's panels into patterns, and rebuilding them when a
-parameter changes. The geometry itself comes from :mod:`Qianyi.panellib`.
+writing the library's patterns into patterns, and rebuilding them when a
+parameter changes. The geometry itself comes from :mod:`Qianyi.patternlib`.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from . import global_data
 from .model.generator import (PatternGenerator, generator_of_pattern,
                               refresh_generators)
 from .model.pattern import VALIDITY_INVALID
-from .panellib import component, registry
-from .panellib import hooks
-from .panellib.land import LandedPanel, land_panel, topology_of
+from .patternlib import component, registry
+from .patternlib import hooks
+from .patternlib.land import LandedPattern, land_pattern, topology_of
 from .utilities.console import console
 
 
@@ -41,19 +41,19 @@ def create_generator(project, component_id: str, params: dict | None = None) -> 
     return generator
 
 
-LAYOUT_GAP = 50.0  # millimetres between panels laid out on first generation
+LAYOUT_GAP = 50.0  # millimetres between patterns laid out on first generation
 
 
 def _place_outputs(project, generator) -> int:
-    """Lay a multi-panel generator's panels out side by side, once.
+    """Lay a multi-pattern generator's patterns out side by side, once.
 
-    Panels are generated around the same origin and would otherwise overlap in
+    patterns are generated around the same origin and would otherwise overlap in
     the 2D editor. The anchor is the 2D view offset only - the simulation uses
     the mesh object, which this does not touch - so moving it is safe. Only the
-    first generation is laid out: a rebuild must not move panels the user has
+    first generation is laid out: a rebuild must not move patterns the user has
     arranged.
     """
-    panels = []
+    patterns = []
     for output in generator.outputs:
         pattern = global_data.get_obj_by_uuid(output.pattern_uuid, check_uuid=False)
         if pattern is None:
@@ -62,26 +62,26 @@ def _place_outputs(project, generator) -> int:
         x_min, y_min = float(bbox[0][0]), float(bbox[0][1])
         x_max, y_max = float(bbox[1][0]), float(bbox[1][1])
         if x_max - x_min > 0.0 and y_max - y_min > 0.0:
-            panels.append((pattern, x_min, y_min, x_max, y_max))
-    if len(panels) < 2:
+            patterns.append((pattern, x_min, y_min, x_max, y_max))
+    if len(patterns) < 2:
         return 0
 
-    columns = max(1, int(math.ceil(math.sqrt(len(panels)))))
-    first, first_x_min, _, _, first_y_max = panels[0]
+    columns = max(1, int(math.ceil(math.sqrt(len(patterns)))))
+    first, first_x_min, _, _, first_y_max = patterns[0]
     origin_x = first_x_min + float(first.anchor[0])
     origin_y = first_y_max + float(first.anchor[1])
     cursor_y = origin_y
-    # Deliberate loops: one anchor write per panel, in row-major order.
-    for start in range(0, len(panels), columns):
-        row = panels[start:start + columns]
+    # Deliberate loops: one anchor write per pattern, in row-major order.
+    for start in range(0, len(patterns), columns):
+        row = patterns[start:start + columns]
         row_height = max(y_max - y_min for _, _, y_min, _, y_max in row)
         cursor_x = origin_x
         for pattern, x_min, y_min, x_max, y_max in row:
             pattern.anchor = (cursor_x - x_min, cursor_y - y_max)
             cursor_x += (x_max - x_min) + LAYOUT_GAP
         cursor_y -= row_height + LAYOUT_GAP
-    console.print(f"generator '{generator.name}': laid out {len(panels)} panel(s)")
-    return len(panels)
+    console.print(f"generator '{generator.name}': laid out {len(patterns)} pattern(s)")
+    return len(patterns)
 
 
 def _create_internal_seams(project, generator) -> int:
@@ -98,16 +98,16 @@ def _create_internal_seams(project, generator) -> int:
         return 0
     if not spec.seams:
         return 0
-    panels = {}
+    patterns = {}
     for output in generator.outputs:
         pattern = global_data.get_obj_by_uuid(output.pattern_uuid, check_uuid=False)
         if pattern is not None:
-            panels[output.slot] = pattern
+            patterns[output.slot] = pattern
     created = 0
     # Deliberate loop: one sewing per declared seam pair.
     for seam in spec.seams:
-        first = panels.get(seam.panel_a)
-        second = panels.get(seam.panel_b)
+        first = patterns.get(seam.pattern_a)
+        second = patterns.get(seam.pattern_b)
         if first is None or second is None:
             continue
         edge_a = _edge_named(first, seam.edge_a)
@@ -141,10 +141,10 @@ def _unique_name(project, base: str) -> str:
 
 
 def apply_generator(project, generator) -> dict:
-    """Rebuild every panel this generator owns.
+    """Rebuild every pattern this generator owns.
 
-    A panel whose edge list is unchanged is rewritten in place, so its edges
-    (and every sewing pointing at them) keep their identity. Panels the
+    A pattern whose edge list is unchanged is rewritten in place, so its edges
+    (and every sewing pointing at them) keep their identity. patterns the
     component no longer produces are removed.
     """
     if generator.applying:
@@ -162,24 +162,24 @@ def apply_generator(project, generator) -> dict:
                           f"'{generator.component_id}': {error}")
             return {"error": str(error)}
 
-        landed_panels = []
-        for panel_spec in spec.panels:
-            landed = land_panel(panel_spec)
-            landed_panels.append(landed)
+        landed_patterns = []
+        for pattern_spec in spec.patterns:
+            landed = land_pattern(pattern_spec)
+            landed_patterns.append(landed)
 
         report = {"created": 0, "in_place": 0, "rebuilt": 0, "removed": 0}
         report["remapped"] = 0
         report["dropped_sewings"] = 0
-        report["invalid_panels"] = 0
+        report["invalid_patterns"] = 0
         report["hook"] = None
         keep: list[str] = []
         written = []
-        for landed in landed_panels:
+        for landed in landed_patterns:
             pattern, created = _ensure_output(project, generator, landed.name)
             targets = pattern.sketch_members()
             in_place = (not created) and all(
                 topology_of(landed) == _pattern_topology(target) for target in targets)
-            # Copies follow their source: mirrors are the same panel, so they are
+            # Copies follow their source: mirrors are the same pattern, so they are
             # written and remeshed with it instead of drifting apart.
             for target in targets:
                 target.generator_uuid = generator.global_uuid
@@ -194,14 +194,14 @@ def apply_generator(project, generator) -> dict:
                 # zero-area sliver. Keep the previous mesh when that happens.
                 degenerate = _too_close_vertices(target)
                 if degenerate is not None:
-                    report["degenerate_panels"] = report.get("degenerate_panels", 0) + 1
-                    console.warning(f"generator '{generator.name}': panel "
+                    report["degenerate_patterns"] = report.get("degenerate_patterns", 0) + 1
+                    console.warning(f"generator '{generator.name}': pattern "
                                     f"'{landed.name}' mesh kept, {degenerate}")
                 else:
                     target.generate_mesh()
                 if target.validate() == VALIDITY_INVALID:
-                    report["invalid_panels"] += 1
-                    console.warning(f"generator '{generator.name}': panel "
+                    report["invalid_patterns"] += 1
+                    console.warning(f"generator '{generator.name}': pattern "
                                     f"'{landed.name}' outline is invalid, mesh kept")
                 written.append((target, snapshots.get(target.global_uuid, [])))
             if created:
@@ -230,7 +230,7 @@ def apply_generator(project, generator) -> dict:
 
 
 def _clamped_values(generator) -> dict:
-    """Parameter values inside their schema range, written back to the panel.
+    """Parameter values inside their schema range, written back to the pattern.
 
     The write-back keeps the UI field in step with what was actually used, and
     runs with the rebuild suppressed because it happens inside a rebuild.
@@ -247,10 +247,10 @@ def _clamped_values(generator) -> dict:
 
 
 def _too_close_vertices(pattern) -> str | None:
-    """Whether two of a panel's vertices are closer than the mesh tolerance.
+    """Whether two of a pattern's vertices are closer than the mesh tolerance.
 
     The mesh stage de-duplicates boundary points within ``granularity * 0.02``,
-    so a panel carrying vertices closer than that can become a zero-area sliver
+    so a pattern carrying vertices closer than that can become a zero-area sliver
     the sampler cannot walk. Reported instead of meshed.
     """
     if len(pattern.vertices) < 2:
@@ -281,7 +281,7 @@ def _run_hook(generator, written) -> tuple[dict | None, object | None]:
         return None, None
     old_edges, new_edges = [], []
     # Deliberate Python loop: one reference object per edge, built from the
-    # snapshot and from the panels that were just written.
+    # snapshot and from the patterns that were just written.
     for pattern, snapshot in written:
         for index, (uuid, name, points) in enumerate(snapshot):
             old_edges.append(hooks.EdgeRef(pattern.name, index, uuid, name or "", points))
@@ -300,13 +300,13 @@ def _run_hook(generator, written) -> tuple[dict | None, object | None]:
 
 
 def _snapshot_outputs(project, generator) -> dict:
-    """Every edge of every produced panel (copies included) before a rebuild.
+    """Every edge of every produced pattern (copies included) before a rebuild.
 
-    Keyed by panel uuid: ``[(edge uuid, edge label, sampled points)]``. Taken
+    Keyed by pattern uuid: ``[(edge uuid, edge label, sampled points)]``. Taken
     before anything is written so a rebuild can recognise its own edges.
     """
     snapshots = {}
-    for pattern in panels_of(project, generator):
+    for pattern in generator_patterns(project, generator):
         for member in pattern.sketch_members():
             entries = []
             # Deliberate Python loop: one entry per edge object.
@@ -321,10 +321,10 @@ def _snapshot_outputs(project, generator) -> dict:
 def _sewing_index(project) -> dict:
     """``edge uuid -> sewing indexes``, built once per rebuild.
 
-    Rebuilds used to walk every sewing for every panel of the generator; on a
-    project with many panels and seams that is the same list scanned over and
+    Rebuilds used to walk every sewing for every pattern of the generator; on a
+    project with many patterns and seams that is the same list scanned over and
     over. One index per rebuild makes the remap proportional to the seams that
-    actually touch the rebuilt panels.
+    actually touch the rebuilt patterns.
     """
     index: dict[int, list[int]] = {}
     # Deliberate Python loop: one index entry per sewing side.
@@ -337,7 +337,7 @@ def _sewing_index(project) -> dict:
 
 def _remap_sewings(project, snapshot, pattern, override: dict | None = None,
                    index: dict | None = None) -> tuple[int, int]:
-    """Keep sewings pointing at the right edges of a rebuilt panel.
+    """Keep sewings pointing at the right edges of a rebuilt pattern.
 
     Edges that kept their label are matched by label; the rest are matched by
     geometry (the previous edge's samples against the new edges). A sewing whose
@@ -373,7 +373,7 @@ def _remap_sewings(project, snapshot, pattern, override: dict | None = None,
     dropped = []
     candidates = (sorted({entry for uuid in match for entry in index.get(uuid, [])})
                   if index is not None else range(len(project.sewings)))
-    # Deliberate Python loop: one pass over the sewings that touch this panel.
+    # Deliberate Python loop: one pass over the sewings that touch this pattern.
     for position in candidates:
         sewing = project.sewings[position]
         for side in sewing.sides:
@@ -399,6 +399,10 @@ def _remap_sewings(project, snapshot, pattern, override: dict | None = None,
     if dropped:
         project.refresh_collection_uuid(project.sewings)
         project.selected_sewings.clear()
+        # The seams a rebuild could not remap are gone: what is left is linked
+        # again - the component the rebuilt pattern is in, and no more - and the
+        # guard runs with it.
+        project.sewings_changed([pattern])
     return remapped, len(set(dropped))
 
 
@@ -420,8 +424,8 @@ def _nearest_edge(points: np.ndarray, new_edges: list, new_points: list):
     return best
 
 
-def panels_of(project, generator) -> list:
-    """The panels this generator currently owns, in slot order."""
+def generator_patterns(project, generator) -> list:
+    """The patterns this generator currently owns, in slot order."""
     patterns = []
     live = _live_patterns(project)
     for output in generator.outputs:
@@ -432,7 +436,7 @@ def panels_of(project, generator) -> list:
 
 
 def _live_patterns(project) -> dict:
-    """Panels by uuid, with every uuid assigned before it is used."""
+    """patterns by uuid, with every uuid assigned before it is used."""
     live = {}
     for pattern in project.patterns:
         pattern.get_temp_data()
@@ -441,8 +445,8 @@ def _live_patterns(project) -> dict:
 
 
 def detach_generator(project, generator) -> list:
-    """Turn a generator's panels into ordinary panels and drop the generator."""
-    patterns = panels_of(project, generator)
+    """Turn a generator's patterns into ordinary patterns and drop the generator."""
+    patterns = generator_patterns(project, generator)
     for pattern in patterns:
         pattern.generator_uuid = -1
     _remove_generator(project, generator)
@@ -450,8 +454,8 @@ def detach_generator(project, generator) -> list:
 
 
 def delete_group(project, generator) -> None:
-    """Remove a generator together with every panel it produced."""
-    patterns = panels_of(project, generator)
+    """Remove a generator together with every pattern it produced."""
+    patterns = generator_patterns(project, generator)
     if patterns:
         project.remove_patterns(patterns, expand_groups=False)
     _remove_generator(project, generator)
@@ -468,7 +472,7 @@ def _remove_generator(project, generator) -> None:
 
 
 def _ensure_output(project, generator, slot: str):
-    """The panel for a slot, created if the generator does not have one yet."""
+    """The pattern for a slot, created if the generator does not have one yet."""
     live = _live_patterns(project)
     output = generator.output_for(slot)
     if output is not None:
@@ -485,7 +489,7 @@ def _ensure_output(project, generator, slot: str):
 
 
 def _drop_stale_outputs(project, generator, keep: list[str]) -> int:
-    """Remove panels whose slot the component stopped producing."""
+    """Remove patterns whose slot the component stopped producing."""
     removed = 0
     live = _live_patterns(project)
     for index in reversed(range(len(generator.outputs))):
@@ -514,8 +518,8 @@ def _pattern_topology(pattern) -> tuple:
     )
 
 
-def _write_pattern(pattern, landed: LandedPanel, in_place: bool) -> None:
-    """Write a landed panel into a pattern, then rebuild its outline state."""
+def _write_pattern(pattern, landed: LandedPattern, in_place: bool) -> None:
+    """Write a landed pattern into a pattern, then rebuild its outline state."""
     if not in_place:
         while len(pattern.edges) > 0:
             pattern.edges.remove(len(pattern.edges) - 1)
@@ -526,7 +530,7 @@ def _write_pattern(pattern, landed: LandedPanel, in_place: bool) -> None:
     pattern.mark_geometry_changed()
 
 
-def _write_vertices(pattern, landed: LandedPanel) -> None:
+def _write_vertices(pattern, landed: LandedPattern) -> None:
     while len(pattern.vertices) > len(landed.vertices):
         pattern.vertices.remove(len(pattern.vertices) - 1)
     for index, point in enumerate(landed.vertices):
@@ -538,7 +542,7 @@ def _write_vertices(pattern, landed: LandedPanel) -> None:
         vertex.co = Vector((float(point[0]), float(point[1])))
 
 
-def _write_edges(pattern, landed: LandedPanel) -> None:
+def _write_edges(pattern, landed: LandedPattern) -> None:
     while len(pattern.edges) > len(landed.edges):
         pattern.edges.remove(len(pattern.edges) - 1)
     for index, spec in enumerate(landed.edges):

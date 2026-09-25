@@ -13,7 +13,7 @@ shapes the approach:
   path the study notebook uses (`qydp.simulator.set_parameters` / `input_data` /
   `update` / `get_simulation_data`).
 - The order a caller has to reproduce is: `refresh_all_uuids` -> outline
-  validation -> panel parameters -> `setup_data` (which rebuilds sewings and
+  validation -> pattern parameters -> `setup_data` (which rebuilds sewings and
   regenerates meshes) -> engine `input_data` -> per-substep update -> apply the
   result. Each entry point performs a different subset.
 - `SimulationManager._update_one_frame` calls `self.simulator.update(...)` inside
@@ -53,7 +53,7 @@ shapes the approach:
 
 - Any engine or DP backend change: the mesh payload, the sewing list and the
   `update`/`get_simulation_data` contract stay as they are.
-- Panel authoring and editing entry points; this change adds the surface they
+- Pattern authoring and editing entry points; this change adds the surface they
   will later live in, not the tools themselves.
 - An MCP server, MCP tool definitions or a protocol layer of any kind.
 - New UI. The existing panels keep their behaviour.
@@ -160,7 +160,7 @@ records in its summary that the caller supplied them. The scene panel is used
 only when the caller does not pass parameters.
 
 *Alternatives*: keep the panel authoritative through `apply_on_start` (rejected:
-a value a human left in the panel would silently override the agent's
+a value a human left in the pattern would silently override the agent's
 parameters, which is exactly the class of silent behaviour this change removes).
 
 ### D9 - Metrics are measured or passed through, never invented
@@ -231,4 +231,4 @@ Python would not see it, which is why the text index is readable by topic).
   module; both satisfy the discovery requirement and the choice can be made
   while writing the documentation.
 - Whether reading back positions should also expose per-stitch sewing positions;
-  deferrable, because the panel positions are what a first agent workflow needs.
+  deferrable, because the pattern positions are what a first agent workflow needs.

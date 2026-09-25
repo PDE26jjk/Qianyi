@@ -33,7 +33,7 @@ Discovery: ``help(topic)``, ``state()``.
 Undo: ``transaction(message, push=True)``.
 Projects: ``qyapi.projects.list()``, ``active()``, ``create()``, ``activate()``,
 ``rename()``, ``remove()``.
-Panels: ``qyapi.patterns.list()``, ``get()``, ``points()``, ``create()``,
+Patterns: ``qyapi.patterns.list()``, ``get()``, ``points()``, ``create()``,
 ``set_point()``, ``add_point()``, ``remove_point()``, ``set_handle()``,
 ``add_spline_point()``, ``remove_spline_point()``, ``add_internal_line()``,
 ``remove_internal_line()``, ``transform()``, ``copy()``, ``detach()``,
@@ -46,8 +46,8 @@ Components: ``qyapi.components.list()``, ``info()``, ``build()``, ``reload()``.
 Simulation: ``qyapi.sim.status()``, ``prepare()``, ``step(frames)``,
 ``start()``, ``stop()``, ``read(patterns)``, ``reset()``.
 
-``qyapi.help("objects")`` prints the data model, ``qyapi.help("panels")`` the
-rules for naming, copies and generated panels, ``qyapi.help("units")`` the
+``qyapi.help("objects")`` prints the data model, ``qyapi.help("patterns")`` the
+rules for naming, copies and generated patterns, ``qyapi.help("units")`` the
 units, ``qyapi.help("undo")`` the undo rules and ``qyapi.help("not-offered")``
 what this surface deliberately does not do. The same text ships as
 ``docs/agent-api.md`` in the repository; the two are meant to agree.
@@ -85,7 +85,7 @@ from ..utilities.node_tree import get_all_node_tree
 VERSION = 1
 
 _ENTRY_POINTS = (
-    ("help(topic=None)", "text index, or one topic: objects, panels, units, undo, not-offered",
+    ("help(topic=None)", "text index, or one topic: objects, patterns, units, undo, not-offered",
      "topic: a topic name (str)"),
     ("state()", "JSON-safe snapshot: projects, patterns, outline validity, simulation state",
      "no arguments"),
@@ -103,14 +103,14 @@ _ENTRY_POINTS = (
      "new_name: str"),
     ("projects.remove(name)", "remove a project and report what went with it",
      "name: str"),
-    ("patterns.list(project=None)", "every panel with its counts, fabric and chain",
+    ("patterns.list(project=None)", "every pattern with its counts, fabric and chain",
      "project: name (str, optional)"),
-    ("patterns.get(name)", "one panel: summary, edge table and the sewings on it",
-     "name: panel name (str)"),
+    ("patterns.get(name)", "one pattern: summary, edge table and the sewings on it",
+     "name: pattern name (str)"),
     ("patterns.points(name)", "the outline vertices, in millimetres",
-     "name: panel name (str)"),
+     "name: pattern name (str)"),
     ("patterns.create(points, name=None, granularity_mm=None, fabric=None)",
-     "a closed counter-clockwise panel from points in millimetres",
+     "a closed counter-clockwise pattern from points in millimetres",
      "points: [[x, y], ...] (mm), granularity_mm: float, fabric: name (str)"),
     ("patterns.set_point(name, index, xy)", "move one vertex",
      "index: vertex index (int), xy: [x, y] (mm)"),
@@ -131,48 +131,48 @@ _ENTRY_POINTS = (
     ("patterns.remove_internal_line(name, index)", "remove a cut and its control points",
      "index: internal line index (int)"),
     ("patterns.transform(name, anchor=None, rotation=None, grain_dir=None, collision_layer=None, mirror=None)",
-     "place the panel: anchor, angles, collision layer, mirror",
+     "place the pattern: anchor, angles, collision layer, mirror",
      "anchor: [x, y] (mm), rotation/grain_dir: radians, mirror: bool"),
     ("patterns.copy(name, mirror=False, anchor=None)",
-     "copy the panel as an instance or a mirror",
+     "copy the pattern as an instance or a mirror",
      "mirror: bool, anchor: [x, y] (mm)"),
     ("patterns.detach(name)",
-     "give one panel a Sketch of its own; the other members stay linked",
+     "give one pattern a Sketch of its own; the other members stay linked",
      "no arguments"),
-    ("patterns.remove(names)", "remove panels; a generated panel is refused here",
+    ("patterns.remove(names)", "remove patterns; a generated pattern is refused here",
      "names: one name or a list (str | list)"),
     ("patterns.validate(names=None)", "test the outlines now and report the crossing ones",
      "names: one name or a list (str | list, optional)"),
     ("patterns.fabrics()", "the project's fabrics, by name", "no arguments"),
-    ("patterns.assign_fabric(name, fabric)", "give a panel a fabric",
+    ("patterns.assign_fabric(name, fabric)", "give a pattern a fabric",
      "fabric: name (str)"),
     ("sewings.list()", "every seam with both sides, colour and stitch count",
      "no arguments"),
-    ("sewings.of(pattern)", "the seams that touch one panel",
-     "pattern: panel name (str)"),
+    ("sewings.of(pattern)", "the seams that touch one pattern",
+     "pattern: pattern name (str)"),
     ("sewings.sew(edge_a, edge_b, side1_reverse=False, side2_reverse=True, color=None)",
      "stitch two edges with the add-on's own one-to-one sewing",
-     "edge: (panel, index) or (panel, label), color: [r, g, b]"),
+     "edge: (pattern, index) or (pattern, label), color: [r, g, b]"),
     ("sewings.sew_at(pattern_a, edge_a, position_a, pattern_b, edge_b, position_b, color=None)",
      "stitch two edges from a position on each, the way a click would",
      "position: 0..1 (float)"),
     ("sewings.set_color(index, color)", "recolour one seam",
      "index: seam index (int), color: [r, g, b]"),
     ("sewings.remove(index)", "remove one seam", "index: seam index (int)"),
-    ("generators.list(project=None)", "every generator with its parameters and panels",
+    ("generators.list(project=None)", "every generator with its parameters and patterns",
      "project: name (str, optional)"),
-    ("generators.get(name)", "one generator, its parameter table and its panels",
+    ("generators.get(name)", "one generator, its parameter table and its patterns",
      "name: generator name (str)"),
     ("generators.create(component_id, params=None, name=None)",
-     "add a generator for a component and build its panels",
+     "add a generator for a component and build its patterns",
      "params: name -> value (dict), name: generator name (str)"),
     ("generators.set_params(name, params)", "set several parameters, rebuild once, report",
      "params: name -> value (dict)"),
     ("generators.rebuild(name)", "rebuild with the parameters it already has",
      "no arguments"),
-    ("generators.detach(name)", "turn its panels into ordinary panels",
+    ("generators.detach(name)", "turn its patterns into ordinary patterns",
      "no arguments"),
-    ("generators.remove(name)", "remove the generator and the panels it owns",
+    ("generators.remove(name)", "remove the generator and the patterns it owns",
      "no arguments"),
     ("components.list()", "every component the library offers, with its schema",
      "no arguments"),
@@ -199,39 +199,39 @@ _ENTRY_POINTS = (
      "no arguments"),
 )
 
-_PANELS = """\
-Names.  A panel is addressed by name. Creating one with a taken name gives it a
+_PATTERNS = """\
+Names.  A pattern is addressed by name. Creating one with a taken name gives it a
 suffixed name (collar -> collar.001) and the answer reports both.
 
 Copies.  patterns.copy() links the copy into the same instance list as its
 source, and a geometry edit is written to every member of that list at the same
 index. A copy holds the same local geometry; a mirror is expressed by the
-panel's matrix and its mesh scale, so editing a panel that has a mirror copy
+pattern's matrix and its mesh scale, so editing a pattern that has a mirror copy
 edits both. patterns.get()["chain"] lists the members.
 
-Generated panels.  A panel a generator owns reports "generated": true. Its
+Generated patterns.  A pattern a generator owns reports "generated": true. Its
 geometry can be edited here like any other, but a later set_params or rebuild
 rewrites it, and the rebuild carries the previous simulated positions over by
 interpolation. Removing it through patterns.remove() is refused, because the
-add-on deletes a generated panel's whole group: use generators.detach() to keep
-the panels, or generators.remove() to drop the group.
+add-on deletes a generated pattern's whole group: use generators.detach() to keep
+the patterns, or generators.remove() to drop the group.
 
-Reading.  patterns.get() answers "which edges does this panel have and which
+Reading.  patterns.get() answers "which edges does this pattern have and which
 seams are on them" - edge indexes, labels, kinds, endpoints, handles, lengths,
 and both sides of every seam. The coordinates are a separate call,
 patterns.points(), because a component with a thousand edges makes one response
 large.
 
-Edges.  panel.edges[i] is straight, bezier or spline. A new point can only split
+Edges.  pattern.edges[i] is straight, bezier or spline. A new point can only split
 a straight edge: make the edge straight first, or move one of its ends.
 
 Crossing.  Every geometry write takes allow_crossing=False. With it on, that one
 call may leave an outline that crosses itself; the answer says so (validity,
-crossing point, mesh_stale) and the panel's mesh is then stale, because the mesh
+crossing point, mesh_stale) and the pattern's mesh is then stale, because the mesh
 stage never samples a crossing outline and a simulation will not start on one.
 There is no setting behind it: the next call refuses again. A generator rebuild
 is not gated by it at all - a parameter change already writes what it writes and
-names the panels it left invalid or degenerate.
+names the patterns it left invalid or degenerate.
 """
 
 _OBJECT_MODEL = """\
@@ -239,12 +239,12 @@ PROJECT   one Blender node tree of type QianyiNodeTree (bpy.data.node_groups)
           .name, .patterns, .sewings, .fabrics, .generators
           reached from qyapi.state(), or by scanning bpy.data.node_groups
 
-SKETCH    the drawn geometry of one instance chain, in the panel's own space
+SKETCH    the drawn geometry of one instance chain, in the pattern's own space
           .vertices, .edges, .internal_lines
           One Sketch serves every member of a chain; patterns.detach() gives one
-          panel a Sketch of its own.
+          pattern a Sketch of its own.
 
-PATTERN   one panel: its own identity and settings, and the derived data taken
+PATTERN   one pattern: its own identity and settings, and the derived data taken
           from the Sketch it reads
           .name, .sketch, .fabric, .granularity (mm), .collision_layer,
           .mesh_object, .anchor, .rotation, .grain_dir,
@@ -260,7 +260,7 @@ SEWING    one seam between two pattern edges
 
 FABRIC    .weight (g/m^2), .thickness (mm), .friction, .stretch, .bending
 
-OBJECT    one Blender mesh object; a panel's mesh lives here
+OBJECT    one Blender mesh object; a pattern's mesh lives here
           .qmyi_simulation_props: participate_in_simulation, collision_layer,
           is_pattern_mesh, pattern, get_simulation_vertices()
           shape keys: QYBasis (rest pose), QYSim (simulated positions, local space)
@@ -294,7 +294,7 @@ No entry point opens a menu, a popup or a file browser.
 No entry point writes component code or exposes a parameter as a UI control:
 that is the next change. components.build() is what to use meanwhile - it turns
 a parameter block into outlines without touching the scene.
-No m-to-n sewing: a seam joins one edge of one panel to one edge of another.
+No m-to-n sewing: a seam joins one edge of one pattern to one edge of another.
 No measurement source: every parameter is a number the caller supplies.
 No MCP protocol layer: this surface is plain Python, written for a client that
 already knows how to run a statement inside Blender.
@@ -302,7 +302,7 @@ already knows how to run a statement inside Blender.
 
 _TOPIC_TEXT = {
     "objects": _OBJECT_MODEL,
-    "panels": _PANELS,
+    "patterns": _PATTERNS,
     "units": _UNITS,
     "undo": _UNDO,
     "not-offered": _NOT_OFFERED,
@@ -474,7 +474,7 @@ def push_undo(message):
 class transaction:
     """Group the writes inside the block into a single undo step.
 
-        with qyapi.transaction("build the front panel"):
+        with qyapi.transaction("build the front pattern"):
             ...
 
     Nesting collapses: only the outermost block pushes, under its own message.

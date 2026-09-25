@@ -3,11 +3,11 @@
 ### Requirement: A seam can be read, recoloured and removed
 
 Reading SHALL report every seam with both sides - each side a set of one or more
-spans in drawing order, and each span a panel, an edge index, an edge label, a
+spans in drawing order, and each span a pattern, an edge index, an edge label, a
 position range and a direction flag - plus the colour, the stitch count and, for
 a seam whose sides could not be matched, the unmatched remainder. A seam SHALL
-be recolourable and removable by its index. Reading the seams of one panel SHALL
-report the same entries with that panel's spans marked.
+be recolourable and removable by its index. Reading the seams of one pattern SHALL
+report the same entries with that pattern's spans marked.
 
 #### Scenario: The full list
 
@@ -17,7 +17,7 @@ report the same entries with that panel's spans marked.
 #### Scenario: A seam is removed
 
 - **WHEN** a seam is removed by its index
-- **THEN** it is gone from the list and the panels are otherwise unchanged
+- **THEN** it is gone from the list and the patterns are otherwise unchanged
 
 #### Scenario: A one-to-one seam reads back unchanged
 

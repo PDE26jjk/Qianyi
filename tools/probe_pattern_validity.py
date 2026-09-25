@@ -153,7 +153,7 @@ def check_simulation_gate(manager, project):
     before = manager.simulated_patterns()
     log(f"    patterns a start would send: {[p.name or '(unnamed)' for p in before]}")
 
-    # The realistic case: a panel that has a mesh, then gets dragged into a
+    # The realistic case: a pattern that has a mesh, then gets dragged into a
     # crossing. Its mesh object still names the pattern, so a start that only
     # looked at meshes would happily hand the engine the stale one.
     target = make_pattern(project, SQUARE)

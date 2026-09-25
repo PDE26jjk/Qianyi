@@ -30,11 +30,11 @@ that shape the approach:
   generators, including the in-place rewrite, edge matching by label then
   geometry, and two mesh guards that keep the previous mesh (a crossing outline,
   and vertices closer than the mesh tolerance).
-- The mesh stage carries a panel's previous simulated positions onto the new mesh
+- The mesh stage carries a pattern's previous simulated positions onto the new mesh
   by barycentric interpolation (`geometry.find_map_weight`, then
   `set_simulation_vertices`), and carries the pin vertex group when the vertex
   count is unchanged.
-- `Pattern.fabric`'s getter assigns the default fabric when the panel has none,
+- `Pattern.fabric`'s getter assigns the default fabric when the pattern has none,
   so reading it writes; the existing `state()` already avoids it.
 - `project.last_sewing_error` carries the real reason a sewing was refused.
 - A client runs one statement per call, holds no state between calls, and gets
@@ -44,12 +44,12 @@ that shape the approach:
 
 **Goals:**
 
-- Panel work an agent can do without knowing the add-on's internals, and without
+- Pattern work an agent can do without knowing the add-on's internals, and without
   a call that half-applies or dies on an unrefreshed identity.
 - One implementation per operation: what a modal operator already does well gets
   extracted, not reimplemented.
 - A read-back shaped like the questions an agent asks: which edges does this
-  panel have, and which seams are on them.
+  pattern have, and which seams are on them.
 - The environment the next change needs, so an agent can write and debug a
   component without a scene in the way.
 
@@ -79,7 +79,7 @@ boundary).
 `Pattern.copy_pattern()` is a stub, so the API cannot call it. The logic in the
 copy operator becomes a model function, and the operator calls that function, so
 both paths share one implementation - the same move this project already made for
-the pen operator's panel creation.
+the pen operator's pattern creation.
 
 *Alternatives*: reimplement the copy in the API (two implementations to keep in
 step, and the `instance_next_uuid` list is easy to corrupt); invoke the operator
@@ -101,14 +101,14 @@ A geometry edit writes the same index in every chain member with the same local
 coordinates, and the result lists the members. Mirroring stays where it is: in
 the transform matrix and the mesh scale.
 
-*Alternatives*: edit only the named panel (copies silently diverge, and the
+*Alternatives*: edit only the named pattern (copies silently diverge, and the
 interactive tools do the opposite); mirror the delta into the copies (a second
 rule that does not exist anywhere in the add-on).
 
 ### D5 - Read-back is an edge table, a sewing list, and a separate points call
 
 `patterns.get(name)` returns the summary, the edge table and the sewings that
-touch the panel; the point coordinates come from `patterns.points(name)`. A
+touch the pattern; the point coordinates come from `patterns.points(name)`. A
 1000-edge component makes one response large enough that separating them is worth
 the extra call.
 
@@ -116,12 +116,12 @@ the extra call.
 questions); topology only (then an agent cannot tell a straight edge from a
 curve).
 
-### D6 - The per-panel sewing list shares one index
+### D6 - The per-pattern sewing list shares one index
 
-Both `sewings.list()` and the per-panel list are built from the same edge to
+Both `sewings.list()` and the per-pattern list are built from the same edge to
 sewing index, built once per call - the shape `Qianyi/generators.py` already uses
 for its remap - so the two answers cannot disagree and the cost is proportional
-to the seams, not to panels times seams.
+to the seams, not to patterns times seams.
 
 ### D7 - Validate the inputs first, then test the derived outline and restore on failure
 
@@ -132,9 +132,9 @@ covers the two cases that need different treatment: the checks that are
 computable from the arguments (a crossing outline for a point list, a degenerate
 pair, a non-positive granularity, an unknown name) and the checks that only the
 derived geometry can answer (a handle change that pulls an edge across another
-one). A create rolls back by removing the panel it just made.
+one). A create rolls back by removing the pattern it just made.
 
-*Alternatives*: snapshot the whole panel and restore it on failure (a full copy
+*Alternatives*: snapshot the whole pattern and restore it on failure (a full copy
 per attempt, and it would push its own undo step); a real transaction through
 `bpy.ops.ed.undo` (refused without a window, and it would fight the undo
 granularity rule); never restoring (a refused edit would leave the scene in the
@@ -152,7 +152,7 @@ The seam goes through `add_sewing1to1`, which the maintainer rewrote as the
 single-`reverse` form while this change was being implemented (it used to take
 two span flags, was orphaned when the operators moved to the click-based sewing,
 and refused with `'Section' object has no attribute 'section'`). Both directions
-were measured after the rewrite - 11 and 9 stitches on a pair of test panels -
+were measured after the rewrite - 11 and 9 stitches on a pair of test patterns -
 so the surface forwards to it and derives nothing. Re-deriving a direction was
 never an option: it is the thing that went wrong before.
 
@@ -160,14 +160,14 @@ never an option: it is the thing that went wrong before.
 the edges' geometry (the earlier wrong seams); no direction flag at all (then a
 caller cannot express the mirrored case).
 
-### D9 - Generated panels stay editable, and say so
+### D9 - Generated patterns stay editable, and say so
 
 The maintainer's decision: a geometry edit is equivalent to editing the mesh, the
 simulation runs on the shape key, and a rebuild carries the previous result over,
-so the surface allows the edit. The panel record carries whether the panel comes
+so the surface allows the edit. The pattern record carries whether the pattern comes
 from a generator, and the documentation states that a rebuild can rewrite what
-was edited. Removing such a panel through `patterns.remove` is refused instead,
-because the add-on's own rule deletes a generated panel's whole group: a group
+was edited. Removing such a pattern through `patterns.remove` is refused instead,
+because the add-on's own rule deletes a generated pattern's whole group: a group
 goes away only through the generator's detach or remove.
 
 *Alternatives*: refuse and point at the parameter block or `detach` (safe, but it
@@ -182,15 +182,15 @@ and would turn a read into a write.
 
 ### D11 - Millimetres, stated and never converted
 
-Every panel-space input and output is millimetres, including the anchor. No
+Every pattern-space input and output is millimetres, including the anchor. No
 automatic metre conversion: a silent unit conversion is the failure this project
 has already paid for once.
 
 ### D12 - The rebuild report says whether the simulation result was carried over
 
-The surface compares each panel's simulated key with its rest key before the
+The surface compares each pattern's simulated key with its rest key before the
 rebuild and asks the mesh stage after it, so the report can say that positions
-were carried over - which is the caller's cue to settle the panels with a few
+were carried over - which is the caller's cue to settle the patterns with a few
 `sim.step()` frames from the previous change.
 
 ## Risks / Trade-offs
@@ -203,10 +203,10 @@ were carried over - which is the caller's cue to settle the panels with a few
 - The instance chain is a linked list that a half-built copy can break -> the
   surface uses the tolerant `instance_chain` helper instead of walking links
   itself.
-- A generated panel edit is rewritten by a later rebuild -> the panel record and
+- A generated pattern edit is rewritten by a later rebuild -> the pattern record and
   the documentation say so.
 - Large responses for big components -> the points call is separate and the
-  documentation says to read one panel at a time.
+  documentation says to read one pattern at a time.
 - The shipped GC presets label their edges positionally, so label-addressed
   sewing only works for components that write labels -> documented; index
   addressing always works.
@@ -222,7 +222,7 @@ were carried over - which is the caller's cue to settle the panels with a few
 ## Open Questions
 
 - Whether the points call should take a stride so a caller can sample a very
-  large panel instead of reading every vertex.
+  large pattern instead of reading every vertex.
 - Whether a create should eventually accept a curve description directly instead
   of build-then-`set_handle`; deferred, because one creation path is what keeps
   the validation in one place.

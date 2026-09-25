@@ -1,8 +1,8 @@
-"""The pattern-editing commands: divide edges, treat a corner, fan a panel.
+"""The pattern-editing commands: divide edges, treat a corner, fan a pattern.
 
 Every command measures along the sampled curve, writes its result back as points
 (a straight piece stays straight, anything else becomes a fitted cubic spline)
-and applies to every member of the panel's instance chain. Nothing here touches
+and applies to every member of the pattern's instance chain. Nothing here touches
 Blender's selection, rebuilds a section or merges two points by deleting one:
 the operators are thin wrappers around these functions.
 """
@@ -17,6 +17,8 @@ from .. import global_data
 from ..utilities.curve_fit import (cumulative_length, fit_control_points,
                                    polyline_length, resample_by_arc_length,
                                    slice_by_arc_length)
+from ..utilities.cubic_spline import cubic_spline_2d_numpy
+from ..utilities.geometric_operation import generate_curve_points
 
 from .geometry import Edge2D, Vertex2D
 from .model_data import refresh_all_uuids
@@ -48,7 +50,7 @@ class GeometryRefused(ValueError):
 # ------------------------------------------------------------------- shared
 
 def _chain_members(pattern) -> list:
-    """The panel and the copies that share its Sketch.
+    """The pattern and the copies that share its Sketch.
 
     There is nothing to compare: a chain holds one Sketch, so its members cannot
     hold different geometry, and a copy that needs a shape of its own is
@@ -121,8 +123,8 @@ def _split_edge(pattern, index, cuts, table, edges=None) -> list:
 
     The first piece keeps the edge object, so a seam that named it still does;
     the pieces after it are new edges, placed after it in the loop. `edges` is
-    the collection the edge lives in - the panel's outline, or one internal
-    line's edges. The new vertices join the panel's own vertices either way,
+    the collection the edge lives in - the pattern's outline, or one internal
+    line's edges. The new vertices join the pattern's own vertices either way,
     which is the pool an internal line's edges index into as well.
     """
     edges = pattern.edges if edges is None else edges
@@ -283,7 +285,7 @@ def _remap_sewing_ends_on(pattern, ends, pieces, trimmed=False) -> int:
 
 
 def _mark_sewings(pattern, ends) -> int:
-    """Signal both panels of every seam this command moved, so they relink."""
+    """Signal both patterns of every seam this command moved, so they relink."""
     marked = set()
     for end in ends:
         if end["sewing"] in marked:
@@ -329,7 +331,7 @@ def _piece_table_on(edges, index, lengths) -> list:
 # --------------------------------------------------------------------- corner
 
 def is_outline_vertex(obj) -> bool:
-    """Whether this object is a vertex of a panel's outline (not of an edge)."""
+    """Whether this object is a vertex of a pattern's outline (not of an edge)."""
     if not isinstance(obj, Vertex2D):
         return False
     try:
@@ -379,6 +381,256 @@ def _arc_between(start, end, centre, radius) -> dict:
                                      CORNER_ARC_SAMPLES)}
 
 
+# --------------------------------------------------------------- dragged edge
+
+# How close to an end a drag may take hold of a curve. The two ends are the
+# points the piece shares with its neighbours, so they cannot move, and the
+# closer the grab is to one of them the less of the piece the pointer can pull:
+# the grab is kept this far inside one rather than refused.
+DRAG_END_MARGIN = 0.01
+# The samples a drag draws its preview from. Fewer than the edge's own render
+# points: this is a shape on screen, remade at the pointer's rate.
+DRAG_PREVIEW_SAMPLES = 256
+# The samples a drag measures its base curve on. A straight edge's own render
+# points are its two ends - there is nothing to sample between them - so the
+# base is built here from the form the edge is in.
+DRAG_BASE_SAMPLES = 1024
+# The rows the falloff is projected onto the edge's own weights over. The
+# projection runs on every mouse move, and this many rows answer the same shape
+# as the whole base: the falloff and the weights are both smooth in the
+# parameter.
+DRAG_SOLVE_SAMPLES = 129
+
+
+def _falloff(parameters, grab):
+    """How much of the pointer's offset each parameter of a piece takes.
+
+    One at the grabbed parameter and zero at both ends of the piece, easing in
+    between: the shape of one point pulled on a curve whose ends are held. Each
+    side is measured against its own distance to its end, so the falloff reaches
+    both ends wherever the grab sits.
+    """
+    parameters = np.asarray(parameters, dtype=np.float64)
+    spans = np.where(parameters <= grab, max(grab, 1e-9), max(1.0 - grab, 1e-9))
+    fraction = np.clip(np.abs(parameters - grab) / spans, 0.0, 1.0)
+    return 0.5 * (1.0 + np.cos(np.pi * fraction))
+
+
+def _nearest_sample(points, point) -> int:
+    """The index of the sample of `points` closest to `point`."""
+    offset = np.asarray(points, dtype=np.float64) - np.asarray(point, dtype=np.float64)
+    return int(np.argmin((offset * offset).sum(axis=1)))
+
+
+def _control_knots(points) -> np.ndarray:
+    """The parameters a spline's own sampler gives its points, normalized.
+
+    This is the chord-length knot vector `generate_curve_points` builds for a
+    piece: its two ends and the control points between them, in order.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    lengths = cumulative_length(points)
+    total = float(lengths[-1]) if len(lengths) else 0.0
+    if total <= 0.0:
+        return np.linspace(0.0, 1.0, len(points))
+    return lengths / total
+
+
+def _curve_samples(points, handle1=None, handle2=None, count=DRAG_PREVIEW_SAMPLES):
+    """The polyline a form is drawn as: the call the edge draws itself with."""
+    points = np.asarray(points, dtype=np.float64)
+    if len(points) == 2 and handle1 is None and handle2 is None:
+        return resample_by_arc_length(points, count)
+    return np.asarray(generate_curve_points(points, handle1, handle2, count),
+                      dtype=np.float64)
+
+
+def _on_chord(ends, handles, tolerance=FIT_TOLERANCE_MM) -> bool:
+    """Whether a piece's handles still lie on the chord between its two ends."""
+    start = np.asarray(ends[0], dtype=np.float64)
+    step = np.asarray(ends[1], dtype=np.float64) - start
+    length = float(np.hypot(*step))
+    if length <= 0.0:
+        return False
+    normal = np.array((-step[1], step[0]), dtype=np.float64) / length
+    return all(abs(float((np.asarray(handle, dtype=np.float64) - start) @ normal))
+               <= tolerance for handle in handles)
+
+
+def _pair(point) -> tuple:
+    """One point as a plain pair: the form `Edge2D.set_curve` takes."""
+    return (float(point[0]), float(point[1]))
+
+
+def _distance_to_polyline(points, point) -> float:
+    """The distance from `point` to the closest place on a polyline."""
+    points = np.asarray(points, dtype=np.float64)
+    point = np.asarray(point, dtype=np.float64)
+    starts = points[:-1]
+    steps = points[1:] - starts
+    squares = (steps * steps).sum(axis=1)
+    ratios = np.clip(((point - starts) * steps).sum(axis=1)
+                     / np.where(squares > 0.0, squares, 1.0), 0.0, 1.0)
+    spots = starts + steps * ratios[:, None]
+    return float(np.sqrt(((spots - point) ** 2).sum(axis=1)).min())
+
+
+class EdgeDrag:
+    """One edge's shape while the pointer drags it.
+
+    The pointer's offset moves the point of the curve the drag was started on,
+    and the rest of the piece follows with a smooth falloff that dies at both
+    ends: what it looks like is one point of the outline pulled while the corners
+    it shares with its neighbours stay where they are.
+
+    The falloff is laid out along the curve's own parameter and then written in
+    what the edge can express - the two Bernstein weights of a line or a Bezier,
+    the control points' own influence for a spline - and scaled so that the
+    grabbed point lands exactly on the pointer rather than near it. The edge is
+    written back in the form it had: nothing is added, removed, or turned into
+    another form, and the two ends never move.
+
+    The base curve is read once, when the drag starts, so every frame of one drag
+    measures the same shape from the same grab.
+    """
+
+    def __init__(self, edge, grab_point):
+        self.edge_uuid = edge.global_uuid
+        self.kind = edge.kind
+        self.handle_types = (edge.handle1_type, edge.handle2_type)
+        self.handles = (np.asarray(edge.handle1.co[:], dtype=np.float64),
+                        np.asarray(edge.handle2.co[:], dtype=np.float64))
+        if self.kind == "straight":
+            # A straight edge carries its handles wherever it was made; the
+            # curve it draws is the chord, whose two handles are a third and two
+            # thirds of the way along it. A drag starts from the curve on
+            # screen, not from unused numbers beside it.
+            start = np.asarray(edge.vertex0.co[:], dtype=np.float64)
+            step = (np.asarray(edge.vertex1.co[:], dtype=np.float64) - start) / 3.0
+            self.handles = (start + step, start + 2.0 * step)
+        self.controls = np.asarray([point.co[:] for point in edge.spline_points],
+                                   dtype=np.float64).reshape((-1, 2))
+        # The base curve is what the edge draws now, taken in one piece: the
+        # edge's own render points leave a straight edge as its two ends, and a
+        # drag has to measure between them.
+        ends = np.vstack((edge.vertex0.co[:], self.controls, edge.vertex1.co[:]))
+        vectors = tuple(None if kind == "VECTOR" else handle
+                        for kind, handle in zip(self.handle_types, self.handles))
+        self.vectors = vectors
+        self.base = _curve_samples(ends, vectors[0], vectors[1], DRAG_BASE_SAMPLES)
+        if len(self.base) < 3 or polyline_length(self.base) <= 0.0:
+            raise GeometryRefused("this edge has no length to drag")
+        self.parameters = np.linspace(0.0, 1.0, len(self.base))
+        self.grab_index = _nearest_sample(self.base, grab_point)
+        self.grab_point = self.base[self.grab_index].copy()
+        self.grab = float(np.clip(self.parameters[self.grab_index], DRAG_END_MARGIN,
+                                  1.0 - DRAG_END_MARGIN))
+        self.knots = _control_knots(ends)
+        # Every frame of the drag solves over this slice of the base, not over
+        # all of it: the shape it answers is the same and the work is a fraction.
+        self.solve = slice(None, None, max(len(self.base) // DRAG_SOLVE_SAMPLES, 1))
+
+    def weights(self) -> np.ndarray:
+        """The falloff along the piece, one value per sample of the base curve."""
+        return _falloff(self.parameters, self.grab)
+
+    def form(self, offset) -> dict:
+        """What the edge becomes when the pointer is `offset` from the grab.
+
+        ``kind`` is the edge's own form and the rest is what `Edge2D.set_curve`
+        takes for it, together with the polyline that form is drawn as and how
+        far that polyline ends up from the pointer. The two are the same shape -
+        the preview is drawn from the call the write uses - so `miss` is the
+        distance the pointer's own point is left at, which the log keeps.
+        """
+        offset = np.asarray(offset, dtype=np.float64)
+        form = self._spline_form(offset) if self.kind == "spline" else self._bezier_form(offset)
+        wanted = self.grab_point + offset
+        form["miss"] = _distance_to_polyline(form["samples"], wanted)
+        return form
+
+    def _bezier_form(self, offset) -> dict:
+        """The two handles a drag moves, and the curve they describe."""
+        step = self.parameters[self.solve][:, None]
+        inverse = 1.0 - step
+        weight1 = (3.0 * inverse ** 2 * step)[:, 0]
+        weight2 = (3.0 * inverse * step ** 2)[:, 0]
+        solution, _residuals, _rank, _singular = np.linalg.lstsq(
+            np.column_stack((weight1, weight2)), self.weights()[self.solve], rcond=None)
+        first, second = float(solution[0]), float(solution[1])
+        # The projection answers the shape of the falloff; the grabbed point is
+        # then put exactly under the pointer, which is what makes the piece
+        # follow it instead of bending somewhere near it.
+        at_grab = (first * 3.0 * (1.0 - self.grab) ** 2 * self.grab
+                   + second * 3.0 * (1.0 - self.grab) * self.grab ** 2)
+        if abs(at_grab) > 1e-9:
+            first, second = first / at_grab, second / at_grab
+        moved = (self.handles[0] + first * offset, self.handles[1] + second * offset)
+        if self.kind == "straight" and _on_chord((self.base[0], self.base[-1]), moved):
+            # A drag along the line leaves the piece the line it was: the ends
+            # cannot separate and every control point is still on the chord.
+            return {"kind": "straight", "points": None, "handles": (None, None),
+                    "handle_types": ("VECTOR", "VECTOR"),
+                    "samples": _curve_samples(self.base[[0, -1]])}
+        # A handle the drag moved cannot stay a vector one: a vector handle is
+        # drawn as the straight line to the other end, whatever it is set to.
+        types = tuple("FREE" if value == "VECTOR" else value
+                      for value in self.handle_types)
+        return {"kind": "bezier", "points": None,
+                "handles": (_pair(moved[0]), _pair(moved[1])),
+                "handle_types": types,
+                "samples": _curve_samples(self.base[[0, -1]], moved[0], moved[1])}
+
+    def _spline_form(self, offset) -> dict:
+        """The control points a drag moves, and the curve they describe."""
+        weights = _falloff(self.knots[1:-1], self.grab)
+        reach = self._influence(weights)
+        scale = 1.0 / reach if abs(reach) > 1e-9 else 1.0
+        points = self.controls + (weights * scale)[:, None] * offset
+        ends = np.vstack((self.base[0], points, self.base[-1]))
+        return {"kind": "spline", "points": [_pair(point) for point in points],
+                "handles": (_pair(self.handles[0]), _pair(self.handles[1])),
+                "handle_types": self.handle_types,
+                "samples": _curve_samples(ends, *self.vectors)}
+
+    def _influence(self, weights) -> float:
+        """How far a spline moves at the grab when its control points move.
+
+        A spline through control points is linear in their places, so one
+        evaluation with the weights themselves as the control values answers how
+        much the grabbed point takes: this is the factor the drag divides by, and
+        without it that point would land beside the pointer instead of on it.
+        """
+        values = np.zeros((2, len(weights) + 2), dtype=np.float64)
+        values[1, 1:-1] = weights
+        samples = cubic_spline_2d_numpy(
+            self.knots, values,
+            bc0_type="natural" if self.handle_types[0] == "VECTOR" else "constant",
+            bc0_d=0.0,
+            bcn_type="natural" if self.handle_types[1] == "VECTOR" else "constant",
+            bcn_d=0.0,
+            sample_count=len(self.base))
+        return float(samples[self.grab_index][1])
+
+    def apply(self, offset) -> dict:
+        """Write the dragged form into the edge and answer what was written."""
+        form = self.form(offset)
+        edge = global_data.get_obj_by_uuid(self.edge_uuid, check_uuid=False)
+        if edge is None:
+            raise GeometryRefused("the edge this drag was started on is gone")
+        if form["kind"] == "spline":
+            edge.set_curve("spline", points=form["points"],
+                           handle1=form["handles"][0], handle2=form["handles"][1],
+                           handle1_type=form["handle_types"][0],
+                           handle2_type=form["handle_types"][1])
+        elif form["kind"] == "bezier":
+            edge.set_curve("bezier", handle1=form["handles"][0],
+                           handle2=form["handles"][1],
+                           handle1_type=form["handle_types"][0],
+                           handle2_type=form["handle_types"][1])
+        else:
+            edge.set_curve("straight", handle1_type="VECTOR", handle2_type="VECTOR")
+        return form
+
+
 # ------------------------------------------------------------------------ fan
-
-

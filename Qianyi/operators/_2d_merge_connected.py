@@ -17,7 +17,7 @@ from ._2d_operator_base import Operator2DBase, select_vertices
 
 
 def chains_of(pattern) -> list:
-    """Every chain of one panel as ``(edges, is_loop)``, the outline first."""
+    """Every chain of one pattern as ``(edges, is_loop)``, the outline first."""
     return [(pattern.edges, True)] + [(line.edges, bool(line.is_loop))
                                       for line in pattern.internal_lines]
 
@@ -63,7 +63,7 @@ def runs_of(pattern, edges, is_loop) -> list:
 
 
 def merge_runs(pattern) -> dict:
-    """Plan the merge of every run of selected points of one panel.
+    """Plan the merge of every run of selected points of one pattern.
 
     A run becomes one point at the centre of its points: the first of them keeps
     the identity and takes that place, the rest go with the edges between them,
@@ -78,7 +78,7 @@ def merge_runs(pattern) -> dict:
         chain = _chain_vertices(edges)
         count = len(edges)
         span = count if is_loop else count + 1
-        # `_chain_vertices` walks vertex indices, so the walk is over the panel's
+        # `_chain_vertices` walks vertex indices, so the walk is over the pattern's
         # own points; a run is planned before anything is written, so they hold.
         point_at = lambda position: pattern.vertices[chain[position % span]]  # noqa: E731
         for edge in edges:  # loop: one spline merge per run of control points
@@ -189,7 +189,7 @@ def candidate_outline(pattern, report) -> np.ndarray:
 
 
 def apply_merges(pattern, report) -> None:
-    """Write one panel's merges into its Sketch, and return what went."""
+    """Write one pattern's merges into its Sketch, and return what went."""
     chains = chains_of(pattern)
     # Every surviving edge keeps the shape it had at the end that stays: its own
     # control points at the end that moved come along with it.
@@ -285,17 +285,17 @@ def drop_sewings_on(project, chains, report) -> int:
     return dropped
 
 
-def _flag_selection(panel, objs) -> None:
-    """Mark what the selection names on this panel: a point, or an edge and its ends."""
-    for vertex in panel.vertices:
+def _flag_selection(pattern, objs) -> None:
+    """Mark what the selection names on this pattern: a point, or an edge and its ends."""
+    for vertex in pattern.vertices:
         vertex.impacted = False
-    for edges, _loop in chains_of(panel):
+    for edges, _loop in chains_of(pattern):
         for edge in edges:
             edge.impacted = False
             for point in edge.spline_points:  # a control point is selectable too
                 point.impacted = False
     for obj in objs:  # loop: one selected edge or point
-        if owner_pattern(obj) is not panel:
+        if owner_pattern(obj) is not pattern:
             continue
         if isinstance(obj, Edge2D):  # an edge counts as both of its points
             obj.impacted = True
@@ -322,31 +322,31 @@ class NODE_OT_merge_connected(Operator2DBase):
             return {'CANCELLED'}
         objs = project.get_selected_objects_by_mode("EDGE", "EDGE_VERTEX")
         by_sketch = {}
-        for obj in objs:  # loop: one panel per selected element
-            panel = owner_pattern(obj)
-            if panel is not None:
-                by_sketch.setdefault(int(panel.sketch_uuid), panel)
-        panels = list(by_sketch.values())
-        for panel in panels:
-            if refuse_generated_edit(self, project, panel):
+        for obj in objs:  # loop: one pattern per selected element
+            pattern = owner_pattern(obj)
+            if pattern is not None:
+                by_sketch.setdefault(int(pattern.sketch_uuid), pattern)
+        patterns = list(by_sketch.values())
+        for pattern in patterns:
+            if refuse_generated_edit(self, project, pattern):
                 return {'CANCELLED'}
         prepared = []
-        for panel in panels:
-            _flag_selection(panel, objs)
+        for pattern in patterns:
+            _flag_selection(pattern, objs)
             try:
-                report = merge_runs(panel)
+                report = merge_runs(pattern)
             except geometry.GeometryRefused as refused:
                 self.refuse(refused)
                 return {'CANCELLED'}
-            if not interactive_edit_allowed(context, candidate_outline(panel, report)):
+            if not interactive_edit_allowed(context, candidate_outline(pattern, report)):
                 return {'CANCELLED'}
-            report["panel"] = panel
+            report["pattern"] = pattern
             prepared.append(report)
         merged, keeps, gone = 0, [], []
         for report in prepared:
-            panel = report["panel"]
-            chains = chains_of(panel)
-            # What leaves the panel, named before it goes: the edges inside the
+            pattern = report["pattern"]
+            chains = chains_of(pattern)
+            # What leaves the pattern, named before it goes: the edges inside the
             # runs, the points that were merged away, and the control points of
             # the spline edges that were merged into one.
             gone.extend(int(chains[chain_index][0][index].global_uuid)
@@ -355,14 +355,14 @@ class NODE_OT_merge_connected(Operator2DBase):
             gone.extend(uuid_value for merge in report["splines"]
                         for uuid_value, _index in merge["removed"])
             drop_sewings_on(project, chains, report)
-            apply_merges(panel, report)
-            panel.refresh_collection_uuid(panel.vertices)
-            panel.refresh_collection_uuid(panel.edges)
-            for line in panel.internal_lines:
-                panel.refresh_collection_uuid(line.edges)
+            apply_merges(pattern, report)
+            pattern.refresh_collection_uuid(pattern.vertices)
+            pattern.refresh_collection_uuid(pattern.edges)
+            for line in pattern.internal_lines:
+                pattern.refresh_collection_uuid(line.edges)
             # The Sketch is what every member of the chain reads, so the write is
             # sent from it - and so is the mesh step: all of them are meshed.
-            sketch = panel.require_sketch()
+            sketch = pattern.require_sketch()
             sketch.geometry_written()
             sketch.rebuild_meshes()
             keeps.extend(global_data.get_obj_by_uuid(merge["keep_uuid"], check_uuid=False)

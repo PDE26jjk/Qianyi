@@ -3,7 +3,7 @@
 A project is a node tree of the add-on's own type. Creating one by hand is three
 steps a caller cannot see - the tree, the identities of the project and of its
 default fabric, and the name - and the second one only shows up as an assertion
-inside the first panel call. They live behind one call here.
+inside the first pattern call. They live behind one call here.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def create(name=None, activate=True):
     project = bpy.data.node_groups.new(requested, Panels.QianyiNodeTree)
     datablock = _datablock_key(project)
     # The identity of the project and of its default fabric: without both, the
-    # first panel call raises an assertion inside the fabric link.
+    # first pattern call raises an assertion inside the fabric link.
     project.get_temp_data()
     project.get_default_fabric().get_temp_data()
     address.refresh()
@@ -91,10 +91,10 @@ def remove(name):
     project = address.project_or_refuse(name)
     removed = _entry(project)
     was_active = address.active_project() is project
-    # A panel's mesh object is a scene object, not part of the node tree, so
+    # A pattern's mesh object is a scene object, not part of the node tree, so
     # removing the tree alone would leave objects whose pattern is gone - and
     # every walk over the simulated objects then fails on that dangling link.
-    # Taking the panels out through the model layer deletes their meshes.
+    # Taking the patterns out through the model layer deletes their meshes.
     if len(project.patterns) > 0:
         project.remove_patterns([pattern for pattern in project.patterns],
                                 expand_groups=False)

@@ -131,7 +131,7 @@ class NODE_OT_add_vertex(Operator2DBase):
         draw_manager.clear()
         spline_points_size = len(edge.spline_points)
         console.info("old edge:", edge.vertex0.co, edge.vertex1.co, [p.co for p in edge.spline_points])
-        # One Sketch per instance chain: the split is written once. This panel
+        # One Sketch per instance chain: the split is written once. This pattern
         # meshes from it now; the other readers of the Sketch were marked by the
         # write and rebuild when a consumer asks them for a mesh.
         v_index = pattern.add_vertex(temp_point.co)
@@ -177,7 +177,7 @@ class NODE_OT_add_vertex(Operator2DBase):
         pattern.require_sketch().rebuild_meshes()
         # The outline changed, so the finder the tools snap against is stale:
         # without this the next click snaps to the shape that used to be there,
-        # and its offsets no longer fit the edges the panel has now.
+        # and its offsets no longer fit the edges the pattern has now.
         project.clear_edge_finder()
         p = pattern.vertices[len(pattern.vertices) - 1]
         p.get_temp_data()

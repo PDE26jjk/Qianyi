@@ -1,0 +1,254 @@
+## Context
+
+See `proposal.md` - Why. Current state that shapes the approach:
+
+- A pattern owns its outline, internal lines, fabric, collision layer,
+  granularity, grain direction, mirror flag and generator link
+  (`Qianyi/model/pattern.py`). Nothing on the pattern says whether it takes part
+  in the simulation: the switch lives on the mesh object
+  (`ObjectSimulationProperties.participate_in_simulation`) and the 3D sidebar
+  only shows it for objects that are not pattern meshes.
+- The bridge (`Qianyi/simulation/simulation_manager.py`) builds one payload per
+  object from the mesh plus the pattern's fabric, and sends per-object
+  `fixed_vertices` / `attached_vertices` weights read from the vertex groups
+  `QYPinFix` / `QYPinAttach`. The engine already accepts pinned cloth vertices
+  and a collider object type.
+- The engine reports a per-vertex debug colour array, the bridge already
+  downloads it and writes it into the mesh's `Color` attribute; nothing in the
+  UI turns that into a picture.
+- The pattern window draws through `Qianyi/gizmos/*` renderers; the fill is a
+  fixed translucent colour and the mesh lines a fixed white, and
+  `gizmos/temp_draw_manager.py` carries the comment
+  `TODO different pattern rendering mode` at the branch that would choose.
+- `Qianyi/debug_draw_3d.py` registers a 3D overlay at startup and exposes
+  primitives (arrows, capsules, spheres) that only test code currently calls.
+
+## Goals / Non-Goals
+
+**Goals:**
+
+- Pattern behaviour and pattern appearance become first-class, per-pattern data that
+  survives save, copy, generator rebuild and undo.
+- All four states and all display modes are reachable from the UI the add-on
+  already has (pattern list, 3D sidebar, tool settings) with no new window.
+- Display and state changes never recompute geometry, and every state maps onto
+  a payload the engine already accepts.
+
+**Non-Goals:**
+
+- Plasticity (baking the current drape into the rest shape). That needs the
+  engine's rest-shape work; this change only prepares the pattern state field and
+  the UI that a later change will attach to.
+- A physically rigid pattern. `stiffened` is a stiffness multiplier, not a
+  rigid-body solver.
+- Skiving (thickness tapering along an edge) and bonding (fusing two patterns
+  without a seam); both need geometry and contact semantics that do not exist
+  yet.
+- Editing stress colours' numeric scale from the UI beyond the documented
+  presets.
+
+## Decisions
+
+### D1. State is a single enum property on the pattern
+
+`simulation_state` (`simulate` | `excluded` | `frozen` | `stiffened`) plus
+`stiffness_scale` live on `Pattern`, next to `collision_layer` and `fabric_uuid`.
+A single enum, not independent flags: the four states are mutually exclusive in
+the competitor tools this mirrors, and independent flags would need a
+precedence rule that the UI cannot explain.
+
+*Alternative:* keep the existing mesh-level `participate_in_simulation` and add
+three more booleans. Rejected: the flag is on the mesh, so it is lost when a
+mesh is regenerated, it is invisible in the pattern list, and a generator
+rebuild would silently reset it.
+
+### D2. Excluded patterns are dropped from the payload, not pinned
+
+`setup_data()` skips excluded patterns, so the engine never sees them. This is the
+cheap and unambiguous meaning of "not solved": no contacts, no mass, no cost.
+
+*Alternative:* send them and set every weight to zero. Rejected: it costs the
+full simulation cost for a pattern the user asked to ignore, and it still
+collides.
+
+### D3. Frozen is full pinning, not a collider object
+
+Freezing writes weight 1.0 into `QYPinFix` for every vertex of the pattern's mesh.
+The pattern stays cloth, keeps its sewings and its fabric, is still a collider,
+and unfreezing is the removal of the weights the freeze added.
+
+*Alternative:* hand the pattern to the engine as a collider object (the payload
+already has an object type for that). Rejected: a collider loses its cloth
+identity - it would no longer hold a seam, it would be excluded from the
+engine's cloth area and self-contact bookkeeping, and the frontend would have
+to drop and re-add seams on every freeze.
+
+The weights are written into the same group the user can edit by hand, so
+freezing records which vertices it pinned (a per-pattern set) and unfreezing
+removes only those.
+
+### D4. Stiffened is a per-pattern fabric override
+
+The payload's `stretch` and `bending` are scaled by `stiffness_scale` for that
+pattern only, at the point where `build_object_payload` reads the fabric. The
+fabric asset is untouched, so two patterns sharing a fabric can differ.
+
+*Alternative:* clone the fabric into a new asset per stiffened pattern. Rejected:
+it fills the fabric list with near-duplicates and makes "which fabric is this"
+ambiguous; the scale is one number, not a material.
+
+### D5. Display mode is scene state; per-pattern overrides are not offered
+
+The active mode is a scene property (like the existing
+`interactive_self_intersection_check`), because a pattern maker switches the
+whole window, not one pattern at a time. The renderers take the mode as an
+argument at draw time; nothing about a pattern's data changes.
+
+*Alternative:* a per-pattern mode. Rejected as a first cut: it doubles the UI and
+the state for a case nobody asked for; the silhouette guide (D7) is the one
+place where per-pattern control is genuinely needed.
+
+### D6. Debug reads the engine's buffer; stress is derived in the editor
+
+`debug` uses what the bridge already produces: `get_debug_colors()` is
+downloaded per frame and written to the mesh `Color` attribute, and the change
+adds the draw path that uses it (plus a bundled material for the 3D viewport).
+
+`stress` cannot use that buffer: measured on the engine side, it is the
+*collision debug* colouring - grey (0.5, 0.5, 0.5) for an untouched vertex and
+yellow where a contact pair was found - not a force or a stress. Painting it as
+"stress" would be a lie about what the picture means. The editor therefore
+derives its own quantity from the two vertex sets it already downloads: the rest
+positions in `QYBasis` and the frame's positions in `QYSim`, as the mean
+relative length change of each vertex's incident edges (`utilities/strain.py`).
+That is the same measure the project reports as stretch when it compares
+simulated area with the pattern's area, and it is computable in the frontend
+with numpy in a few milliseconds per pattern.
+
+The engine's own per-vertex force would be better and is recorded as a follow-up
+task: one bulk readout per frame, then `stress` switches source without changing
+the display contract.
+
+When no frame has been produced both modes fall back to `solid` with a message,
+because a colour scale over an empty or zeroed buffer is worse than no colour.
+What was derived from a frame is cached under the engine's frame key, so a
+redraw that did not advance the simulation neither re-derives the strain nor
+re-uploads a batch.
+
+### D7. The silhouette is one projection of a named collection, drawn in the window's own space
+
+The project names a collection and the guide projects it once into the pattern
+window's space: world-space vertices, one world axis dropped, the remaining two
+scaled from metres to millimetres and moved by the project's offset. Patterns are
+already drafted in that space (millimetres, each pattern placed by its own
+anchor), so the body lands next to them at 1:1 and every pattern sees the same
+backdrop - which is what a pattern maker aligns against, and why the projection
+is per project rather than per pattern.
+
+The projected triangles are drawn filled, and the projected mesh edges over
+them, because aligning a pattern against a body needs its surface *and* its
+seams; both have their own colour and opacity, and the mesh overlay can be
+switched off.
+
+The projection is cached in the draw path: the batches are rebuilt when the
+selection, the objects' transforms, the settings or the engine's frame change,
+and a deforming selection is followed at most every 50 ms. A redraw that
+changed nothing costs one signature comparison, which is the answer to "will
+this be slow?" - the expensive work (reading tens of thousands of vertices,
+building two batches) happens on change, not per frame.
+
+*Alternative:* project into each pattern's own space, per pattern. Rejected: a
+pattern's anchor would then decide where the body appears, so two patterns could
+show the body at different places and no shared alignment would exist.
+
+*Alternative:* precompute the silhouette into the document and store it on the
+pattern. Rejected: it would be saved in the file, invalidated by every avatar
+edit, and would leak a display aid into the document model.
+
+### D8. One Overlays panel for everything drawn over the 3D viewport
+
+The vertex colouring, the seam lines and the HUD share one pattern in the 3D
+sidebar. Everything is off by default except the HUD, which draws nothing until
+a frame has been timed, so a freshly opened file looks exactly as it did before.
+
+### D9. The 3D overlays are a new module, not an extension of the debug scratchpad
+
+`debug_draw_3d.py` was written as a throwaway: it tessellates every primitive in
+Python and rebuilds its batches on every redraw, which is why it is slow. The
+overlays are therefore a new module (`gizmos/view3d_overlay.py`) with one shader
+and at most one cached batch per object and per engine frame, keyed the same way
+the pattern window's colouring is keyed. The old module keeps its classes and
+its on-demand operator, but no longer registers a draw handler at startup.
+
+Two consequences of drawing the surface ourselves:
+
+* the colouring is drawn with `LESS_EQUAL` depth against the surface the
+  viewport has already shaded, and its vertices are lifted towards the camera by
+  a fraction (0.15%) of the drawn garment's size. The lift is computed when a
+  batch is built but applied in the vertex shader from the viewport's camera
+  position, so orbiting the view neither rebuilds a batch nor leaves the two
+  surfaces tied - a tie is what made the first version flicker, and a
+  view-dependent offset baked into the vertices would have needed a rebuild per
+  camera move. The depth buffer is not written, so the passes after it still see
+  the scene's own depth;
+* no material is created or assigned. The overlay replaces the pattern's colouring
+  only while a mode is on, and Blender keeps rendering the garment itself.
+
+The seam preview is deliberately independent of the simulation: it is the thing
+a pattern maker looks at to check that the connections are right, so it has to
+be there before anything is simulated and whatever shape key the patterns are
+showing. Its geometry is read from the scene - the sewing objects and the
+evaluated pattern meshes - and every seam is drawn in its own colour. Its cache is
+invalidated by the pose (shape key values and object transforms) and by the
+scene frame, with the engine's frame counter as one further term so the lines
+follow a live drape as well.
+
+The overlays are hidden whenever Blender's own overlays are hidden. A custom
+draw handler does not follow that switch, so the callbacks read
+`space_data.overlay.show_overlays` first; the pattern's own settings are untouched
+by hiding.
+
+The HUD's number is the same one the project measures elsewhere: RTS is
+simulated seconds per wall-clock second, which is the simulated milliseconds of
+a frame divided by the milliseconds it took. The simulation manager records
+(step, wall time) per frame from every path that advances a run - the live run,
+the manual steppers and `qyapi.sim.step` - and the HUD averages the last twelve.
+
+## Risks / Trade-offs
+
+- [Freezing by weights fights a user's hand-made pins] -> the freeze records the
+  vertex set it wrote; unfreeze removes only that set, and a test covers a pattern
+  with pre-existing pins.
+- [A stiffened pattern that shares a fabric drifts from the asset] -> the payload
+  is the only consumer of the scale; the asset keeps its own values and the
+  pattern's UI shows both numbers (base and scaled).
+- [Stiff enough to be called rigid becomes unstable at the engine's step] ->
+  the multiplier's range is capped and the shipped default is conservative; the
+  verification task measures a stiffened skirt at the shipped step before the
+  cap is documented as final.
+- [The silhouette costs draw time on a dense avatar] -> the projection runs
+  over the collider's own triangles with numpy and caches by transform; the
+  task list measures a 24k-vertex body before the guide is enabled by default
+  for anyone.
+- [Display modes and the stress path disagree about colour] -> one documented
+  scale table in the spec file is the single source, and both paths read it.
+- [Excluded patterns surprise a user who expected them to collide] -> the state's
+  UI text says "not solved and not a collider", and the frozen state is
+  documented right next to it as the one that does collide.
+
+## Migration Plan
+
+Purely additive. Existing patterns read as `simulate` (the enum default), so every
+saved project and every generator rebuild behaves exactly as before until a user
+changes a state. Rollback is reverting the change; no saved data needs
+migration because the new properties are optional with defaults. The one
+behavioural change for existing files is that the 3D debug primitives stop
+drawing by default, which is the intended fix.
+
+## Open Questions
+
+- Whether `stress` and `debug` need more than one named scale each (for example
+  stretch versus bending) or whether one engine-provided scale is enough; the
+  answer changes only the pattern, not the data model.
+- Whether the silhouette should also snap or measure (a distance readout against
+  the body). Deferred: the guide as specified is enough to align by eye.

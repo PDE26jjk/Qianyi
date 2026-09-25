@@ -18,7 +18,7 @@ from ..model.pattern import boundary_self_intersection
 from ..utilities.node_tree import get_all_node_tree
 
 # The mesh stage de-duplicates boundary points closer together than
-# granularity * this, and a panel carrying such a pair becomes a sliver the
+# granularity * this, and a pattern carrying such a pair becomes a sliver the
 # sampler cannot walk.
 MESH_TOLERANCE_FACTOR = 0.02
 # The property's own default, used when a caller does not give a granularity.
@@ -72,9 +72,9 @@ def active_project():
 
 
 def outline_report(pattern):
-    """A panel's cached validity, its crossing point, and whether its mesh is stale.
+    """A pattern's cached validity, its crossing point, and whether its mesh is stale.
 
-    A crossing outline is never handed to the mesh sampler, so a panel that
+    A crossing outline is never handed to the mesh sampler, so a pattern that
     crosses keeps whatever mesh it had - which is what "stale" means here.
     """
     state = str(pattern.validity_state).lower()
@@ -91,17 +91,17 @@ def pattern_or_refuse(project, name):
     matches = [index for index, pattern in enumerate(project.patterns)
                if pattern.name == name]
     if len(matches) > 1:
-        # A generator names its panels after the component's slots, so a slot
-        # can collide with a hand-made panel. Addressing must not guess.
-        raise QyapiError(f"{len(matches)} panels are named {name!r}",
+        # A generator names its patterns after the component's slots, so a slot
+        # can collide with a hand-made pattern. Addressing must not guess.
+        raise QyapiError(f"{len(matches)} patterns are named {name!r}",
                          (f"indexes: {', '.join(str(index) for index in matches)}",
                           "rename one of them, or read them with qyapi.patterns.list()"))
     if matches:
         pattern = project.patterns[matches[0]]
         ensure_current(pattern)
         return pattern
-    raise QyapiError(f"no panel named {name!r}",
-                     (f"panels: {', '.join(_names(project.patterns))}",
+    raise QyapiError(f"no pattern named {name!r}",
+                     (f"patterns: {', '.join(_names(project.patterns))}",
                       "qyapi.patterns.list() has the same names with their counts"))
 
 
@@ -121,7 +121,7 @@ def fabric_or_refuse(project, name):
 def fabric_name(pattern):
     """The fabric's name without triggering the property that writes.
 
-    `Pattern.fabric` assigns the default fabric when the panel has none, so a
+    `Pattern.fabric` assigns the default fabric when the pattern has none, so a
     read must not call it.
     """
     uuid = int(pattern.fabric_uuid)
@@ -142,13 +142,13 @@ def unique_name(project, base):
 
 
 def ensure_current(pattern):
-    """Refresh a panel's derived data without touching its outline."""
+    """Refresh a pattern's derived data without touching its outline."""
     pattern.ensure_sections()
     return pattern
 
 
 def chain_of(pattern):
-    """Every panel that shares geometry with this one, this one included."""
+    """Every pattern that shares geometry with this one, this one included."""
     return pattern.sketch_members()
 
 
@@ -160,18 +160,18 @@ def edge_or_refuse(pattern, reference):
         if not found:
             labels = [edge.name for edge in pattern.edges if edge.name]
             raise QyapiError(
-                f"panel {pattern.name!r} has no edge labelled {reference!r}",
+                f"pattern {pattern.name!r} has no edge labelled {reference!r}",
                 (f"labels: {', '.join(labels) or '(none)'}",
-                 "an edge index works for every panel"))
+                 "an edge index works for every pattern"))
         if len(found) > 1:
-            raise QyapiError(f"panel {pattern.name!r} has {len(found)} edges "
+            raise QyapiError(f"pattern {pattern.name!r} has {len(found)} edges "
                              f"labelled {reference!r}",
                              ("name the edge by its index instead",))
         index, edge = found[0]
     else:
         index = int(reference)
         if not 0 <= index < len(pattern.edges):
-            raise QyapiError(f"panel {pattern.name!r} has no edge {index}",
+            raise QyapiError(f"pattern {pattern.name!r} has no edge {index}",
                              (f"it has {len(pattern.edges)} edges",))
         edge = pattern.edges[index]
     return edge, index
@@ -180,7 +180,7 @@ def edge_or_refuse(pattern, reference):
 def edge_ref(pattern, index):
     """How an edge is reported: index and label, not a handle."""
     edge = pattern.edges[index]
-    return {"panel": pattern.name, "index": int(index),
+    return {"pattern": pattern.name, "index": int(index),
             "label": edge.name or None, "kind": edge.kind}
 
 
@@ -189,12 +189,12 @@ def side_entry(sewing, side_number):
     side = sewing.side1 if side_number == 1 else sewing.side2
     try:
         pattern = owner_pattern(side.line1)
-        panel = pattern.name
+        pattern_name = pattern.name
         label = side.line1.name or None
         index = side.line1.get_index()
     except Exception:
-        panel, label, index = None, None, None
-    return {"side": side_number, "panel": panel, "edge_index": index,
+        pattern_name, label, index = None, None, None
+    return {"side": side_number, "pattern": pattern_name, "edge_index": index,
             "edge_label": label, "pos1": float(side.pos1), "pos2": float(side.pos2),
             "reverse": bool(side.reverse)}
 
@@ -214,7 +214,7 @@ def sewing_entry(project, sewing, index, section_error=None):
         stitches = sewing.get_stitch_data()["stitches"]
         entry["stitch_count"] = int(len(stitches))
     except Exception as error:
-        # A seam on a panel whose outline is invalid has no mesh to count
+        # A seam on a pattern whose outline is invalid has no mesh to count
         # against; that is a fact about the scene, not a failure of the read.
         entry["stitch_error"] = f"{type(error).__name__}: {error}"
     return entry
@@ -225,7 +225,7 @@ def sewing_entries(project, pattern=None):
     # Reading a sewing reads the walk it makes, and the linking run is what
     # builds the pieces a walk needs: it starts its own table, so linking here
     # is the whole "fresh sections, then link them" sequence without rebuilding
-    # the stage and the samples of every panel a sewing touches.
+    # the stage and the samples of every pattern a sewing touches.
     section_error = None
     try:
         project.calc_sewings_sections(project.sewings)
@@ -234,7 +234,7 @@ def sewing_entries(project, pattern=None):
     entries = []
     for index, sewing in enumerate(project.sewings):  # loop: one dict per sewing
         entry = sewing_entry(project, sewing, index, section_error)
-        if pattern is not None and pattern.name not in {side["panel"]
+        if pattern is not None and pattern.name not in {side["pattern"]
                                                         for side in entry["sides"]}:
             continue
         entries.append(entry)
@@ -255,9 +255,9 @@ def clean_points(values, what="points"):
     points = [clean_point(value, f"{what}[{index}]")
               for index, value in enumerate(values)]  # loop: one pair per point
     if len(points) < 3:
-        raise QyapiError(f"a panel outline needs at least 3 {what}, got {len(points)}")
+        raise QyapiError(f"a pattern outline needs at least 3 {what}, got {len(points)}")
     if len({point for point in points}) != len(points):
-        raise QyapiError("a panel outline cannot repeat a point")
+        raise QyapiError("a pattern outline cannot repeat a point")
     return points
 
 

@@ -1,4 +1,4 @@
-"""The GC library panel: browse the panel components and add one to the project."""
+"""The GC library panel: browse the pattern components and add one to the project."""
 
 import os
 
@@ -6,8 +6,8 @@ import bpy
 from bpy.types import Context
 
 from ...declarations import Operators, Panels
-from ...panellib import component, preview, registry
-from ...panellib.land import land_panel
+from ...patternlib import component, preview, registry
+from ...patternlib.land import land_pattern
 from ...utilities.node_tree import get_active_node_tree
 from . import NODE_PT_qmyi_base
 
@@ -51,7 +51,7 @@ def _preview_icon_id(component_id: str) -> int:
     icon_id = 0
     try:
         spec = component.build_component(component_id)
-        image = preview.render_preview([land_panel(panel) for panel in spec.panels],
+        image = preview.render_preview([land_pattern(pattern) for pattern in spec.patterns],
                                        size=THUMBNAIL_SIZE)
         name = f"qy_gc_preview_{component_id}"
         datablock = bpy.data.images.get(name)
@@ -81,7 +81,7 @@ class QY_PT_gc_library(NODE_PT_qmyi_base):
 
         infos = _infos()
         if isinstance(infos, str):
-            layout.label(text=f"Panel library error: {infos}", icon="ERROR")
+            layout.label(text=f"Pattern library error: {infos}", icon="ERROR")
             return
 
         self._draw_filters(layout, project)

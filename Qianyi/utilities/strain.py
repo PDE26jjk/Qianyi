@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import numpy as np
 
-# The display saturates at these strains: a panel stretched by 20% or compressed
+# The display saturates at these strains: a pattern stretched by 20% or compressed
 # by 10% from its rest shape is drawn at the end of the ramp. The numbers follow
 # the engine's own measurements, where a settled garment shows a 1.1-1.4 area
 # ratio against the pattern (see the real-time performance record), so a ramp
@@ -80,7 +80,7 @@ def strain_colors(strain, min_strain: float = MIN_STRAIN,
     """Strain as an (N, 4) float32 colour array on the documented ramp.
 
     Blue is compression, green is the rest shape and red is stretch. The alpha
-    is 1: the display mode decides how transparent the filled panel is.
+    is 1: the display mode decides how transparent the filled pattern is.
     """
     strain = np.asarray(strain, dtype=np.float32).reshape(-1)
     colors = np.empty((len(strain), 4), dtype=np.float32)

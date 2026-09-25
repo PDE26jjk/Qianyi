@@ -53,7 +53,7 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
             if hover_object is not None and hover_object.global_uuid != -1 and isinstance(hover_object, Edge2D):
                 if project.selected_sewing_edge1 is None:
                     project.selected_sewing_edge1 = hover_object
-                    # The panel is recorded with the first point, so the seam
+                    # The pattern is recorded with the first point, so the seam
                     # names the member it was made on and the second click only
                     # has to name its own.
                     project.selected_sewing_pattern1 = self.click_pattern(project)
@@ -92,13 +92,13 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
 
     @staticmethod
     def click_pattern(project):
-        """The panel the click was made on.
+        """The pattern the click was made on.
 
         An edge is shared by every member of its instance chain, so the edge
-        itself names no panel. The id pass is what knows which member the
+        itself names no pattern. The id pass is what knows which member the
         pointer is over - it drew that pair - and the selection has already made
-        that member the active panel; a click that resolves to nothing (the
-        pointer just off the panel) keeps the active one.
+        that member the active pattern; a click that resolves to nothing (the
+        pointer just off the pattern) keeps the active one.
         """
         manager = global_data.temp_draw_manager
         picked = manager.picked_pattern() if manager is not None else None
@@ -113,8 +113,8 @@ class NODE_OT_add_sewing_1to1(Operator2DBase):
         The pointer position comes from the preselection gizmo, which is also
         what decides which edge is hovered - so the point and the edge always
         belong to the same mouse event. The operator's own copy of the location
-        is only a fallback. The panel is the one the click was made on: an edge
-        serves its whole instance chain, so the edge's own panel would put the
+        is only a fallback. The pattern is the one the click was made on: an edge
+        serves its whole instance chain, so the edge's own pattern would put the
         position in the chain owner's space.
         """
         manager = global_data.temp_draw_manager

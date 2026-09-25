@@ -88,7 +88,7 @@ def register_uuid(obj):
 def _register_edge(edge):
     """An edge owns its control handles, its spline points and its samples.
 
-    A panel's own copy of the samples it meshed with lives on the pattern (see
+    A pattern's own copy of the samples it meshed with lives on the pattern (see
     `Pattern.geo_points`); it is a read-only mirror, so it is deliberately not
     part of the identity map a pick or a lookup walks.
     """
@@ -107,7 +107,7 @@ def refresh_all_uuids():
     just opened a file (and after undo/redo, which clears it). Everything that
     resolves a uuid - a mesh looking up its pattern, a pattern looking up its
     fabric, a sewing side looking up its edge - fails until the map is filled,
-    and it used to be filled only as a side effect of the UI drawing a panel.
+    and it used to be filled only as a side effect of the UI drawing a pattern.
     Walking the projects explicitly makes the data path independent of that.
 
     Returns the number of objects registered.
@@ -159,7 +159,7 @@ def resolve_sketch(element):
 
     A point, an edge, a control point and an internal line all live in a Sketch,
     and never anywhere else: an edge is shared by every member of its instance
-    chain, so the panel is not what holds it. The element's own path says which
+    chain, so the pattern is not what holds it. The element's own path says which
     Sketch - its first segment is "sketches[3]" for a point, for an edge of the
     outline, for a control point and for an edge of an internal line alike - so
     the answer is that one collection entry.
@@ -203,18 +203,18 @@ def resolve_sketch(element):
 
 
 def owner_pattern(element):
-    """The panel that owns the Sketch an element lives in, or None.
+    """The pattern that owns the Sketch an element lives in, or None.
 
     A geometry element - a point, an edge, a control point, an internal line -
-    is stored in a Sketch, and a Sketch belongs to the panel that made it, which
-    is the first member of the instance chain. The element has no panel of its
+    is stored in a Sketch, and a Sketch belongs to the pattern that made it, which
+    is the first member of the instance chain. The element has no pattern of its
     own: an edge is shared by every member of its chain. A caller that holds
-    only the element and needs the panel asks here, and this answers the one
+    only the element and needs the pattern asks here, and this answers the one
     thing it can answer - the owner of the Sketch - rather than letting the
-    element pretend to be a panel.
+    element pretend to be a pattern.
 
-    `Sketch.owner` resolves the panel through the uuid map, which already
-    answers None for a panel that is no longer there, so nothing here has to
+    `Sketch.owner` resolves the pattern through the uuid map, which already
+    answers None for a pattern that is no longer there, so nothing here has to
     re-check the wrapper.
     """
     sketch = getattr(element, "sketch", None)

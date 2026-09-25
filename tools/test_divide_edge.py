@@ -2,7 +2,7 @@
 
     blender.exe -b --factory-startup --python tools/test_divide_edge.py
 
-No scene file: the script builds its own panels, internal lines, an instance
+No scene file: the script builds its own patterns, internal lines, an instance
 copy and sewings, runs the division paths against them, and finishes with the
 section invariants as a whole-project sweep. Each check prints PASS or FAIL
 and the process exits non-zero when anything failed.
@@ -10,10 +10,10 @@ and the process exits non-zero when anything failed.
 What is covered:
 
 1.  one outline edge, equal parts - the counts and the selection;
-2.  several panels and an internal line in one command - a mixed selection;
+2.  several patterns and an internal line in one command - a mixed selection;
 3.  an instance copy - the outline and the internal lines sync to it;
 4.  a sewing on a divided outline edge, and one on a divided internal line -
-    both re-homed onto the pieces, the panels asked to relink;
+    both re-homed onto the pieces, the patterns asked to relink;
 5.  the corner command: an outline corner, a corner pulled to the end so the
     vertex merges away, and a corner of an internal line, on every copy;
 6.  target-length boundaries: a distance that just fits, one that would leave
@@ -104,7 +104,7 @@ def build_square(project, name, size, origin=(0.0, 0.0)):
     return pattern
 
 
-def build_curved_panel(project, name, size, bulge1, bulge2=None, origin=(0.0, 0.0)):
+def build_curved_pattern(project, name, size, bulge1, bulge2=None, origin=(0.0, 0.0)):
     """A square whose bottom edge is a bezier bowed inward at its two handles.
 
     Equal bulges give a symmetric bow, whose parametric samples happen to be
@@ -163,35 +163,35 @@ def main():
     project.get_default_fabric()
 
     # 1. one outline edge, equal parts
-    panel = build_square(project, "plain", 40.0)
+    pattern = build_square(project, "plain", 40.0)
     refresh_all_uuids()
-    before = len(panel.edges)
-    report = divide_tools.divide_edges(panel, [0], parts=3)
+    before = len(pattern.edges)
+    report = divide_tools.divide_edges(pattern, [0], parts=3)
     check("one outline edge into equal parts",
-          len(panel.edges) == before + 2 and report["parts"] == 3
+          len(pattern.edges) == before + 2 and report["parts"] == 3
           and len(report["piece_uuids"]) == 3 and not report["capped"],
-          f"edges {before}->{len(panel.edges)} report={report['parts']}")
+          f"edges {before}->{len(pattern.edges)} report={report['parts']}")
 
-    # 2. several panels and an internal line in one command
-    panel_a = build_square(project, "with_line", 40.0)
-    line_a = add_straight_line(panel_a, (-19.8, 0.0), (19.8, 0.0))
-    panel_b = build_square(project, "plain_b", 30.0, origin=(100.0, 0.0))
+    # 2. several patterns and an internal line in one command
+    pattern_a = build_square(project, "with_line", 40.0)
+    line_a = add_straight_line(pattern_a, (-19.8, 0.0), (19.8, 0.0))
+    pattern_b = build_square(project, "plain_b", 30.0, origin=(100.0, 0.0))
     refresh_all_uuids()
-    a_edges, b_edges, line_edges = len(panel_a.edges), len(panel_b.edges), len(line_a.edges)
-    select(project, [panel_a.edges[0], panel_b.edges[2], line_a.edges[0]])
+    a_edges, b_edges, line_edges = len(pattern_a.edges), len(pattern_b.edges), len(line_a.edges)
+    select(project, [pattern_a.edges[0], pattern_b.edges[2], line_a.edges[0]])
     groups = divide_tools.selected_division_groups(project)
-    check("a mixed selection groups by panel",
+    check("a mixed selection groups by pattern",
           len(groups) == 2 and set(groups[0]["edges"]) == {None, 0}
           and set(groups[1]["edges"]) == {None},
           str([{key: sorted(value) for key, value in group["edges"].items()}
                for group in groups]))
     report = divide_tools.divide_edges_on(groups, parts=2)
     check("a mixed selection divides every container",
-          len(panel_a.edges) == a_edges + 1 and len(panel_b.edges) == b_edges + 1
+          len(pattern_a.edges) == a_edges + 1 and len(pattern_b.edges) == b_edges + 1
           and len(line_a.edges) == line_edges + 1
-          and report["panel"] == "with_line, plain_b",
-          f"a={len(panel_a.edges)} b={len(panel_b.edges)} "
-          f"line={len(line_a.edges)} panel={report['panel']!r}")
+          and report["pattern"] == "with_line, plain_b",
+          f"a={len(pattern_a.edges)} b={len(pattern_b.edges)} "
+          f"line={len(line_a.edges)} pattern={report['pattern']!r}")
 
     # 3. an instance copy: the outline syncs, a line does not
     owner = build_square(project, "owner", 40.0, origin=(200.0, 0.0))
@@ -224,7 +224,7 @@ def main():
     refresh_all_uuids()
     seam = project.add_sewing(seam_a.edges[0], 0.0, seam_a.edges[0], 1.0, False,
                               seam_b.edges[0], 0.0, seam_b.edges[0], 1.0, False)
-    check("a seam between two panels was created", seam is not None,
+    check("a seam between two patterns was created", seam is not None,
           f"error={project.last_sewing_error!r}")
     if seam is not None:
         named = seam.side1.line1_uuid
@@ -236,12 +236,12 @@ def main():
               report["sewings_moved"] >= 1 and named in pieces
               and side.line1 is not None and side.line1_uuid in pieces,
               f"moved={report['sewings_moved']} side_uuid={side.line1_uuid}")
-        check("the divided seam asks both panels to relink",
+        check("the divided seam asks both patterns to relink",
               seam_a.need_sewing_update and seam_b.need_sewing_update,
               f"a={seam_a.need_sewing_update} b={seam_b.need_sewing_update}")
 
-    line_panel = build_square(project, "line_seam", 40.0, origin=(500.0, 0.0))
-    line_s = add_straight_line(line_panel, (482.0, 0.0), (518.0, 0.0))
+    line_pattern = build_square(project, "line_seam", 40.0, origin=(500.0, 0.0))
+    line_s = add_straight_line(line_pattern, (482.0, 0.0), (518.0, 0.0))
     line_mate = build_square(project, "line_mate", 40.0, origin=(600.0, 0.0))
     line_m = add_straight_line(line_mate, (582.0, 0.0), (618.0, 0.0))
     refresh_all_uuids()
@@ -262,11 +262,11 @@ def main():
     # a seam endpoint sitting exactly on the cut of a curved edge: the read
     # and the write of the sewing position both go through the arc length, so
     # the endpoint lands at the start of the far piece, not on the near one
-    arc_panel = build_curved_panel(project, "arc_seam", 40.0, 12.0, 3.0,
+    arc_pattern = build_curved_pattern(project, "arc_seam", 40.0, 12.0, 3.0,
                                    origin=(1400.0, 0.0))
     arc_mate = build_square(project, "arc_mate", 40.0, origin=(1500.0, 0.0))
     refresh_all_uuids()
-    bow = arc_panel.edges[0]
+    bow = arc_pattern.edges[0]
     half_length = float(bow.length) / 2.0
     seam = project.add_sewing(bow, 0.0, bow, 0.5, False,
                               arc_mate.edges[0], 0.0, arc_mate.edges[0],
@@ -319,17 +319,17 @@ def main():
           f"edges={len(skew.edges)} vertices={len(skew.vertices)} "
           f"warnings={report['warnings']}")
 
-    line_corner_panel = build_square(project, "line_corner", 40.0, origin=(1700.0, 0.0))
+    line_corner_pattern = build_square(project, "line_corner", 40.0, origin=(1700.0, 0.0))
     bend_segments = [
         {"p0": (-19.0, -19.0), "p1": (19.0, -19.0), "h1": (0.0, 0.0), "h2": (0.0, 0.0),
          "h1_type": "VECTOR", "h2_type": "VECTOR"},
         {"p0": (19.0, -19.0), "p1": (19.0, 19.0), "h1": (0.0, 0.0), "h2": (0.0, 0.0),
          "h1_type": "VECTOR", "h2_type": "VECTOR"},
     ]
-    bend = line_corner_panel.add_internal_line(bend_segments, is_loop=False)
-    line_copy = line_corner_panel.copy_pattern(as_instance=True)
+    bend = line_corner_pattern.add_internal_line(bend_segments, is_loop=False)
+    line_copy = line_corner_pattern.copy_pattern(as_instance=True)
     refresh_all_uuids()
-    report = corner_tools.corner_vertices(line_corner_panel, [5], radius=2.0,
+    report = corner_tools.corner_vertices(line_corner_pattern, [5], radius=2.0,
                                           mode="ROUND")
     check("an internal line corner is rounded, on every copy",
           len(bend.edges) == 3
@@ -338,55 +338,55 @@ def main():
           f"line={len(bend.edges)} copy_line={len(line_copy.internal_lines[0].edges)} "
           f"warnings={report['warnings']}")
 
-    vee_panel = build_square(project, "vee", 40.0, origin=(1800.0, 0.0))
+    vee_pattern = build_square(project, "vee", 40.0, origin=(1800.0, 0.0))
     vee_segments = [
         {"p0": (-15.0, 15.0), "p1": (0.0, -10.0), "h1": (0.0, 0.0), "h2": (0.0, 0.0),
          "h1_type": "VECTOR", "h2_type": "VECTOR"},
         {"p0": (0.0, -10.0), "p1": (15.0, 15.0), "h1": (0.0, 0.0), "h2": (0.0, 0.0),
          "h1_type": "VECTOR", "h2_type": "VECTOR"},
     ]
-    vee = vee_panel.add_internal_line(vee_segments, is_loop=False)
+    vee = vee_pattern.add_internal_line(vee_segments, is_loop=False)
     refresh_all_uuids()
-    report = corner_tools.corner_vertices(vee_panel, [5], radius=100.0,
+    report = corner_tools.corner_vertices(vee_pattern, [5], radius=100.0,
                                           mode="ROUND", merge=True)
     check("a V tip merged past its ends keeps the outline untouched",
           len(vee.edges) == 1 and vee.edges[0].kind == "bezier"
-          and len(vee_panel.edges) == 4 and len(vee_panel.vertices) == 6
+          and len(vee_pattern.edges) == 4 and len(vee_pattern.vertices) == 6
           and not report["warnings"],
-          f"line={len(vee.edges)} outline={len(vee_panel.edges)} "
-          f"vertices={len(vee_panel.vertices)} warnings={report['warnings']}")
+          f"line={len(vee.edges)} outline={len(vee_pattern.edges)} "
+          f"vertices={len(vee_pattern.vertices)} warnings={report['warnings']}")
 
     # deleting an element of an internal line: a point is bridged out of the
     # chain, an edge is deleted as its two ends are, and a line left without an
     # edge goes away with the points nothing references any more
     from qmyi.operators import _2d_elements_delete as delete_tools
 
-    del_panel = build_square(project, "del_line", 40.0, origin=(1900.0, 0.0))
+    del_pattern = build_square(project, "del_line", 40.0, origin=(1900.0, 0.0))
     del_line_segments = [
         {"p0": (-19.0, -19.0), "p1": (0.0, 0.0), "h1": (0.0, 0.0), "h2": (0.0, 0.0),
          "h1_type": "VECTOR", "h2_type": "VECTOR"},
         {"p0": (0.0, 0.0), "p1": (19.0, -19.0), "h1": (0.0, 0.0), "h2": (0.0, 0.0),
          "h1_type": "VECTOR", "h2_type": "VECTOR"},
     ]
-    del_line = del_panel.add_internal_line(del_line_segments, is_loop=False)
+    del_line = del_pattern.add_internal_line(del_line_segments, is_loop=False)
     refresh_all_uuids()
     # the point in the middle of a two-edge line: the edge before it carries on
     # to the point after it, so the two edges become one
-    delete_tools.delete_line_elements(del_panel, 0, [del_panel.vertices[5]])
-    del_panel.mark_geometry_changed()
+    delete_tools.delete_line_elements(del_pattern, 0, [del_pattern.vertices[5]])
+    del_pattern.mark_geometry_changed()
     check("deleting a middle point bridges the line through it",
           len(del_line.edges) == 1 and del_line.edges[0].kind == "straight"
-          and len(del_panel.vertices) == 6,
-          f"edges={len(del_line.edges)} vertices={len(del_panel.vertices)}")
+          and len(del_pattern.vertices) == 6,
+          f"edges={len(del_line.edges)} vertices={len(del_pattern.vertices)}")
     # the point the line ends on now: it has no point after it to carry on to,
     # so the edge that ran to it goes too and the line is empty
-    delete_tools.delete_line_elements(del_panel, 0, [del_panel.vertices[5]])
-    del_panel.mark_geometry_changed()
+    delete_tools.delete_line_elements(del_pattern, 0, [del_pattern.vertices[5]])
+    del_pattern.mark_geometry_changed()
     check("deleting the last point removes the empty line",
-          len(del_panel.internal_lines) == 0 and len(del_panel.vertices) == 4,
-          f"lines={len(del_panel.internal_lines)} vertices={len(del_panel.vertices)}")
+          len(del_pattern.internal_lines) == 0 and len(del_pattern.vertices) == 4,
+          f"lines={len(del_pattern.internal_lines)} vertices={len(del_pattern.vertices)}")
 
-    edge_del_panel = build_square(project, "del_edge", 40.0, origin=(1950.0, 0.0))
+    edge_del_pattern = build_square(project, "del_edge", 40.0, origin=(1950.0, 0.0))
     three_segments = [
         {"p0": (-19.0, -19.0), "p1": (-6.0, 0.0), "h1": (0.0, 0.0), "h2": (0.0, 0.0),
          "h1_type": "VECTOR", "h2_type": "VECTOR"},
@@ -395,35 +395,35 @@ def main():
         {"p0": (6.0, 0.0), "p1": (19.0, -19.0), "h1": (0.0, 0.0), "h2": (0.0, 0.0),
          "h1_type": "VECTOR", "h2_type": "VECTOR"},
     ]
-    edge_line = edge_del_panel.add_internal_line(three_segments, is_loop=False)
+    edge_line = edge_del_pattern.add_internal_line(three_segments, is_loop=False)
     refresh_all_uuids()
     # the middle edge of a three-edge line, deleted as its two ends are: the
     # first edge carries on to the point beyond the gap
-    delete_tools.delete_line_elements(edge_del_panel, 0,
-                                      [edge_del_panel.vertices[5],
-                                       edge_del_panel.vertices[6]])
-    edge_del_panel.mark_geometry_changed()
+    delete_tools.delete_line_elements(edge_del_pattern, 0,
+                                      [edge_del_pattern.vertices[5],
+                                       edge_del_pattern.vertices[6]])
+    edge_del_pattern.mark_geometry_changed()
     check("deleting a middle edge bridges the chain over it",
-          len(edge_line.edges) == 1 and len(edge_del_panel.vertices) == 6
+          len(edge_line.edges) == 1 and len(edge_del_pattern.vertices) == 6
           and edge_line.edges[0].vertex0.get_index() == 4
           and edge_line.edges[0].vertex1.get_index() == 5,
-          f"edges={len(edge_line.edges)} vertices={len(edge_del_panel.vertices)}")
+          f"edges={len(edge_line.edges)} vertices={len(edge_del_pattern.vertices)}")
 
-    far_edge_panel = build_square(project, "del_far_edge", 40.0, origin=(2000.0, 0.0))
-    far_edge_line = far_edge_panel.add_internal_line(three_segments, is_loop=False)
+    far_edge_pattern = build_square(project, "del_far_edge", 40.0, origin=(2000.0, 0.0))
+    far_edge_line = far_edge_pattern.add_internal_line(three_segments, is_loop=False)
     refresh_all_uuids()
     # the edge an open line ends on, deleted as its two ends are: the edge that
     # ran into them has no point left to reach and goes with them, which is
     # what the maintainer confirmed - the last two edges of the line go
-    delete_tools.delete_line_elements(far_edge_panel, 0,
-                                      [far_edge_panel.vertices[6],
-                                       far_edge_panel.vertices[7]])
-    far_edge_panel.mark_geometry_changed()
+    delete_tools.delete_line_elements(far_edge_pattern, 0,
+                                      [far_edge_pattern.vertices[6],
+                                       far_edge_pattern.vertices[7]])
+    far_edge_pattern.mark_geometry_changed()
     check("deleting the far edge takes the edge it leaves hanging",
-          len(far_edge_line.edges) == 1 and len(far_edge_panel.vertices) == 6
+          len(far_edge_line.edges) == 1 and len(far_edge_pattern.vertices) == 6
           and far_edge_line.edges[0].vertex0.get_index() == 4
           and far_edge_line.edges[0].vertex1.get_index() == 5,
-          f"edges={len(far_edge_line.edges)} vertices={len(far_edge_panel.vertices)}")
+          f"edges={len(far_edge_line.edges)} vertices={len(far_edge_pattern.vertices)}")
 
     # 5. target-length boundaries
     lengths = build_square(project, "lengths", 40.0, origin=(700.0, 0.0))
@@ -458,7 +458,7 @@ def main():
     refuses("equal parts refuse an edge too short to cut",
             divide_tools.divide_edges, tiny, [0], parts=2)
     report = divide_tools.divide_edges(tiny, [0], distance=0.6, cuts=1)
-    check("a distance with no room to cut finishes without touching the panel",
+    check("a distance with no room to cut finishes without touching the pattern",
           report["cut_count"] == 0 and report["capped"] and len(tiny.edges) == 4
           and divide_tools.describe(report).startswith("nothing to divide"),
           f"cuts={report['cut_count']} edges={len(tiny.edges)} "
@@ -491,7 +491,7 @@ def main():
           f"describe={divide_tools.describe(report)!r}")
 
     # 7. a curved edge
-    curved = build_curved_panel(project, "curved", 40.0, 8.0)
+    curved = build_curved_pattern(project, "curved", 40.0, 8.0)
     refresh_all_uuids()
     report = divide_tools.divide_edges(curved, [0], parts=4)
     check("a curved edge divides into pieces fitted to tolerance",

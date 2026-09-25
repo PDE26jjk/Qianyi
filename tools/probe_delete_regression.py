@@ -185,10 +185,10 @@ def pick_both_sides(project):
     targets = []
     for side in (sewing.side1, sewing.side2):
         line = global_data.get_obj_by_uuid(side.line1_uuid)
-        panel = owner_pattern(line)
-        log(f"    target: {panel.name} edge {line.global_uuid} "
+        pattern = owner_pattern(line)
+        log(f"    target: {pattern.name} edge {line.global_uuid} "
             f"vertex0 {line.vertex0.global_uuid}")
-        targets.append((panel, line.vertex0))
+        targets.append((pattern, line.vertex0))
     return targets
 
 

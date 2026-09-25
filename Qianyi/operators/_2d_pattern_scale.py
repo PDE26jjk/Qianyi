@@ -33,7 +33,7 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
         if project is not None:
             if len(project.selected_patterns) == 0:
                 return False
-            # Scaling is a geometry edit, so a generated panel refuses it.
+            # Scaling is a geometry edit, so a generated pattern refuses it.
             for item in project.selected_patterns:
                 pattern = (global_data.get_obj_by_uuid(item.uuid, check_uuid=False)
                            if item.uuid != -1 else None)
@@ -61,16 +61,16 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
         if not self.pattern_set:
             self.return_state = ReturnState.CANCELLED
             return
-        # One Sketch serves a whole chain, so the panels are keyed by Sketch:
+        # One Sketch serves a whole chain, so the patterns are keyed by Sketch:
         # scaling the same geometry twice would square the factor.
         by_sketch = {}
-        for panel in self.pattern_set:
-            by_sketch.setdefault(int(panel.sketch_uuid), panel)
+        for pattern in self.pattern_set:
+            by_sketch.setdefault(int(pattern.sketch_uuid), pattern)
         self.pattern_set = set(by_sketch.values())
         # 2. 计算缩放中心 (所有选中版片锚点的均值)
         center = np.array((0, 0), dtype=np.float32)
-        for panel in self._selected_panels():
-            center += panel.pattern_to_view_pos(panel.center)
+        for pattern in self._selected_patterns():
+            center += pattern.pattern_to_view_pos(pattern.center)
         self.pivot_location = center / len(self.selected_uuids)
         # 3. 设置状态机
         p1state = self.register_state(PointPickState())
@@ -97,10 +97,10 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
 
         p1state.data_change_cb.append(cb_scale)
 
-    def _selected_panels(self) -> list:
-        """The panels the user selected, in project order."""
-        return [panel for panel in self.project.patterns
-                if panel.global_uuid in self.selected_uuids]
+    def _selected_patterns(self) -> list:
+        """The patterns the user selected, in project order."""
+        return [pattern for pattern in self.project.patterns
+                if pattern.global_uuid in self.selected_uuids]
 
     def setup_draw_handler(self, context):
         if self.draw_handler is not None:
@@ -174,9 +174,9 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
         pivot_location = Vector(self.pivot_location)
         mesh_scale_center = Vector((0., 0, 0))
         mesh_scale_center_count = 0
-        # The panels the user selected move their anchors; the geometry they
+        # The patterns the user selected move their anchors; the geometry they
         # read is one Sketch per chain and is scaled once.
-        for ins in self._selected_panels():
+        for ins in self._selected_patterns():
             orig_anchor = Vector(ins.anchor)
             new_anchor = pivot_location + (orig_anchor - pivot_location) * s
             ins.anchor = new_anchor
@@ -204,8 +204,8 @@ class NODE_OT_pattern_scale(Operator2DBase, StateOperator):
                         sp.co = (sp.co[0] * s, sp.co[1] * s)
         if mesh_scale_center_count > 0:
             mesh_scale_center /= mesh_scale_center_count
-        # Every panel that reads a scaled Sketch gets its mesh back: its
-        # placement did not move, and a panel left with the mesh it had would
+        # Every pattern that reads a scaled Sketch gets its mesh back: its
+        # placement did not move, and a pattern left with the mesh it had would
         # draw a surface the size it used to be.
         for p in self.pattern_set:
             for member in p.sketch_members():

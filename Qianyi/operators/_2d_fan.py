@@ -26,7 +26,7 @@ SMALLEST_FAN_ANGLE = math.radians(0.5)
 
 
 class NODE_OT_fan(Operator2DBase):
-    """Extend a panel by rotating one half of it about a pivot.
+    """Extend a pattern by rotating one half of it about a pivot.
 
     The two points are chosen one click at a time and neither click takes the
     pointer: the first click on the outline is the pivot, the second is the
@@ -38,7 +38,7 @@ class NODE_OT_fan(Operator2DBase):
     The two points and the angle are the operator's own properties, so Blender's
     adjust-last-operation panel re-runs the command from the state that existed
     before it: a wider or narrower angle rebuilds the fan from the original
-    panel rather than opening a second sector.
+    pattern rather than opening a second sector.
     """
 
     bl_idname = Operators.Fan2D
@@ -51,12 +51,12 @@ class NODE_OT_fan(Operator2DBase):
     plan = None
     armed = False
 
-    # The two points and the panel are what the redo panel re-runs from: a tool
+    # The two points and the pattern are what the redo panel re-runs from: a tool
     # gesture has no selection step of its own, so the operator is the only
     # place that knows what it acted on.
     pivot_location: FloatVectorProperty(name="Pivot", size=2)
     target_location: FloatVectorProperty(name="Target", size=2)
-    pattern_name: StringProperty(name="Panel")
+    pattern_name: StringProperty(name="Pattern")
     angle: FloatProperty(
         name="Angle",
         description="How far the sector opens, in degrees",
@@ -99,7 +99,7 @@ class NODE_OT_fan(Operator2DBase):
         if project.fan_pivot is None:
             if not self.take_click(context, project, "pivot"):
                 return {'CANCELLED'}
-            # Each click is a new operator instance, so the panel has to be
+            # Each click is a new operator instance, so the pattern has to be
             # taken from the stored gesture every time it is needed.
             self.pattern_name = project.fan_pivot[0]
             self.report({'INFO'}, "pivot set: click the target on the outline")
@@ -149,10 +149,10 @@ class NODE_OT_fan(Operator2DBase):
         """Open the fan by the angle the pointer is at, and draw the result."""
         pattern = self.pattern(context)
         if pattern is None:
-            # The preview cannot be drawn without the panel, and doing nothing
+            # The preview cannot be drawn without the pattern, and doing nothing
             # quietly is what makes a broken gesture look like a dead tool.
             self.report({'WARNING'},
-                        f"the fan lost the panel it was started on "
+                        f"the fan lost the pattern it was started on "
                         f"({self.pattern_name!r})")
             return
         self.angle = self.pointer_angle(context, event)
@@ -172,7 +172,7 @@ class NODE_OT_fan(Operator2DBase):
             manager.set_tool_points([
                 (pattern, tuple(self.pivot_location), "pivot"),
                 (pattern, tuple(self.target_location), "target")])
-            # What the panel would look like: the whole outline the command
+            # What the pattern would look like: the whole outline the command
             # would leave behind, drawn as one polyline - an outline has a
             # sample per few millimetres, so a segment at a time would crawl.
             outline = fan_preview(plan)
@@ -235,41 +235,41 @@ class NODE_OT_fan(Operator2DBase):
             # The pointer is on a vertex, and the tool's own preview snaps to
             # vertices: a click there has to take it, or snapping would mean
             # that the point it snaps to is the one point that cannot be used.
-            panel = manager.picked_pattern() or project.active_pattern
+            pattern = manager.picked_pattern() or project.active_pattern
             point = np.asarray(hover.co, dtype=np.float64)
             vertex = hover.get_index() if geometry.is_outline_vertex(hover) else None
         elif isinstance(hover, Edge2D) and manager.picked_pattern() is not None:
-            panel = manager.picked_pattern()
+            pattern = manager.picked_pattern()
             view = region2view_coord(context, location)
-            point = np.asarray(panel.view_to_pattern_pos(view), dtype=np.float64)
+            point = np.asarray(pattern.view_to_pattern_pos(view), dtype=np.float64)
             # A click close to a vertex lands on it: the pivot and the target are
-            # usually corners, and a corner has to be exact to split the panel
+            # usually corners, and a corner has to be exact to split the pattern
             # the way the fan expects.
-            point, vertex = snapped_point(context, panel, point, location)
+            point, vertex = snapped_point(context, pattern, point, location)
         else:
             # Nothing under the pointer: take the point the tool's own preview
             # is showing, which is the nearest point of the nearest outline.
-            # That is the cyan dot, so a click somewhere near a panel is never
+            # That is the cyan dot, so a click somewhere near a pattern is never
             # answered with a message about not being on one.
-            panel, point = self.nearest_outline_point(context, project, location)
-            if panel is None:
+            pattern, point = self.nearest_outline_point(context, project, location)
+            if pattern is None:
                 return False
             vertex = None
         if which == "pivot":
-            project.fan_pivot = (panel.name, (float(point[0]), float(point[1])))
+            project.fan_pivot = (pattern.name, (float(point[0]), float(point[1])))
         else:
             stored = project.fan_pivot
-            if stored is None or panel.name != stored[0]:
+            if stored is None or pattern.name != stored[0]:
                 self.report({'INFO'},
-                            "the target has to be on the same panel as the pivot")
+                            "the target has to be on the same pattern as the pivot")
                 return False
             apart = float(np.hypot(*(point - np.asarray(stored[1], dtype=np.float64))))
             if apart <= geometry.MERGE_THRESHOLD_MM:
                 self.report({'INFO'}, "the target has to be away from the pivot")
                 return False
-            project.fan_target = (panel.name, (float(point[0]), float(point[1])))
+            project.fan_target = (pattern.name, (float(point[0]), float(point[1])))
         if vertex is not None:
-            self.report({'INFO'}, f"snapped to vertex {vertex} of {panel.name}")
+            self.report({'INFO'}, f"snapped to vertex {vertex} of {pattern.name}")
         return True
 
     def pointer_angle(self, context: Context, event: Event) -> float:
@@ -299,9 +299,9 @@ class NODE_OT_fan(Operator2DBase):
         nearest outline, so a click that lands on neither still has a point to
         take - the one the user is looking at.
         """
-        panel, vertex = find_vertex_under(context, project, location)
+        pattern, vertex = find_vertex_under(context, project, location)
         if vertex is not None:
-            return panel, np.asarray(vertex.co, dtype=np.float64)
+            return pattern, np.asarray(vertex.co, dtype=np.float64)
         project.find_nearest_point_on_edge(region2view_coord(context, location))
         if project.nearest_point is None or project.nearest_pattern is None:
             return None, None
@@ -309,13 +309,13 @@ class NODE_OT_fan(Operator2DBase):
                 np.asarray(project.nearest_point, dtype=np.float64))
 
     def pattern(self, context: Context):
-        """The panel the gesture started on, by name."""
+        """The pattern the gesture started on, by name."""
         project = get_active_node_tree(context)
         if project is None:
             return None
-        for panel in project.patterns:  # loop: one panel per name check
-            if panel.name == self.pattern_name:
-                return panel
+        for pattern in project.patterns:  # loop: one pattern per name check
+            if pattern.name == self.pattern_name:
+                return pattern
         return None
 
     def execute(self, context: Context):
@@ -324,7 +324,7 @@ class NODE_OT_fan(Operator2DBase):
             return {'CANCELLED'}
         pattern = self.pattern(context)
         if pattern is None:
-            self.report({'ERROR'}, f"no panel named {self.pattern_name!r}")
+            self.report({'ERROR'}, f"no pattern named {self.pattern_name!r}")
             return {'CANCELLED'}
         if refuse_generated_edit(self, project, pattern):
             return {'CANCELLED'}
@@ -359,10 +359,10 @@ def pointer_location(context: Context, event: Event):
 def find_vertex_under(context: Context, project, cursor):
     """The outline vertex of the project nearest the cursor, within the snap."""
     best = None
-    for panel in project.patterns:  # loop: one panel's vertices per search
-        near = vertex_near_cursor(context, panel, cursor)
+    for pattern in project.patterns:  # loop: one pattern's vertices per search
+        near = vertex_near_cursor(context, pattern, cursor)
         if near is not None and (best is None or near[1] < best[1]):
-            best = (near[0], near[1], panel)
+            best = (near[0], near[1], pattern)
     if best is None:
         return None, None
     return best[2], best[2].vertices[best[0]]
@@ -370,7 +370,7 @@ def find_vertex_under(context: Context, project, cursor):
 
 def describe(report) -> str:
     """One line for the info area: what the fan produced."""
-    message = (f"opened {report['panel']} by {report['angle_deg']:.1f} degrees "
+    message = (f"opened {report['pattern']} by {report['angle_deg']:.1f} degrees "
                f"around a {report['radius_mm']:.1f} mm radius, adding "
                f"{report['added_area_mm2']:.1f} mm2")
     if report["copies"]:
@@ -404,11 +404,11 @@ def _outline_location(pattern, point, what) -> dict:
     """Where a point sits on the outline: the edge, the arc length, the point.
 
     The point is projected onto the nearest edge; one further from the outline
-    than the panel's own sampling step cannot be meant as a point on it.
+    than the pattern's own sampling step cannot be meant as a point on it.
     """
     point = np.asarray(point, dtype=np.float64)
     if point.shape != (2,):
-        raise geometry.GeometryRefused(f"{what} is not a point in the panel's space")
+        raise geometry.GeometryRefused(f"{what} is not a point in the pattern's space")
     best = None
     for index in range(len(pattern.edges)):
         points = np.asarray(pattern.edges[index].render_points, dtype=np.float64)
@@ -480,7 +480,7 @@ def _signed_area(points) -> float:
     return 0.5 * float(np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y))
 
 def _fan_halves(pattern, pivot_at, target_at) -> dict:
-    """Which half of the panel the fan rotates, and which stays put.
+    """Which half of the pattern the fan rotates, and which stays put.
 
     The path on the right of the directed radius rotates: turning it clockwise
     is what opens the sector rather than closing it.
@@ -495,10 +495,10 @@ def _fan_halves(pattern, pivot_at, target_at) -> dict:
             "backward_area": _signed_area(backward)}
 
 def _check_chord(pattern, pivot_at, target_at) -> None:
-    """Refuse a radius whose chord leaves the panel.
+    """Refuse a radius whose chord leaves the pattern.
 
     The chord is the two halves' common boundary: if it crosses the outline
-    anywhere but at its own two ends, rotating one half would fold the panel onto
+    anywhere but at its own two ends, rotating one half would fold the pattern onto
     itself. A chord that runs along one edge between the two points is the
     legitimately short way round a bulge.
     """
@@ -533,7 +533,7 @@ def _check_chord(pattern, pivot_at, target_at) -> None:
                 if low - geometry.MERGE_THRESHOLD_MM <= arc <= high + geometry.MERGE_THRESHOLD_MM:
                     continue
             raise geometry.GeometryRefused(
-                "the radius between the pivot and the target leaves the panel",
+                "the radius between the pivot and the target leaves the pattern",
                 f"it meets the outline at ({crossing[0]:.1f}, {crossing[1]:.1f}) mm, so "
                 "the two points are not on the same side of it",
                 "pick a target that the straight line from the pivot reaches without "
@@ -559,7 +559,7 @@ def fan_outline(pattern, pivot_at, target_at, halves, arc) -> np.ndarray:
         chunks.append(arc["points"][::-1][1:])
     chunks.append(turned[::-1][1:])
     candidate = np.concatenate(chunks, dtype=np.float64)
-    # The panel samples its outline without repeating the point it closes on.
+    # The pattern samples its outline without repeating the point it closes on.
     if len(candidate) > 1 and float(np.hypot(*(candidate[-1] - candidate[0]))) <= 1e-9:
         candidate = candidate[:-1]
     return candidate
@@ -585,7 +585,7 @@ def plan_fan(pattern, pivot, target, *, angle) -> dict:
     """What the fan would do, without writing anything.
 
     `pivot` and `target` are two points on the outline and the distance between
-    them is the radius: the chord between them divides the panel, and the half on
+    them is the radius: the chord between them divides the pattern, and the half on
     the right of the directed radius rotates rigidly about the pivot by `angle`
     (clockwise, so the sector opens). The chord and the result are tested before
     anything is written.
@@ -613,8 +613,8 @@ def plan_fan(pattern, pivot, target, *, angle) -> dict:
     halves = _fan_halves(pattern, pivot_at, target_at)
     if min(abs(halves["forward_area"]), abs(halves["backward_area"])) <= geometry.MERGE_THRESHOLD_MM ** 2:
         raise geometry.GeometryRefused(
-            "the radius lies along the outline, so it does not divide the panel",
-            "give the target on another edge: the radius has to cut the panel into two "
+            "the radius lies along the outline, so it does not divide the pattern",
+            "give the target on another edge: the radius has to cut the pattern into two "
             "halves with material on both sides of it")
     arc = None
     if angle_value > FAN_MIN_ANGLE:
@@ -643,8 +643,8 @@ def _vertex_at(pattern, point) -> int:
             f"the outline has no vertex within {geometry.MERGE_THRESHOLD_MM:g} mm of the point the "
             "fan pivots on",
             (f"the nearest of its {len(pattern.vertices)} vertices is {best[1]:.3f} mm away"
-             if best else "the panel has no vertices"),
-            "the panel changed since the fan was measured; run the command again")
+             if best else "the pattern has no vertices"),
+            "the pattern changed since the fan was measured; run the command again")
     return best[0]
 
 def _loop_edges(pattern, start_vertex, end_vertex) -> list:
@@ -810,7 +810,7 @@ def _fan_member(pattern, plan) -> dict:
     }
 
 def pivot_fan(pattern, pivot, target, *, angle) -> dict:
-    """Extend the panel by rotating one half of it about a pivot.
+    """Extend the pattern by rotating one half of it about a pivot.
 
     What opens between the radius and its image is filled by an arc edge centred
     on the pivot; the stationary half is untouched, no internal line is created
@@ -818,10 +818,10 @@ def pivot_fan(pattern, pivot, target, *, angle) -> dict:
     """
     plan = plan_fan(pattern, pivot, target, angle=angle)
     members = geometry._chain_members(pattern)
-    # One Sketch serves the whole chain: the fan is written once. This panel
+    # One Sketch serves the whole chain: the fan is written once. This pattern
     # meshes from it; the other readers were marked by the write.
     report = _fan_member(pattern, plan)
-    report.update({"action": "pivot_fan", "panel": pattern.name,
+    report.update({"action": "pivot_fan", "pattern": pattern.name,
                    "angle_deg": math.degrees(plan["angle"]),
                    "radius_mm": plan["radius"],
                    "added_area_mm2": plan["added_area"],

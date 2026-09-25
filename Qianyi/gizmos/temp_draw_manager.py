@@ -26,9 +26,9 @@ from .silhouette_guide import SilhouetteGuide
 
 
 INVALID_PATTERN_COLOR = (1.0, 0.25, 0.2, 1.0)
-# A selected panel is outlined a second time, thicker and in this colour: in
+# A selected pattern is outlined a second time, thicker and in this colour: in
 # every display mode other than "mesh" the ordinary outline is the same white
-# for all panels, which makes a selection impossible to read.
+# for all patterns, which makes a selection impossible to read.
 SELECTED_PATTERN_COLOR = (1.0, 0.62, 0.12, 1.0)
 SELECTED_PATTERN_LINE_WIDTH = 3.0
 # A selected edge or vertex, and the alpha the same element is drawn with while
@@ -70,7 +70,7 @@ def dimmed_selection_color(color):
 
 
 def fabric_fill_color(pattern, alpha=0.5):
-    """The fill colour of a panel: its fabric's display colour, or a neutral grey.
+    """The fill colour of a pattern: its fabric's display colour, or a neutral grey.
 
     Display only - the fabric's colour is not part of the simulation payload.
     """
@@ -92,7 +92,7 @@ class TempDrawManager:
         self.region_width = 0
         self.region_height = 0
         self.mouse_location = None
-        # Points a tool wants drawn: (panel uuid, point in that panel's space).
+        # Points a tool wants drawn: (pattern uuid, point in that pattern's space).
         self.tool_points = []
         # The tool that drew them: a preview belongs to the tool that made it, and
         # switching tools has to take it off the screen, which nothing else does.
@@ -105,19 +105,19 @@ class TempDrawManager:
         # Set while a tool's modal gesture owns the preview: the tool's own
         # cursor preview then leaves it alone.
         self.preview_locked = False
-        # What the id pass drew, id by id: the pair of a panel and one of its
+        # What the id pass drew, id by id: the pair of a pattern and one of its
         # elements. An edge is shared by every member of its chain, so the pass
         # draws it once per member and each draw carries that member's own id -
         # the pair is what a pick reads back, and an element on its own never
         # says which member was under the pointer.
         self.pick_of_id = {}
-        # (panel, kind, element) under the pointer, as of the last id pass the
+        # (pattern, kind, element) under the pointer, as of the last id pass the
         # pointer read; "kind" is "edge", "vertex", "spline_point", "handle1" or
         # "handle2". A tool that reacts to a click reads it here, and the
-        # selection turns it into the active panel.
+        # selection turns it into the active pattern.
         self.hover_pick = None
         # Projection of the project's silhouette objects, drawn behind the
-        # panels. Built lazily: a GPU shader cannot be created before the draw
+        # patterns. Built lazily: a GPU shader cannot be created before the draw
         # callback has a context.
         self.silhouette_guide = None
 
@@ -174,7 +174,7 @@ class TempDrawManager:
                             for pattern, point, kind in entries if pattern is not None]
 
     def set_tool_point(self, pattern, point, kind="hover") -> None:
-        """Show one point of a panel as what the tool would act on."""
+        """Show one point of a pattern as what the tool would act on."""
         if pattern is None or point is None:
             self.tool_points = []
             return
@@ -298,11 +298,11 @@ class TempDrawManager:
         return ctypes.c_int32(u).value
 
     def picked_pattern(self):
-        """The panel under the pointer, or None.
+        """The pattern under the pointer, or None.
 
         A tool that has to know which member of a chain the pointer is over asks
-        here, and the answer is what the id pass drew - a panel and one of its
-        elements are one pair there. Nothing asks an element which panel it
+        here, and the answer is what the id pass drew - a pattern and one of its
+        elements are one pair there. Nothing asks an element which pattern it
         belongs to: an edge is shared by the whole chain, so that question has
         no single answer.
         """
@@ -310,7 +310,7 @@ class TempDrawManager:
         return pick[0] if pick is not None else None
 
     def draw_edge_for_pick(self, pattern, edge, renderer, width=10.0):
-        """Draw one edge for one panel, with the id that panel gave the pair.
+        """Draw one edge for one pattern, with the id that pattern gave the pair.
 
         An edge is drawn once per member of its chain, each with that member's
         transform and its own id, so the pointer reads back the member it is
@@ -323,7 +323,7 @@ class TempDrawManager:
     def resolve(self, index):
         """What the last id pass drew at one id: (pattern, kind, element).
 
-        None when the id is not one this pass drew - the field behind a panel,
+        None when the id is not one this pass drew - the field behind a pattern,
         or a value left over from an older pass.
         """
         entry = self.pick_of_id.get(index)
@@ -439,26 +439,24 @@ class TempDrawManager:
         point1 = project.selected_sewing_point1
         if point1 is None:
             return
-        # The first side named its panel when it was clicked; the second side is
+        # The first side named its pattern when it was clicked; the second side is
         # the one under the pointer, which the id pass is the only thing that can
         # say - the edge is shared by the whole chain.
-        panel1 = project.selected_sewing_pattern1 or owner_pattern(edge1)
-        panel2 = self.picked_pattern() or owner_pattern(hover)
-        if panel1 is None or panel2 is None:
+        pattern1 = project.selected_sewing_pattern1 or owner_pattern(edge1)
+        pattern2 = self.picked_pattern() or owner_pattern(hover)
+        if pattern1 is None or pattern2 is None:
             return
         if (hover.global_uuid == edge1.global_uuid
-                and panel1.global_uuid == panel2.global_uuid):
+                and pattern1.global_uuid == pattern2.global_uuid):
             # The pointer is back on the edge the first click chose, on the same
             # member: that is not a second side, so there is nothing to join.
             # The same edge of *another* member is a seam - two instances sewn
             # to each other along the one edge they share - and it is drawn.
             return
-        point2 = panel2.view_to_pattern_pos(region2view_coord(context, self.mouse_location))
+        point2 = pattern2.view_to_pattern_pos(region2view_coord(context, self.mouse_location))
         first_half, second_half = sewing_half_directions(edge1, point1, hover, point2)
         start1, end1 = first_half[0], first_half[1]
         start2, end2 = second_half[0], second_half[1]
-        pattern1 = panel1
-        pattern2 = panel2
         positions = [
             pattern1.pattern_to_view_pos(edge_point_at(edge1, start1)),
             pattern2.pattern_to_view_pos(edge_point_at(hover, start2)),
@@ -492,17 +490,17 @@ class TempDrawManager:
             try:
                 obj = qmyi.hover_object
                 # offset = [0., 0.]
-                # The panel the pointer is over: the id pass recorded which
+                # The pattern the pointer is over: the id pass recorded which
                 # member drew it, which the element itself cannot say - an edge
                 # is shared by its whole chain.
                 p = self.picked_pattern()
                 if p is None:
                     if hasattr(obj, 'anchor'):
-                        # A panel is drawn in its own space.
+                        # A pattern is drawn in its own space.
                         # offset = obj.anchor
                         p = obj
                     else:
-                        # A geometry element is drawn in the space of the panel
+                        # A geometry element is drawn in the space of the pattern
                         # that owns the Sketch it lives in.
                         p = owner_pattern(obj)
                 if p is None:
@@ -592,7 +590,7 @@ class TempDrawManager:
 
         patterns = project.patterns
         # The silhouette is the background of the pattern window, so it is drawn
-        # before anything the panels draw.
+        # before anything the patterns draw.
         if global_data.renderers_enabled:
             if self.silhouette_guide is None:
                 self.silhouette_guide = SilhouetteGuide()
@@ -609,9 +607,9 @@ class TempDrawManager:
         # start_time = time.time()
 
         display_mode = qmyi.pattern_display_mode
-        # Whether the panel selection is the active one: it is drawn dimmed in
+        # Whether the pattern selection is the active one: it is drawn dimmed in
         # every other mode. Read once, so the loop cannot depend on a branch
-        # that a panel without a mesh does not take.
+        # that a pattern without a mesh does not take.
         in_pattern_mode = qmyi.edit_mode == "PATTERN"
 
         shader.bind()
@@ -635,13 +633,13 @@ class TempDrawManager:
                     p.mesh_renderer.start_rendering(p.mesh_object)
                 is_selected = in_pattern_mode and p.is_selected
                 # The display mode only chooses what is drawn: no branch here
-                # resamples a panel, rebuilds a mesh or touches a sewing.
+                # resamples a pattern, rebuilds a mesh or touches a sewing.
                 if display_mode == 'MESH':
                     p.mesh_renderer.draw_mesh_lines(
                         is_selected, dim=p.is_selected and not in_pattern_mode)
                 elif display_mode in ('SOLID', 'STRESS', 'DEBUG'):
                     # Stress and debug need an applied frame; without one the
-                    # panel keeps the solid fill and the header says why.
+                    # pattern keeps the solid fill and the header says why.
                     if display_mode == 'SOLID' or not p.mesh_renderer.draw_fill_mesh_vertex_colors(display_mode):
                         p.mesh_renderer.draw_fill_mesh(fabric_fill_color(p))
 
@@ -661,7 +659,7 @@ class TempDrawManager:
                 # the line belongs to the Sketch, so a copy shows it too.
                 il.renderer.draw_edges(color=line_color, pattern=p)
             if p.is_selected:
-                # A panel selected in the pattern mode keeps its selection
+                # A pattern selected in the pattern mode keeps its selection
                 # outline in the other modes - dimmed, so the mode the user is
                 # in is still the one that reads as active.
                 selection_color = (SELECTED_PATTERN_COLOR if in_pattern_mode
@@ -670,7 +668,7 @@ class TempDrawManager:
                     color=selection_color,
                     thickness=(SELECTED_PATTERN_LINE_WIDTH if in_pattern_mode
                                else SELECTED_PATTERN_LINE_WIDTH - 1.0))
-                # The next panel draws its own lines; leave the width as the
+                # The next pattern draws its own lines; leave the width as the
                 # loop set it.
                 gpu.state.line_width_set(1.0)
             if qmyi.show_grain_dir:
@@ -699,14 +697,14 @@ class TempDrawManager:
         dimmed_points_renderer = PointsRenderer()
         edge_selection_color = (SELECTED_EDGE_COLOR if in_edge_mode
                                 else dimmed_selection_color(SELECTED_EDGE_COLOR))
-        # The panels that read each Sketch, in one pass over the project: an
+        # The patterns that read each Sketch, in one pass over the project: an
         # element of a Sketch is on screen once per member of its chain, so the
         # highlight is drawn for each of them with that member's transform.
         members_of = {}
-        for panel in project.patterns:  # loop: one list per Sketch
-            if panel.sketch_uuid == -1:
+        for pattern in project.patterns:  # loop: one list per Sketch
+            if pattern.sketch_uuid == -1:
                 continue
-            members_of.setdefault(int(panel.sketch_uuid), []).append(panel)
+            members_of.setdefault(int(pattern.sketch_uuid), []).append(pattern)
         for obj in project.get_selected_objects_by_mode("EDGE", strict=False):
             owner = owner_pattern(obj)
             members = members_of.get(int(owner.sketch_uuid), []) if owner is not None else []
@@ -747,7 +745,7 @@ class TempDrawManager:
                 if project.selected_sewing_edge1 is not None:
                     # The highlight goes on the member the first click was made
                     # on: the edge is shared by its chain, and the chain's owner
-                    # is not necessarily the panel the pointer was over.
+                    # is not necessarily the pattern the pointer was over.
                     project.selected_sewing_edge1.renderer.draw(
                         color=(0.2, 0.8, 0.8, 1), thickness=10.0,
                         pattern=project.selected_sewing_pattern1)
@@ -793,7 +791,7 @@ class TempDrawManager:
         if self.tool_lines:
             # The tool's own preview: the radius it is measuring, the arc it
             # would add. Drawn in its own colour so it is not mistaken for the
-            # selection or for a panel edge.
+            # selection or for a pattern edge.
             coords = []
             for line in self.tool_lines:  # loop: one previewed segment per entry
                 coords.append(line.p1)
@@ -805,7 +803,7 @@ class TempDrawManager:
             tool_batch.draw(shader)
 
         if self.tool_points:
-            # What the active tool would act on: drawn over the panel so the
+            # What the active tool would act on: drawn over the pattern so the
             # point a click lands on is visible before the click happens.
             for kind, color, size in (("hover", TOOL_POINT_COLOR, 12.0),
                                       ("pivot", TOOL_PIVOT_COLOR, 16.0),

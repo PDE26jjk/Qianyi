@@ -23,5 +23,5 @@ class NODE_T_qmyi_pattern_pen(WorkSpaceTool):
 
     def draw_cursor(context, tool, xy):
         # Picking the tool puts the editor into the mode this tool works in, so
-        # the first click draws a panel instead of doing nothing.
+        # the first click draws a pattern instead of doing nothing.
         ensure_edit_mode(context, "PATTERN")

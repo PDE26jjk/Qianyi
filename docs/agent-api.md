@@ -66,13 +66,13 @@ A project is addressed by the add-on's own name, which is also the name the
 editor's Project panel draws. Creating one by hand is three steps a caller cannot
 see - the node tree, the identities of the project and of its default fabric, and
 the name - and the middle one only shows up as an assertion inside the first
-panel call. `projects.create()` does all of it, so this works from a blank file:
+pattern call. `projects.create()` does all of it, so this works from a blank file:
 
 ```python
 import qyapi
 
 qyapi.projects.create("my project")               # identities, name and active index
-panel = qyapi.patterns.create([[0, 0], [100, 0], [100, 80], [0, 80]],
+pattern = qyapi.patterns.create([[0, 0], [100, 0], [100, 80], [0, 80]],
                               name="front", granularity_mm=10)
 qyapi.projects.rename("my project", "skirt")
 qyapi.projects.list()                             # [{name, datablock, active, patterns, ...}]
@@ -81,33 +81,33 @@ qyapi.projects.list()                             # [{name, datablock, active, p
 `datablock` is the node tree's own key, reported for a caller that has to find
 the tree in `bpy.data`; it is not an address.
 
-## Panels
+## patterns
 
-Panel space is millimetres throughout - a vertex, an anchor, a handle.
+pattern space is millimetres throughout - a vertex, an anchor, a handle.
 
 | Call | Arguments | Returns |
 | --- | --- | --- |
-| `qyapi.patterns.list(project=None)` | - | every panel: counts, fabric, mesh, validity, chain |
-| `qyapi.patterns.get(name)` | panel name | summary + edge table + the sewings on that panel |
-| `qyapi.patterns.points(name)` | panel name | the outline vertices, in millimetres |
-| `qyapi.patterns.create(points, name=None, granularity_mm=None, fabric=None)` | `[[x, y], ...]` (mm) | the new panel, with the name it got |
-| `qyapi.patterns.set_point(name, index, xy)` | vertex index, `[x, y]` | the edited panel |
+| `qyapi.patterns.list(project=None)` | - | every pattern: counts, fabric, mesh, validity, chain |
+| `qyapi.patterns.get(name)` | pattern name | summary + edge table + the sewings on that pattern |
+| `qyapi.patterns.points(name)` | pattern name | the outline vertices, in millimetres |
+| `qyapi.patterns.create(points, name=None, granularity_mm=None, fabric=None)` | `[[x, y], ...]` (mm) | the new pattern, with the name it got |
+| `qyapi.patterns.set_point(name, index, xy)` | vertex index, `[x, y]` | the edited pattern |
 | `qyapi.patterns.add_point(name, edge, xy)` | edge index or label, `[x, y]` | splits one straight edge |
 | `qyapi.patterns.remove_point(name, index)` | vertex index | merges the two edges that met there |
-| `qyapi.patterns.set_handle(name, edge, which, xy=None, type=None)` | 1 or 2, `[x, y]`, `VECTOR`/`FREE`/`ALIGNED` | the edited panel |
+| `qyapi.patterns.set_handle(name, edge, which, xy=None, type=None)` | 1 or 2, `[x, y]`, `VECTOR`/`FREE`/`ALIGNED` | the edited pattern |
 | `qyapi.patterns.add_spline_point(name, edge, xy)` | edge, `[x, y]` | makes the edge interpolate through it |
 | `qyapi.patterns.remove_spline_point(name, edge, index)` | edge, index | |
 | `qyapi.patterns.add_internal_line(name, points, is_hole=False, closed=False)` | `[[x, y], ...]` (mm) | adds a cut |
 | `qyapi.patterns.remove_internal_line(name, index)` | index | |
-| `qyapi.patterns.transform(name, anchor=None, rotation=None, grain_dir=None, collision_layer=None, mirror=None)` | anchor in mm, angles in radians | places the panel |
+| `qyapi.patterns.transform(name, anchor=None, rotation=None, grain_dir=None, collision_layer=None, mirror=None)` | anchor in mm, angles in radians | places the pattern |
 | `qyapi.patterns.copy(name, mirror=False, anchor=None)` | anchor in mm | the copy, linked into the same instance chain |
 | `qyapi.patterns.remove(names)` | one name or a list | what went, and the sewings dropped with it |
-| `qyapi.patterns.validate(names=None)` | - | the panels whose outline crosses itself |
+| `qyapi.patterns.validate(names=None)` | - | the patterns whose outline crosses itself |
 | `qyapi.patterns.fabrics()` | - | the project's fabric names |
-| `qyapi.patterns.assign_fabric(name, fabric)` | fabric name | the panel |
+| `qyapi.patterns.assign_fabric(name, fabric)` | fabric name | the pattern |
 
 An outline is always a closed, counter-clockwise loop: `create` closes it, and
-there is no open-panel form. A name that is taken gets a suffix
+there is no open-pattern form. A name that is taken gets a suffix
 (`collar` -> `collar.001`) and the answer reports both the requested and the
 final name.
 
@@ -138,8 +138,8 @@ qyapi.patterns.set_point("front", 2, [-20, 40], allow_crossing=True)   # applied
 With the flag on, that one call may leave an outline that crosses itself. The
 answer says what happened: `outline_validity: "invalid"`, the `crossing` point,
 and `mesh_stale: true` - because the mesh stage never samples a crossing outline,
-so the panel keeps the mesh it had (a panel created crossing has none at all).
-A simulation will not start while a participating panel crosses. There is no
+so the pattern keeps the mesh it had (a pattern created crossing has none at all).
+A simulation will not start while a participating pattern crosses. There is no
 setting behind the flag: the next call refuses again, and the scene's own Check
 Self-Intersection switch is not read or written by the surface.
 
@@ -149,7 +149,7 @@ where the outline crosses or is degenerate, and names what it left unusable:
 
 ```python
 qyapi.generators.set_params("skirt", {"flare": 2.4})
-# report: {..., "invalid_panels": 1, "invalid_panel_names": ["skirt_panel"],
+# report: {..., "invalid_patterns": 1, "invalid_pattern_names": ["skirt_panel"],
 #          "stale_meshes": ["skirt_panel"]}
 ```
 
@@ -158,8 +158,8 @@ qyapi.generators.set_params("skirt", {"flare": 2.4})
 | Call | Arguments | Returns |
 | --- | --- | --- |
 | `qyapi.sewings.list()` | - | every seam, both sides, colour, stitch count |
-| `qyapi.sewings.of(pattern)` | panel name | the seams that touch that panel |
-| `qyapi.sewings.sew(edge_a, edge_b, flip=False, color=None)` | each edge as `(panel, index)` or `(panel, label)` | the new seam |
+| `qyapi.sewings.of(pattern)` | pattern name | the seams that touch that pattern |
+| `qyapi.sewings.sew(edge_a, edge_b, flip=False, color=None)` | each edge as `(pattern, index)` or `(pattern, label)` | the new seam |
 | `qyapi.sewings.sew_at(pattern_a, edge_a, position_a, pattern_b, edge_b, position_b, color=None)` | a position 0..1 on each edge | the new seam |
 | `qyapi.sewings.set_color(index, color)` | index, `[r, g, b]` | the seam |
 | `qyapi.sewings.remove(index)` | index | what was removed |
@@ -174,22 +174,22 @@ A colour is used as given, otherwise a random saturated one.
 
 | Call | Arguments | Returns |
 | --- | --- | --- |
-| `qyapi.generators.list(project=None)` | - | every generator with parameters and panels |
-| `qyapi.generators.get(name)` | generator name | the parameter table, the slots and the panels |
-| `qyapi.generators.create(component_id, params=None, name=None)` | parameter map | the generator and the panels it built |
+| `qyapi.generators.list(project=None)` | - | every generator with parameters and patterns |
+| `qyapi.generators.get(name)` | generator name | the parameter table, the slots and the patterns |
+| `qyapi.generators.create(component_id, params=None, name=None)` | parameter map | the generator and the patterns it built |
 | `qyapi.generators.set_params(name, params)` | parameter map | the rebuild report |
 | `qyapi.generators.rebuild(name)` | - | the rebuild report |
-| `qyapi.generators.detach(name)` | - | the panels, now ordinary |
-| `qyapi.generators.remove(name)` | - | the generator and its panels |
+| `qyapi.generators.detach(name)` | - | the patterns, now ordinary |
+| `qyapi.generators.remove(name)` | - | the generator and its patterns |
 
 `set_params` writes every parameter and rebuilds **once**, then reports what the
 rebuild did: `in_place`, `rebuilt`, `created`, `removed`, `remapped`,
-`dropped_sewings`, `invalid_panels`. A parameter the component does not declare
+`dropped_sewings`, `invalid_patterns`. A parameter the component does not declare
 is refused; a value outside its range is pulled back to the nearest bound.
 
 The report also carries `simulation_before` and `simulation_carried`: the mesh
-stage interpolates a panel's previous simulated positions onto the new mesh, so
-after changing parameters of panels that have been simulated, the positions come
+stage interpolates a pattern's previous simulated positions onto the new mesh, so
+after changing parameters of patterns that have been simulated, the positions come
 with it and the result is usually off its rest pose. That is the case to settle
 with a few simulation frames (`qyapi.sim.prepare()` then `qyapi.sim.step(n)`).
 
@@ -226,7 +226,7 @@ a mesh whose granularity changed) and hand it to the engine. It is repeatable.
 `solver` and `parameters` are the caller's values when given; otherwise the
 scene's solver panel supplies them and the summary says so through
 `solver_source` / `parameters_source`. Parameters passed by the caller win: a
-panel value cannot silently override them, including when `start()` is called
+pattern value cannot silently override them, including when `start()` is called
 afterwards.
 
 `step()` advances the engine on the calling thread and applies the result to the
@@ -245,7 +245,7 @@ Metrics for a step call:
 
 `substeps` is what this call advanced, `frames` is the total since the session
 was prepared (one engine update is one simulated frame of `step_h` seconds, the
-number the panels call a frame). `engine_statistics` carries what the engine
+number the patterns call a frame). `engine_statistics` carries what the engine
 reports, unchanged; a statistic the engine does not offer is absent rather than
 reported as zero.
 
@@ -264,12 +264,12 @@ this is the part that covers what the calls do not.
 PROJECT   one Blender node tree of type QianyiNodeTree (bpy.data.node_groups)
           .name, .patterns, .sewings, .fabrics, .generators
 
-SKETCH    the drawn geometry of one instance chain, in the panel's own space
+SKETCH    the drawn geometry of one instance chain, in the pattern's own space
           .vertices, .edges, .internal_lines
           One Sketch serves every member of a chain; patterns.detach() gives one
-          panel a Sketch of its own.
+          pattern a Sketch of its own.
 
-PATTERN   one panel: its own identity and settings, and the derived data taken
+PATTERN   one pattern: its own identity and settings, and the derived data taken
           from the Sketch it reads
           .name, .sketch, .fabric, .granularity (mm), .collision_layer,
           .mesh_object, .anchor, .rotation, .grain_dir,
@@ -285,7 +285,7 @@ SEWING    one seam between two pattern edges
 
 FABRIC    .weight (g/m^2), .thickness (mm), .friction, .stretch, .bending
 
-OBJECT    one Blender mesh object; a panel's mesh lives here
+OBJECT    one Blender mesh object; a pattern's mesh lives here
           .qmyi_simulation_props: participate_in_simulation, collision_layer,
           is_pattern_mesh, pattern, get_simulation_vertices()
           shape keys: QYBasis (rest pose), QYSim (simulated positions, local space)
@@ -311,9 +311,9 @@ add-on cannot stop a script from doing it - but it bypasses two things:
   editing vertices, edges or handles directly leaves them stale until the next
   `mark_geometry_changed()` / `generate_mesh()`, which `prepare()` runs for you.
 
-### The two layers of a panel's data
+### The two layers of a pattern's data
 
-A panel's data is in two layers, and a script that reads or writes geometry
+A pattern's data is in two layers, and a script that reads or writes geometry
 should know which one it is touching:
 
 * the **Sketch** holds what a pattern maker drew - vertices, edges with their
@@ -321,40 +321,40 @@ should know which one it is touching:
   from them: one section per edge, cut where the curves cross. An instance chain
   shares **one** Sketch, so a copy and its source read the same geometry and
   cannot drift apart. `patterns.list()` / `patterns.get()` report the Sketch a
-  panel reads, and `patterns.detach(name)` gives one panel a Sketch of its own;
-* the **Pattern** holds the panel's own identity and settings - name, placement,
+  pattern reads, and `patterns.detach(name)` gives one pattern a Sketch of its own;
+* the **Pattern** holds the pattern's own identity and settings - name, placement,
   granularity, fabric, collision layer, simulation state, its mesh - and the
-  derived data taken from the Sketch for *that* panel: its own copy of the
+  derived data taken from the Sketch for *that* pattern: its own copy of the
   section stage, its samples, its mesh, and the walk its seams make.
 
 A chain is what shares a Sketch, and nothing else: there is no list of members
 to keep in step, `patterns.copy()` joins a chain by pointing the copy at the
-source's Sketch, and `patterns.detach()` leaves it by giving that panel a Sketch
+source's Sketch, and `patterns.detach()` leaves it by giving that pattern a Sketch
 of its own. A geometry edit therefore reaches the whole chain by itself.
 
 Three rules follow from that:
 
-* a write goes through the Sketch, and the **Sketch marks the panels that read
+* a write goes through the Sketch, and the **Sketch marks the patterns that read
   it**: one write reaches every member of the chain, and each member's outline
   state, its copy of the stage, its samples and its render line are marked with
   it (`Pattern.mark_geometry_changed`). Placement, granularity, fabric and
-  collision layer are a panel's own fields and mark nothing;
-* a marked panel rebuilds when the next reader needs it - the mesh path, the
+  collision layer are a pattern's own fields and mark nothing;
+* a marked pattern rebuilds when the next reader needs it - the mesh path, the
   simulation prepare - and a topology edit meshes before it returns, for every
-  panel that reads the Sketch it wrote (`Sketch.rebuild_meshes`): the meshes
+  pattern that reads the Sketch it wrote (`Sketch.rebuild_meshes`): the meshes
   are not shared, so a member left marked would draw the shape that used to be
-  there. A seam edit only marks: the panels it reaches resample and remesh when
+  there. A seam edit only marks: the patterns it reaches resample and remesh when
   they are next needed. An outline that crosses itself is refused instead: the
-  panel keeps the mesh it had and records why in `mesh_error`;
+  pattern keeps the mesh it had and records why in `mesh_error`;
 * a reload or an undo leaves no session data behind, so the first reader of a
-  reopened panel builds its copy of the stage and its samples again. Nothing
+  reopened pattern builds its copy of the stage and its samples again. Nothing
   has to be trusted across a file.
 
-An older file is **not converted** when it is opened: a panel that names no
-Sketch reports no geometry, a seam side that names no panel has no side, and the
+An older file is **not converted** when it is opened: a pattern that names no
+Sketch reports no geometry, a seam side that names no pattern has no side, and the
 file has to be converted by hand.
 
-What the editor draws follows the model: a topology edit marks the panels that
+What the editor draws follows the model: a topology edit marks the patterns that
 read the Sketch, and the next draw rebuilds their lines, points and control
 points. A tool that writes into a Sketch's collections itself sends the same
 write signal, so a script that goes through the surface never has to ask for a
@@ -369,7 +369,7 @@ uuid read before a delete cannot be used after it - resolve again.
   granularity, and the tolerance the mesh stage uses are all in millimetres.
 * Mesh objects, object space and world space are **metres**: the pattern's mesh
   is built with its points divided by 1000, so 1000 pattern units are 1 m. A
-  550 mm panel becomes a 0.55 m mesh.
+  550 mm pattern becomes a 0.55 m mesh.
 * `pattern.granularity` is a ceiling on vertex spacing, not the resulting edge
   length: 5 mm gives a mesh of roughly 3.6 mm edges.
 * Fabric thickness is millimetres; fabric weight is g/m².
@@ -382,7 +382,7 @@ One write call leaves one undo step, labelled `Qianyi: <message>`. A read call
 never touches the undo stack.
 
 ```python
-with qyapi.transaction("build the front panel"):
+with qyapi.transaction("build the front pattern"):
     ...                      # every write inside is one undo step
 ```
 
@@ -403,7 +403,7 @@ step.
 * No entry point opens a menu, a popup or a file browser.
 * No entry point writes component code or turns a parameter into a UI control;
   that is the next change. `components.build()` is what to use meanwhile.
-* No m-to-n sewing: a seam joins one edge of one panel to one edge of another.
+* No m-to-n sewing: a seam joins one edge of one pattern to one edge of another.
 * No measurement source: every parameter is a number the caller supplies.
 * No gesture tool: the pattern pen, the internal-line pen, the sewing tool, box
   select and the 3D pick are drawn interactions rather than calls with
@@ -425,7 +425,7 @@ import qyapi
 qyapi.projects.create("collar demo")                  # a blank file is enough
 
 torso = qyapi.generators.create("gc_tee_torso", {"bust": 92.0, "shirt_length": 1.3})
-front = torso["slots"][0]["panel"]
+front = torso["slots"][0]["pattern"]
 
 collar = qyapi.patterns.create([[0, 0], [250, 0], [260, 45], [-50, 45]],
                                name="collar", granularity_mm=10)

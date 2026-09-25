@@ -83,8 +83,16 @@ class NODE_OT_add_spline_point(Operator2DBase):
         h1 = edge.vertex0.co if edge.handle1_type == "VECTOR" else edge.handle1.co
         h2 = edge.vertex1.co if edge.handle2_type == "VECTOR" else edge.handle2.co
         handle_a, handle_b = get_handles_after_split(old_t, q, h1, h2, t)
+        vector_handles = bool(getattr(context.scene.qmyi, "spline_no_handles", False))
+        if vector_handles:
+            # The Debug switch for users who are used to editing a spline by its
+            # points alone: the edge keeps its shape through the new control
+            # point, but its two handles are handed back as vector ones.
+            handle_a = handle_b = (0.0, 0.0)
         mc.handle1 = TempPoint(handle_a)
         mc.handle2 = TempPoint(handle_b)
+        if vector_handles:
+            mc.handle1_type = mc.handle2_type = "VECTOR"
 
         mc.update()
         checking_edge_points = []
@@ -101,7 +109,7 @@ class NODE_OT_add_spline_point(Operator2DBase):
         draw_manager.clear()
         insert_at_final = max(0, min(len(edge.spline_points), insert_at - 1))
         # One Sketch per instance chain: the control point is written once. This
-        # panel meshes from it now; the other readers were marked by the write.
+        # pattern meshes from it now; the other readers were marked by the write.
         e = pattern.edges[edge_index]
         sp = e.spline_points.add()
         sp.get_temp_data()
@@ -110,10 +118,12 @@ class NODE_OT_add_spline_point(Operator2DBase):
             e.spline_points.move(len(e.spline_points) - 1, insert_at_final)
         e.handle1.co = handle_a
         e.handle2.co = handle_b
+        if vector_handles:
+            e.handle1_type = e.handle2_type = "VECTOR"
 
         pattern.refresh_collection_uuid(e.spline_points)
         # The control point and the handles were written straight into the
-        # Sketch's own objects, so the write signal is sent here: the panels that
+        # Sketch's own objects, so the write signal is sent here: the patterns that
         # read the Sketch are marked and their display is rebuilt.
         sketch = pattern.sketch
         if sketch is not None:

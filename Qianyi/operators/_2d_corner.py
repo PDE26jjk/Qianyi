@@ -33,7 +33,7 @@ mode_property = EnumProperty(
         ("CHAMFER", "Chamfer",
          "Replace the corner with a straight edge between the same two points"),
         ("CONCAVE", "Hollow",
-         "Mirror the arc across the chord, cutting a hollow into the panel"),
+         "Mirror the arc across the chord, cutting a hollow into the pattern"),
     ],
     default="ROUND",
 )
@@ -53,7 +53,7 @@ class NODE_OT_corner(Operator2DBase):
     from_tool: BoolProperty(name="From the toolbar", default=False,
                             description="Use the corner tool's own setting",
                             options={"SKIP_SAVE"})
-    pattern_name: StringProperty(name="Panel", description="The panel this run treats")
+    pattern_name: StringProperty(name="Pattern", description="The pattern this run treats")
     target_vertices: StringProperty(name="Corners", description="The vertices, as indices")
     radius: FloatProperty(name="Radius (mm)", default=10.0, min=0.001,
                           description="Radius in millimetres")
@@ -95,7 +95,7 @@ class NODE_OT_corner(Operator2DBase):
         return {'RUNNING_MODAL'}
 
     def prepare(self, context: Context) -> bool:
-        """Read what this run works on and with: the panel, the corners, the radii.
+        """Read what this run works on and with: the pattern, the corners, the radii.
 
         Both entry points need the same three things, and the radius range is two
         windows: below `largest` the corner is treated, from `merge_from` on it
@@ -125,7 +125,7 @@ class NODE_OT_corner(Operator2DBase):
         wanted = [int(part) for part in self.target_vertices.split(",")
                   if part.strip()] if self.target_vertices else []
         if wanted:
-            for pattern in project.patterns:  # loop: one panel per name check
+            for pattern in project.patterns:  # loop: one pattern per name check
                 if pattern.name != self.pattern_name:
                     continue
                 if all(0 <= index < len(pattern.vertices) for index in wanted):
@@ -137,20 +137,20 @@ class NODE_OT_corner(Operator2DBase):
         """Take the corner under the pointer; a click inside a selection keeps it."""
         hover = context.scene.qmyi.hover_object
         # The member under the pointer is where the run works: a copy does not
-        # share the transform of the panel that owns the chain.
-        panel = global_data.temp_draw_manager.picked_pattern() or owner_pattern(hover)
-        if not isinstance(hover, Vertex2D) or panel is None:
+        # share the transform of the pattern that owns the chain.
+        pattern = global_data.temp_draw_manager.picked_pattern() or owner_pattern(hover)
+        if not isinstance(hover, Vertex2D) or pattern is None:
             self.report({'INFO'}, "click a corner of the outline")
             return False
         if not geometry.is_outline_vertex(hover):
             self.report({'INFO'}, "that point is in the middle of an edge, not a corner")
             return False
-        self.pattern_name = panel.name
+        self.pattern_name = pattern.name
         if hover.is_selected and len(project.selected_vertices) > 1:
             indices = [vertex.get_index()  # the click landed inside a selection
                        for vertex in project.get_selected_objects_by_mode("EDGE", strict=False)
                        if isinstance(vertex, Vertex2D) and geometry.is_outline_vertex(vertex)
-                       and owner_pattern(vertex) == panel]
+                       and owner_pattern(vertex) == pattern]
             self.target_vertices = ",".join(str(index) for index in sorted(indices))
             return True
         select_vertices(project, [hover])
@@ -192,7 +192,7 @@ class NODE_OT_corner(Operator2DBase):
         self.refresh_preview(context)
 
     def pointer_distance(self, context: Context, event: Event) -> float:
-        """How far the pointer is from the corner, in the panel's own space."""
+        """How far the pointer is from the corner, in the pattern's own space."""
         position = region2view_coord(context, (event.mouse_region_x, event.mouse_region_y))
         point = np.asarray(self.pattern.view_to_pattern_pos(position), dtype=np.float64)
         return float(np.hypot(*(point - self.corner)))
@@ -293,7 +293,7 @@ class NODE_OT_corner(Operator2DBase):
             if float(self.radius) < self.smallest:
                 # Finished with nothing done: on a re-run Blender rolls the
                 # operator's own step back first, and a step that cancels keeps
-                # the previous result instead of leaving the panel alone.
+                # the previous result instead of leaving the pattern alone.
                 self.report({'INFO'}, "the radius is below what this corner can take: "
                                       "nothing was changed")
                 return {'FINISHED'}
@@ -330,14 +330,14 @@ def describe(report) -> str:
     seams = (f", {report['sewings_moved']} seam end(s) moved" if report["sewings_moved"] else "")
     fit = f", {len(report['warnings'])} piece(s) not fitted" if report["warnings"] else ""
     return (f"{done[report['mode']]} {len(report['corners'])} corner(s) of "
-            f"{report['panel']} at {report['radius']:.3f} mm{copies}{seams}{fit}")
+            f"{report['pattern']} at {report['radius']:.3f} mm{copies}{seams}{fit}")
 
 
 # --- the corner's own measurement, from the curves to the radii it takes
 
 
 def selected_corner_run(project):
-    """The outline corners the selection names, as (panel, indices)."""
+    """The outline corners the selection names, as (pattern, indices)."""
     uuids = [entry.uuid for entry in project.selected_vertices]
     if not uuids:
         raise geometry.GeometryRefused("no vertex is selected",
@@ -354,11 +354,11 @@ def selected_corner_run(project):
     if not vertices:
         raise geometry.GeometryRefused("no corner of an outline is selected",
                                        "a point in the middle of an edge is not a corner")
-    panel = owner_pattern(vertices[0])
-    if any(owner_pattern(vertex) != panel for vertex in vertices):
-        raise geometry.GeometryRefused("the selected vertices are on more than one panel",
-                                       "treat the corners of one panel at a time")
-    return panel, sorted({vertex.get_index() for vertex in vertices})
+    pattern = owner_pattern(vertices[0])
+    if any(owner_pattern(vertex) != pattern for vertex in vertices):
+        raise geometry.GeometryRefused("the selected vertices are on more than one pattern",
+                                       "treat the corners of one pattern at a time")
+    return pattern, sorted({vertex.get_index() for vertex in vertices})
 
 
 def _outline_vertex(uuid_value):
@@ -398,7 +398,7 @@ def _edge_points(pattern, index, edges=None) -> np.ndarray:
     if points.ndim != 2 or len(points) < 2:
         raise geometry.GeometryRefused(
             f"an edge at vertex {index} of {pattern.name!r} has no shape",
-            "rebuild the panel's geometry first")
+            "rebuild the pattern's geometry first")
     return points
 
 
@@ -520,7 +520,7 @@ def _corner_piece(trim) -> np.ndarray:
 def _joined(chunks) -> np.ndarray:
     """The chunks as one polyline, with repeated points dropped."""
     # A repeated point is a zero-length segment, which the crossing test does not
-    # define: the outline the panel samples never repeats a point.
+    # define: the outline the pattern samples never repeats a point.
     candidate = np.concatenate(chunks, dtype=np.float64)
     keep = np.ones(len(candidate), dtype=bool)
     keep[1:] = np.linalg.norm(np.diff(candidate, axis=0), axis=1) > 1e-9
@@ -890,7 +890,7 @@ def _finish_run(pattern, ends, pieces, warnings) -> dict:
 
 
 def _write_corners(pattern, plan) -> dict:
-    """Write the corners of one panel, and return what happened.
+    """Write the corners of one pattern, and return what happened.
 
     A corner trims its two sides to their tangent points and joins them with the
     arc. A side whose tangent point is its own far vertex is *consumed* - the
@@ -1027,7 +1027,7 @@ def corner_vertices(pattern, vertex_indices, *, radius, mode="ROUND",
     Without `merge` one corner is replaced by the edge the mode asks for between
     its two tangent points; with it each side merges as the tangent reaches its
     own far vertex, which works on one corner at a time. One Sketch serves the
-    whole chain, so the write is made once and this panel meshes from it.
+    whole chain, so the write is made once and this pattern meshes from it.
     """
     if merge:
         order = sorted({int(index) for index in vertex_indices})
@@ -1046,7 +1046,7 @@ def corner_vertices(pattern, vertex_indices, *, radius, mode="ROUND",
         report = _write_corners(pattern, plan)
         report.update({"smallest_radius": plan["smallest_radius"],
                        "largest_radius": plan["largest_radius"]})
-    report.update({"action": "corner_vertices", "mode": mode, "panel": pattern.name,
+    report.update({"action": "corner_vertices", "mode": mode, "pattern": pattern.name,
                    "radius": plan["radius"],
                    "copies": len(geometry._chain_members(pattern)) - 1})
     return report

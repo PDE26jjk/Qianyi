@@ -7,14 +7,14 @@ layer split promises:
 
 1. a Sketch holds vertices, edges and internal lines and is one object per
    instance chain;
-2. a write that changes the shape marks the panels that read the Sketch, and a
+2. a write that changes the shape marks the patterns that read the Sketch, and a
    write that sets a value it already has marks nothing;
 3. the first section stage links one section per edge along each chain, closed
    for the outline and for a loop, open for a line that ends;
 4. a crossing cuts the sections of both curves, and the pieces of an internal
    line that lie outside the outline are marked outside;
 5. the measurement behind the crossing search is the Sketch's own constant, so
-   no panel's granularity takes part in it;
+   no pattern's granularity takes part in it;
 6. the draw points are the edges' own curves.
 
 Each check prints PASS or FAIL; the process exits non-zero when anything failed.
@@ -165,7 +165,7 @@ def main():
           len(line_sections) == 1 and line_sections[0].next is None
           and line_sections[0].prev is None,
           f"pieces={len(line_sections)}")
-    check("a line inside the panel has no outside piece",
+    check("a line inside the pattern has no outside piece",
           all(not section.outsize for section in sketch.line_sections(inside)),
           f"outsize={[section.outsize for section in sketch.line_sections(inside)]}")
 
@@ -189,7 +189,7 @@ def main():
           len(outer.line_sections(upright)) > 1,
           f"pieces={len(outer.line_sections(upright))}")
 
-    # 5. the measurement does not follow a panel
+    # 5. the measurement does not follow a pattern
     samples = sketch.measured_points(sketch.edges[0])
     expected = int(np.ceil(40.0 / MEASURE_STEP_MM)) + 1
     check("the crossing search measures at the Sketch's own step",
@@ -221,73 +221,73 @@ def main():
           f"deviation={float(deviation.max())}")
 
     # 7. a pattern holds no geometry of its own: it reads the Sketch it names
-    panel = project.add_pattern()
-    panel.name = "layers_panel"
+    pattern = project.add_pattern()
+    pattern.name = "layers_pattern"
     for point in ((-20.0, -20.0), (20.0, -20.0), (20.0, 20.0), (-20.0, 20.0)):
-        panel.add_vertex(point)
+        pattern.add_vertex(point)
     for index in range(4):
-        panel.add_edge(index, (index + 1) % 4, update=True)
+        pattern.add_edge(index, (index + 1) % 4, update=True)
     refresh_all_uuids()
-    check("a panel's points are its Sketch's points",
-          panel.sketch is not None
-          and panel.vertices == panel.sketch.vertices
-          and len(panel.vertices) == 4,
-          f"sketch={panel.sketch is not None}")
-    panel.sketch_uuid = -1
-    check("a panel that names no Sketch reports no geometry",
-          panel.sketch is None and _raises(panel.require_sketch),
-          f"sketch={panel.sketch}")
-    panel.sketch = sketch
-    check("a panel reads the Sketch it is given",
-          len(panel.vertices) == len(sketch.vertices),
-          f"points={len(panel.vertices)}")
+    check("a pattern's points are its Sketch's points",
+          pattern.sketch is not None
+          and pattern.vertices == pattern.sketch.vertices
+          and len(pattern.vertices) == 4,
+          f"sketch={pattern.sketch is not None}")
+    pattern.sketch_uuid = -1
+    check("a pattern that names no Sketch reports no geometry",
+          pattern.sketch is None and _raises(pattern.require_sketch),
+          f"sketch={pattern.sketch}")
+    pattern.sketch = sketch
+    check("a pattern reads the Sketch it is given",
+          len(pattern.vertices) == len(sketch.vertices),
+          f"points={len(pattern.vertices)}")
 
     # 8. a copy shares the Sketch, and a detach gives it one of its own
     before_sketches = len(project.sketches)
-    copy = panel.copy_pattern(as_instance=True)
+    copy = pattern.copy_pattern(as_instance=True)
     refresh_all_uuids()
     check("a copy shares its source's Sketch",
-          copy.sketch is panel.sketch and len(project.sketches) == before_sketches,
+          copy.sketch is pattern.sketch and len(project.sketches) == before_sketches,
           f"sketches {before_sketches} -> {len(project.sketches)}")
     moved = (float(copy.vertices[0].co[0]) + 3.0, float(copy.vertices[0].co[1]))
     copy.sketch.set_vertex_position(0, moved)
     check("editing through the copy edits the one Sketch",
-          abs(float(panel.vertices[0].co[0]) - moved[0]) < 1e-6,
-          f"source x={float(panel.vertices[0].co[0])}")
-    panel.need_geo_update = False
+          abs(float(pattern.vertices[0].co[0]) - moved[0]) < 1e-6,
+          f"source x={float(pattern.vertices[0].co[0])}")
+    pattern.need_geo_update = False
     copy.need_geo_update = False
     moved = (float(copy.vertices[0].co[0]) + 2.0, float(copy.vertices[0].co[1]))
     copy.sketch.set_vertex_position(0, moved)
-    check("a write marks every panel that reads the Sketch",
-          panel.need_geo_update and copy.need_geo_update,
-          f"source={panel.need_geo_update} copy={copy.need_geo_update}")
-    panel.sections_for_edge(None, 0)
-    check("a panel that builds its copy still has its mesh to build",
-          not panel.need_sections and panel.need_geo_update,
-          f"sections={panel.need_sections} geo={panel.need_geo_update}")
+    check("a write marks every pattern that reads the Sketch",
+          pattern.need_geo_update and copy.need_geo_update,
+          f"source={pattern.need_geo_update} copy={copy.need_geo_update}")
+    pattern.sections_for_edge(None, 0)
+    check("a pattern that builds its copy still has its mesh to build",
+          not pattern.need_sections and pattern.need_geo_update,
+          f"sections={pattern.need_sections} geo={pattern.need_geo_update}")
     report = copy.detach()
     refresh_all_uuids()
     check("a detach gives the copy a Sketch of its own",
           report["detached"] and copy.sketch is not None
-          and copy.sketch is not panel.sketch and report["staying"] == [panel.name],
+          and copy.sketch is not pattern.sketch and report["staying"] == [pattern.name],
           f"report={report}")
     alone = copy.detach()
     check("a detach with nothing to detach says so",
           alone["detached"] is False and "alone" in alone["reason"],
           f"report={alone}")
     check("a pattern alone in its chain still holds its geometry",
-          copy.sketch is not None and len(copy.vertices) == len(panel.vertices),
+          copy.sketch is not None and len(copy.vertices) == len(pattern.vertices),
           f"points={len(copy.vertices)}")
     copy.generate_mesh()
     samples = copy.mesh_edge_points
-    check("a panel keeps a copy of the samples its mesh was built from",
+    check("a pattern keeps a copy of the samples its mesh was built from",
           samples is not None and len(copy.geo_points) == len(samples)
           and abs(float(copy.geo_points[0].co[0]) - float(samples[0][0])) < 1e-4,
           f"stored={len(copy.geo_points)} samples={0 if samples is None else len(samples)}")
 
     # 9. a Sketch lives exactly as long as a pattern reads it
     before_sketches = len(project.sketches)
-    project.remove_patterns([panel])
+    project.remove_patterns([pattern])
     check("removing the last pattern of a Sketch removes the Sketch",
           len(project.sketches) < before_sketches,
           f"sketches {before_sketches} -> {len(project.sketches)}")

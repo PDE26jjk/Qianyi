@@ -54,11 +54,13 @@ class Operators(str, Enum):
     DivideEdge2D = "qmyi.2d_divide_edge"
     Corner2D = "qmyi.2d_corner"
     Fan2D = "qmyi.2d_fan"
+    CurveFit2D = "qmyi.2d_curve_fit"
     EdgeElementsMove2D = "qmyi.2d_edge_move"
     ElementsDelete2D = "qmyi.2d_elements_delete"
     MergeConnected2D = "qmyi.2d_merge_connected"
     SewingAdd1to12D = "qmyi.2d_add_sewing_1to1"
-    SewingAddFree2D = "qmyi.2d_add_sewing_free"  # TODO
+    SewingAddFree2D = "qmyi.2d_add_sewing_free"
+    SewingEdit2D = "qmyi.2d_sewing_edit"
     SewingAddMtoN2D = "qmyi.2d_add_sewing_m2n"  # TODO
 
 
@@ -98,6 +100,8 @@ class WorkSpaceTools(str, Enum):
     AddPoly = "qmyi.add_poly"
     AddVertex = "qmyi.add_vertex"
     AddSewing1 = "qmyi.add_sewing1"
+    AddSewingFree = "qmyi.add_sewing_free"
+    SewingEdit = "qmyi.sewing_edit"
     AddSplinePoint = "qmyi.add_spline_point"
     Select = "qmyi.select"
     PickMesh = "qmyi.pick_mesh"
@@ -105,3 +109,4 @@ class WorkSpaceTools(str, Enum):
     InternalLinePen = "qmyi.internal_line_pen"
     Corner = "qmyi.corner"
     Fan = "qmyi.fan"
+    CurveFit = "qmyi.curve_fit"

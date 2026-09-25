@@ -1,4 +1,4 @@
-"""Snapping a click on the pattern to a vertex of the panel."""
+"""Snapping a click on the pattern to a vertex of the pattern."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from .node_tree import get_active_node_tree
 
 # How close the pointer has to be to a vertex, in pixels on screen, for a click
 # to land on it. Blender's own tools use the same kind of threshold, and
-# measuring it on screen keeps it independent of the panel's scale and the zoom.
+# measuring it on screen keeps it independent of the pattern's scale and the zoom.
 SNAP_PIXELS = 12.0
 
 
@@ -37,7 +37,7 @@ def vertex_near_cursor(context, pattern, cursor):
 
 
 def snapped_point(context, pattern, point, cursor):
-    """A point on the outline, pulled onto a nearby vertex of the panel.
+    """A point on the outline, pulled onto a nearby vertex of the pattern.
 
     Returns ``(point, index)``, where `index` is the vertex it snapped to or
     None when the point itself was used.
@@ -50,16 +50,16 @@ def snapped_point(context, pattern, point, cursor):
 
 
 def hover_vertex(context, cursor):
-    """The outline vertex under the pointer, in the panel that owns it.
+    """The outline vertex under the pointer, in the pattern that owns it.
 
     Returns ``(pattern, vertex)``, or ``(None, None)`` when the pointer is not
-    on a vertex of any panel's outline.
+    on a vertex of any pattern's outline.
     """
     project = get_active_node_tree(context)
     if project is None:
         return None, None
     best = None
-    for pattern in project.patterns:  # loop: one panel's vertices per search
+    for pattern in project.patterns:  # loop: one pattern's vertices per search
         near = vertex_near_cursor(context, pattern, cursor)
         if near is not None and (best is None or near[1] < best[1]):
             best = (near[0], near[1], pattern)

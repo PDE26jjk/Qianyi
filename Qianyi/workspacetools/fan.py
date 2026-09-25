@@ -66,16 +66,16 @@ class NODE_T_qmyi_fan(WorkSpaceTool):
         pivot = node_tree.fan_pivot
         target = node_tree.fan_target
         if pivot is not None:
-            panel = panel_named(node_tree, pivot[0])
-            if panel is None:
+            pattern = pattern_named(node_tree, pivot[0])
+            if pattern is None:
                 node_tree.fan_pivot = None
                 context.area.tag_redraw()
                 return
-            points.append((panel, pivot[1], "pivot"))
+            points.append((pattern, pivot[1], "pivot"))
         if target is not None:
-            panel = panel_named(node_tree, target[0])
-            if panel is not None:
-                points.append((panel, target[1], "target"))
+            pattern = pattern_named(node_tree, target[0])
+            if pattern is not None:
+                points.append((pattern, target[1], "target"))
         if vertex is not None:
             # A vertex under the pointer is what a click will take, so show
             # that instead of the raw position on the edge.
@@ -97,8 +97,8 @@ class NODE_T_qmyi_fan(WorkSpaceTool):
         context.area.tag_redraw()
 
 
-def panel_named(project, name):
-    for pattern in project.patterns:  # loop: one panel per name check
+def pattern_named(project, name):
+    for pattern in project.patterns:  # loop: one pattern per name check
         if pattern.name == name:
             return pattern
     return None
@@ -118,7 +118,7 @@ def hover_point(context, project, cursor):
 
 def _vertex_under(context, project, cursor):
     best = None
-    for pattern in project.patterns:  # loop: one panel's vertices per search
+    for pattern in project.patterns:  # loop: one pattern's vertices per search
         near = vertex_near_cursor(context, pattern, cursor)
         if near is not None and (best is None or near[1] < best[1]):
             best = (near[0], near[1], pattern)

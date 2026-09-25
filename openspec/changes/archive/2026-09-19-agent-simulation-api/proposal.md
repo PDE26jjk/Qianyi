@@ -37,7 +37,7 @@ reproduce it.
   directly is permitted but discouraged, so the documentation also states the
   refresh step such a write needs and the failures that follow from skipping it.
 
-Not in this change: an MCP server or MCP tool definitions; the panel authoring
+Not in this change: an MCP server or MCP tool definitions; the pattern authoring
 and editing facade; any engine or DP backend change; any new UI.
 
 ## Capabilities
@@ -63,5 +63,5 @@ requirement changes.
 - `Qianyi/simulation/simulation_manager.py`: the stepping path stops swallowing
   engine exceptions and reports them; the live free-run path keeps its behaviour.
 - Unchanged: the engine contract, the sewing and mesh data models, every existing
-  operator and panel, and the `.blend` format. No persisted state is added.
+  operator and pattern, and the `.blend` format. No persisted state is added.
 - No new dependency: numpy, as bundled with Blender.

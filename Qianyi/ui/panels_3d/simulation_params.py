@@ -105,7 +105,10 @@ class QY_PT_solver_custom(VIEW_3D_PT_qmyi_base):
 
 
 class QY_PT_solver_debug(VIEW_3D_PT_qmyi_base):
-    """Debug switches for the mesh path: a panel of its own, next to Solver."""
+    """Debug switches: the mesh path, and how the editing tools write.
+
+    A Blender panel of its own, next to Solver, and only in developer mode.
+    """
 
     bl_category = "Qianyi"
     bl_label = "Debug"
@@ -122,6 +125,11 @@ class QY_PT_solver_debug(VIEW_3D_PT_qmyi_base):
         if context.scene.qmyi.triangulator == '1':
             layout.label(text="gCDT is not stable on every input yet", icon='ERROR')
         layout.prop(context.scene.qmyi, "mesh_profile")
+        layout.prop(context.scene.qmyi, "spline_no_handles")
+        if context.scene.qmyi.spline_no_handles:
+            layout.label(text="a new control point leaves the edge with vector "
+                              "handles, so it is not smoothed through it",
+                         icon='INFO')
 
 
 class QY_PT_capture(VIEW_3D_PT_qmyi_base):

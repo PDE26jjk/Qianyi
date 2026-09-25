@@ -147,7 +147,7 @@ engine does not report.
 ### Requirement: Resetting returns the scene to its rest state
 
 Resetting SHALL discard the simulated result so that a following run starts from
-the rest pose, and SHALL leave the panels, the sewings and the solver parameters
+the rest pose, and SHALL leave the patterns, the sewings and the solver parameters
 unchanged.
 
 #### Scenario: Reset then run

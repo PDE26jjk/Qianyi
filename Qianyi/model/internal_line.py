@@ -19,7 +19,7 @@ class InternalLine(PropertyGroup, ModelData, Selectable):
         """Give this line its renderer.
 
         The edges answer for the Sketch the line lives in, so a point they name
-        resolves without asking a panel; the samples a mesh is built from are the
+        resolves without asking a pattern; the samples a mesh is built from are the
         pattern's, and are taken there.
         """
         if global_data.renderers_enabled:

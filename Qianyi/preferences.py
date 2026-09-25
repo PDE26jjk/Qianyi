@@ -1,4 +1,4 @@
-"""Add-on preferences: where user panel components live."""
+"""Add-on preferences: where user pattern components live."""
 
 import os
 
@@ -15,13 +15,13 @@ class QianyiPreferences(bpy.types.AddonPreferences):
     components_path: StringProperty(
         name="Component Folders",
         subtype="DIR_PATH",
-        description="Folders with panel component modules (*.py declaring COMPONENT_ID); "
+        description="Folders with pattern component modules (*.py declaring COMPONENT_ID); "
                     "separate several folders with the platform path separator",
     )
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Panel components")
+        layout.label(text="Pattern components")
         layout.prop(self, "components_path")
         layout.label(text=f"Several folders: separate them with '{os.pathsep}'")
         layout.operator("qmyi.reload_components", icon="FILE_REFRESH")

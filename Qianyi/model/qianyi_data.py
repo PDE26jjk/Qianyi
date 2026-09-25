@@ -43,6 +43,8 @@ class QianyiProps(PropertyGroup, ModelData):
             ('ADD_VERTEX', "ADD_VERTEX", "", ),
             ('ADD_SPLINE_POINT', "ADD_SPLINE_POINT", "", ),
             ('ADD_SEWING1', "ADD_SEWING1", "", ),
+            ('ADD_SEWING_FREE', "ADD_SEWING_FREE", "", ),
+            ('EDIT_SEWING', "EDIT_SEWING", "", ),
             ('INTERNAL_POINT', "INTERNAL_POINT", "", ),
         ],
         default='EDGE_VERTEX'
@@ -55,7 +57,7 @@ class QianyiProps(PropertyGroup, ModelData):
     corner_mode: EnumProperty(
         name="Corner",
         description="Which corner treatment the corner tool applies: a round, "
-                    "a chamfer, or a hollow cut into the panel",
+                    "a chamfer, or a hollow cut into the pattern",
         items=[
             ("ROUND", "Round", "Replace the corner with an arc tangent to both "
                                "edges",),
@@ -63,16 +65,24 @@ class QianyiProps(PropertyGroup, ModelData):
                                    "between the same two points",),
             ("CONCAVE", "Hollow",
              "Put the arc on the other side of the chord, cutting a hollow "
-             "into the panel",),
+             "into the pattern",),
         ],
         default='ROUND',
     )
     sync_selection: BoolProperty(
         name="Sync Selection",
         description="Keep the 3D selection and the pattern editor's selection in "
-                    "step: selecting a panel's mesh selects that panel (and its "
+                    "step: selecting a pattern's mesh selects that pattern (and its "
                     "instance copies) in the pattern editor, and the other way "
                     "round. Works the way the UV editor's sync selection does",
+        default=False,
+    )
+    spline_no_handles: BoolProperty(
+        name="Spline without handles",
+        description="Give an edge its handles back as vector handles - zeroed, "
+                    "the way a spline is edited in other software - when a "
+                    "control point is added to it, instead of keeping the curve "
+                    "smooth through the new point",
         default=False,
     )
     triangulator: EnumProperty(
@@ -93,14 +103,14 @@ class QianyiProps(PropertyGroup, ModelData):
     )
     pattern_display_mode: EnumProperty(
         name="Display",
-        description="What the pattern editor draws for a panel: the fabric "
+        description="What the pattern editor draws for a pattern: the fabric "
                     "colour, the outline only, the sampled mesh, or the "
                     "engine's per-vertex stress / debug values",
         items=[
-            ('SOLID', "Solid", "Fill each panel with its fabric colour",),
+            ('SOLID', "Solid", "Fill each pattern with its fabric colour",),
             ('WIREFRAME', "Wireframe",
              "Draw outlines and internal lines only",),
-            ('MESH', "Mesh", "Draw the sampled panel mesh over the outline",),
+            ('MESH', "Mesh", "Draw the sampled pattern mesh over the outline",),
             ('STRESS', "Stress",
              "Colour the mesh with the engine's per-vertex values",),
             ('DEBUG', "Debug",
@@ -110,7 +120,7 @@ class QianyiProps(PropertyGroup, ModelData):
     )
     view3d_vertex_colors: EnumProperty(
         name="Vertex Colors",
-        description="Colour the simulated panels in the 3D viewport by the "
+        description="Colour the simulated patterns in the 3D viewport by the "
                     "editor's per-vertex strain or by the engine's debug values, "
                     "drawn as an overlay over the material Blender renders",
         items=[

@@ -87,7 +87,7 @@ class NODE_OT_pattern_copy_instance(Operator2DBase, StateOperator):
     def handle_success(self, context, state):
         for src, new_anchor in zip(self.source_pats, self.new_anchors):
             # The copy itself lives in the model layer, so the script surface
-            # and this operator produce the same panel.
+            # and this operator produce the same pattern.
             new_pat = src.copy_pattern(as_instance=True, mirror=self.mirror,
                                        anchor=new_anchor)
             console.info(f"{src.name} -> {new_pat.name}")

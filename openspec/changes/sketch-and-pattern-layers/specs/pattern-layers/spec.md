@@ -1,7 +1,7 @@
 ## Purpose
 
-Splits a panel into the Sketch a pattern maker draws and the Pattern that carries
-it, so one Sketch serves every copy of a panel and everything computed from a
+Splits a pattern into the Sketch a pattern maker draws and the Pattern that carries
+it, so one Sketch serves every copy of a pattern and everything computed from a
 Sketch - sections, samples, mesh, stitches - is rebuilt on demand instead of
 being kept in step by hand.
 
@@ -9,7 +9,7 @@ being kept in step by hand.
 
 ### Requirement: An instance chain holds one Sketch
 
-The authored vector geometry of a panel - its vertices, edges, their handles and
+The authored vector geometry of a pattern - its vertices, edges, their handles and
 spline points and its internal lines - SHALL be held in one Sketch per instance
 chain, and every member of that chain SHALL reference that one Sketch. Reading
 any member SHALL report the same Sketch identity, and an edit written through any
@@ -18,7 +18,7 @@ one.
 
 #### Scenario: A copy shows the same Sketch
 
-- **WHEN** a panel with a copy has one of its edges moved
+- **WHEN** a pattern with a copy has one of its edges moved
 - **THEN** the copy reports the moved edge and both members report the same Sketch identity
 
 #### Scenario: Editing through the copy
@@ -28,13 +28,13 @@ one.
 
 #### Scenario: Two Sketches that are not linked
 
-- **WHEN** two panels were created independently
+- **WHEN** two patterns were created independently
 - **THEN** they report different Sketch identities and an edit to one leaves the other unchanged
 
-#### Scenario: A geometry element does not name a panel
+#### Scenario: A geometry element does not name a pattern
 
-- **WHEN** a caller that holds only a vertex, an edge, a control point or an internal line asks which panel it belongs to
-- **THEN** the element reports the Sketch it is stored in, and the panel is the owner of that Sketch rather than something the element claims to be
+- **WHEN** a caller that holds only a vertex, an edge, a control point or an internal line asks which pattern it belongs to
+- **THEN** the element reports the Sketch it is stored in, and the pattern is the owner of that Sketch rather than something the element claims to be
 
 #### Scenario: A new element has its own identity
 
@@ -54,7 +54,7 @@ one.
 #### Scenario: A snap is read against the shape it was taken on
 
 - **WHEN** an outline is edited and the edge finder still holds the snapshot it took before that edit
-- **THEN** the next snap checks the snapshot against the panels as they are, takes the finder again from the pointer when it no longer fits, and answers an edge of the shape the panel has now
+- **THEN** the next snap checks the snapshot against the patterns as they are, takes the finder again from the pointer when it no longer fits, and answers an edge of the shape the pattern has now
 
 ### Requirement: A Sketch carries the first section stage, crossings included
 
@@ -72,7 +72,7 @@ changes.
 - **WHEN** an internal line is drawn across the outline
 - **THEN** the outline and the line each carry additional sections at the crossing, and the parts of the line outside the outline are marked outside
 
-#### Scenario: A line inside the panel
+#### Scenario: A line inside the pattern
 
 - **WHEN** an internal line lies entirely inside the outline
 - **THEN** no piece of it is marked outside
@@ -85,7 +85,7 @@ changes.
 #### Scenario: A cut narrows the piece it leaves behind
 
 - **WHEN** a crossing cuts one edge into pieces
-- **THEN** each piece spans only its own part of the edge, so a panel samples it by its own length and no piece carries more samples than its length and the panel's granularity ask for
+- **THEN** each piece spans only its own part of the edge, so a pattern samples it by its own length and no piece carries more samples than its length and the pattern's granularity ask for
 
 #### Scenario: The stage does not follow the granularity
 
@@ -94,10 +94,10 @@ changes.
 
 #### Scenario: A piece names what it was cut from
 
-- **WHEN** an edit replaces the edge a copied panel's piece was cut from and the copy has not been rebuilt
-- **THEN** that piece reports no edge and no panel, and every consumer skips it instead of following a wrapper that now names a different edge
+- **WHEN** an edit replaces the edge a copied pattern's piece was cut from and the copy has not been rebuilt
+- **THEN** that piece reports no edge and no pattern, and every consumer skips it instead of following a wrapper that now names a different edge
 
-### Requirement: A write marks the panels that read the Sketch
+### Requirement: A write marks the patterns that read the Sketch
 
 A write that changes a Sketch SHALL mark every Pattern that reads it: that
 Pattern's outline state, its own copy of the first stage, its samples, its render
@@ -115,7 +115,7 @@ simulation payload. A write that leaves the Sketch as it was SHALL mark nothing.
 - **WHEN** an edge is set to the handle type it already has
 - **THEN** the Sketch is unchanged and nothing is marked
 
-### Requirement: Derived data is rebuilt when a marked panel is read
+### Requirement: Derived data is rebuilt when a marked pattern is read
 
 A marked Pattern SHALL rebuild its copy of the first stage and its samples when a
 consumer needs them - the mesh path, a simulation prepare, a read that promises
@@ -142,7 +142,7 @@ derived data, record the reason and stay marked, so the next reader tries again.
 
 A Sketch that cannot be sampled - an outline that crosses itself, a degenerate
 outline - MUST NOT reach the sampler. The Pattern SHALL keep the derived data it
-had and SHALL record why the rebuild did not run, so the panel is drawn as
+had and SHALL record why the rebuild did not run, so the pattern is drawn as
 invalid and a later consumer sees the reason. A later edit that makes the Sketch
 samplable SHALL let the next rebuild succeed and SHALL clear the reason.
 
@@ -163,7 +163,7 @@ samplable SHALL let the next rebuild succeed and SHALL clear the reason.
 
 ### Requirement: A copy shares the Sketch and a detach gives a Pattern its own
 
-Copying a panel SHALL NOT copy its vector geometry: the copy SHALL join the
+Copying a pattern SHALL NOT copy its vector geometry: the copy SHALL join the
 source's instance chain and reference the same Sketch. Detaching a Pattern SHALL
 give that Pattern a private copy of the Sketch in the state it is in, SHALL leave
 the chain of the remaining members intact, and thereafter SHALL be the only way
@@ -172,18 +172,18 @@ already alone in its chain SHALL be reported as having nothing to detach.
 
 #### Scenario: A copy costs no geometry
 
-- **WHEN** a panel with an internal line is copied
+- **WHEN** a pattern with an internal line is copied
 - **THEN** the copy reports one Sketch shared with the source, and the Sketch's element counts are unchanged
 
 #### Scenario: A chain is read from the Sketch
 
-- **WHEN** a panel and its copy are asked which panels are in their chain
-- **THEN** each names the panels that read the same Sketch, and no separate list of members is stored or kept in step
+- **WHEN** a pattern and its copy are asked which patterns are in their chain
+- **THEN** each names the patterns that read the same Sketch, and no separate list of members is stored or kept in step
 
 #### Scenario: Detaching leaves the other members' chain alone
 
 - **WHEN** one of three members of a chain is detached
-- **THEN** the other two still read the Sketch they shared, and the detached panel is the only one that reads its own
+- **THEN** the other two still read the Sketch they shared, and the detached pattern is the only one that reads its own
 
 #### Scenario: Detach and diverge
 
@@ -229,15 +229,15 @@ project, and picking MUST NOT sample or otherwise change the scene.
 
 #### Scenario: Two members of one chain are told apart
 
-- **WHEN** a panel whose chain has a copy has one of its edges clicked
+- **WHEN** a pattern whose chain has a copy has one of its edges clicked
 - **THEN** the pick answers with that edge and the Pattern that was clicked, not the other member
 
-#### Scenario: The clicked member becomes the active panel
+#### Scenario: The clicked member becomes the active pattern
 
 - **WHEN** an element of one member of a chain is selected
-- **THEN** that member is the project's active panel, so a tool that works in pattern space works where the click was made
+- **THEN** that member is the project's active pattern, so a tool that works in pattern space works where the click was made
 
-#### Scenario: A seam's side is the panel that was clicked
+#### Scenario: A seam's side is the pattern that was clicked
 
 - **WHEN** a seam is made by clicking one edge and then another
 - **THEN** each side records the member its own click was made on, and two clicks on two members of one chain make a seam between those two
@@ -328,13 +328,13 @@ decide nothing else: a mesh and a simulation test the outline whatever it says.
 
 #### Scenario: Picking draws nothing else
 
-- **WHEN** the id pass runs for a panel whose derived data is stale
-- **THEN** it draws the panel's elements without sampling it, and the staleness is left for the consumer that needs the samples
+- **WHEN** the id pass runs for a pattern whose derived data is stale
+- **THEN** it draws the pattern's elements without sampling it, and the staleness is left for the consumer that needs the samples
 
 #### Scenario: The id pass does not take the display mark
 
-- **WHEN** the id pass runs before the draw for a panel whose display is marked for a rebuild
-- **THEN** it draws that panel's current lines and leaves the mark for the draw, which rebuilds the points and the spline points as well
+- **WHEN** the id pass runs before the draw for a pattern whose display is marked for a rebuild
+- **THEN** it draws that pattern's current lines and leaves the mark for the draw, which rebuilds the points and the spline points as well
 
 ### Requirement: A sewing change invalidates the patterns it links
 
@@ -347,8 +347,8 @@ one cheap operation, whatever the size of the connected component.
 
 #### Scenario: A seam edit does not rebuild meshes
 
-- **WHEN** a seam between two panels is created, removed or moved
-- **THEN** both panels report their mesh as stale and neither mesh is rebuilt by the edit itself
+- **WHEN** a seam between two patterns is created, removed or moved
+- **THEN** both patterns report their mesh as stale and neither mesh is rebuilt by the edit itself
 
 #### Scenario: Preparing rebuilds what the seam invalidated
 
@@ -363,19 +363,19 @@ one cheap operation, whatever the size of the connected component.
 #### Scenario: A topology edit still meshes at once
 
 - **WHEN** a tool moves a point, divides an edge, treats a corner or deletes an element
-- **THEN** every panel that reads the Sketch the tool wrote has its mesh rebuilt before the tool returns
+- **THEN** every pattern that reads the Sketch the tool wrote has its mesh rebuilt before the tool returns
 
 #### Scenario: A topology tool asks the Sketch, not the chain
 
-- **WHEN** any topology tool runs on a panel whose chain has copies
-- **THEN** it writes the Sketch once and asks the Sketch to rebuild the mesh of every panel that reads it (`Sketch.rebuild_meshes`), so the tool itself walks no chain; only a tool that draws a preview of the whole chain - the move gesture - reads the members
+- **WHEN** any topology tool runs on a pattern whose chain has copies
+- **THEN** it writes the Sketch once and asks the Sketch to rebuild the mesh of every pattern that reads it (`Sketch.rebuild_meshes`), so the tool itself walks no chain; only a tool that draws a preview of the whole chain - the move gesture - reads the members
 
 ### Requirement: Editing only what has to be recomputed
 
 An edit SHALL recompute only what its own kind requires. A topology edit, and a
-change of a panel's granularity, SHALL rebuild the mesh of the panels they changed
+change of a pattern's granularity, SHALL rebuild the mesh of the patterns they changed
 before they return. A change that can move the pieces a mesh is built from without
-being a topology edit - a seam edit, whose linking run cuts sections in the panels
+being a topology edit - a seam edit, whose linking run cuts sections in the patterns
 it reaches - SHALL mark that work stale instead of doing it, and SHALL NOT
 rebuild anything itself. A change that can do neither - a fabric, a placement, a
 display setting, a collision layer, a grain direction, a simulation state -
@@ -386,42 +386,42 @@ A derived rebuild SHALL happen when a consumer asks for the derived data, and th
 work it does SHALL be the same whether it was asked for by the editor or by a
 simulation.
 
-A panel SHALL keep a copy of the boundary samples its last mesh was built from,
+A pattern SHALL keep a copy of the boundary samples its last mesh was built from,
 written when that mesh is built, so a check that runs without opening the add-on
-can read the panel's shape out of the saved file. That copy SHALL NOT be read back
+can read the pattern's shape out of the saved file. That copy SHALL NOT be read back
 as the samples a mesh is built from: those are taken from the Sketch again.
 
 #### Scenario: A fabric change does not mesh anything
 
-- **WHEN** a panel's fabric is changed
-- **THEN** no section is rebuilt, no mesh is regenerated and nothing is marked stale, and the panel reports the change
+- **WHEN** a pattern's fabric is changed
+- **THEN** no section is rebuilt, no mesh is regenerated and nothing is marked stale, and the pattern reports the change
 
-#### Scenario: Moving a panel does not mesh anything
+#### Scenario: Moving a pattern does not mesh anything
 
-- **WHEN** a panel is moved, rotated or mirrored
+- **WHEN** a pattern is moved, rotated or mirrored
 - **THEN** only its placement changes: no section, sample or mesh is rebuilt or marked stale
 
-#### Scenario: A granularity change meshes that panel
+#### Scenario: A granularity change meshes that pattern
 
-- **WHEN** a panel's granularity is changed
-- **THEN** that panel is sampled and meshed again before the change returns, and the other members of its chain are left as they are
+- **WHEN** a pattern's granularity is changed
+- **THEN** that pattern is sampled and meshed again before the change returns, and the other members of its chain are left as they are
 
-#### Scenario: The editor draws a stale panel without meshing it
+#### Scenario: The editor draws a stale pattern without meshing it
 
-- **WHEN** a stale panel is drawn in a display mode that needs its mesh
-- **THEN** the mesh is rebuilt for that panel (and only if its mesh is what is missing), not for every panel of its chain
+- **WHEN** a stale pattern is drawn in a display mode that needs its mesh
+- **THEN** the mesh is rebuilt for that pattern (and only if its mesh is what is missing), not for every pattern of its chain
 
 #### Scenario: The saved samples are the ones the mesh was built from
 
-- **WHEN** a panel's mesh is generated
-- **THEN** the copy kept on the panel holds that mesh's boundary samples, and the next mesh is generated from the Sketch rather than from the copy
+- **WHEN** a pattern's mesh is generated
+- **THEN** the copy kept on the pattern holds that mesh's boundary samples, and the next mesh is generated from the Sketch rather than from the copy
 
 ### Requirement: A seam names the Pattern it belongs to
 
 A seam SHALL be defined on the patterns it joins: each side SHALL name the
 Pattern, the Sketch element it runs along and a position on that element. The
 stitch walk of a seam - its sections, link identities and stitch pairs - is
-derived data of those patterns and SHALL be rebuilt when either panel is marked.
+derived data of those patterns and SHALL be rebuilt when either pattern is marked.
 A side whose named element no longer exists in the Sketch it reads SHALL be
 dropped in the rebuild and reported, and the seam SHALL NOT be
 left pointing at geometry that is gone.
@@ -445,9 +445,9 @@ left pointing at geometry that is gone.
 
 A Sketch and the Patterns that reference it SHALL be stored with the project, so
 that saving and reopening a file keeps one Sketch per chain and every Pattern
-attribute. A scene saved by an earlier build SHALL NOT be converted: a panel that
+attribute. A scene saved by an earlier build SHALL NOT be converted: a pattern that
 carries no Sketch has no geometry, and the add-on MUST NOT invent a Sketch for it
-or link panels that were copies before.
+or link patterns that were copies before.
 
 #### Scenario: A saved file reopens with its layers
 
@@ -457,4 +457,4 @@ or link panels that were copies before.
 #### Scenario: A file from an earlier build
 
 - **WHEN** a scene saved before this change is opened
-- **THEN** its panels carry no Sketch and no geometry is invented for them
+- **THEN** its patterns carry no Sketch and no geometry is invented for them

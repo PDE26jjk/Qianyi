@@ -29,7 +29,7 @@ class SimulationProps(PropertyGroup):
         global _reset_in_progress
         if _reset_in_progress:
             return
-        # The panel runs through the same entry points the script surface
+        # The pattern runs through the same entry points the script surface
         # exposes, so the mode a script reads cannot disagree with the code that
         # is actually running. Imported here: the surface loads after this
         # module, and importing it at module level would be a cycle.

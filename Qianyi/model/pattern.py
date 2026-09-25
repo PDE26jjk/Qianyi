@@ -202,11 +202,8 @@ class Pattern(PropertyGroup, ModelData, Selectable):
 
     granularity: FloatProperty(
         name="granularity",
-        description="Sampling radius in millimetres. It is a ceiling on the "
-                    "vertex spacing, not the resulting edge length: the median "
-                    "edge is about 0.7x this value (5 mm gives a 3.6 mm mesh, "
-                    "7 mm gives a 5.1 mm mesh)",
-        default=20.0, update=update_granularity)
+        description="Sampling radius in millimetres. ",
+        default=20.0, update=update_granularity, min=0.5)
     bbox: FloatVectorProperty(name="BBox", size=4, default=(0.0, 0.0, 1.0, 1.0))
     mesh_object: PointerProperty(
         name="Mesh Object",

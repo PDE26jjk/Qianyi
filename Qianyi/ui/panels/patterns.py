@@ -1,6 +1,7 @@
 import bpy
 from bpy.types import Context
 
+from ...global_data import get_obj_by_uuid
 from ...utilities.node_tree import get_active_node_tree
 from ...declarations import Panels,Operators
 from ...model.pattern import VALIDITY_UNKNOWN
@@ -94,6 +95,8 @@ class QY_PT_patternProperty(NODE_PT_qmyi_base):
         if project.active_pattern_index < len(project.patterns):
             pattern = project.patterns[project.active_pattern_index]
         else:
+            return
+        if get_obj_by_uuid(pattern.global_uuid) is None:
             return
 
         col = layout.column(align=True)

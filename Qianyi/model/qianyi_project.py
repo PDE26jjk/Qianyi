@@ -411,6 +411,9 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
             obj = global_data.get_obj_by_uuid(uuid, check_uuid=strict)
             if obj is not None:
                 selected_objects.append(obj)
+            else:
+                self.clear_selected_objects_by_mode(mode)
+                return []
         return selected_objects
 
     def forget_selected(self, uuids) -> int:

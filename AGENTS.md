@@ -40,3 +40,12 @@ the maintainer are written in Chinese.
 
 Nothing is committed until the maintainer says "提交". A commit is never implied
 by a later instruction.
+
+## Probe scenes
+
+Probes and tests MUST build the scene they need - `tools/make_probe_scene.py`
+(`build_fixture()`) or an in-process construction of the same kind - instead of
+opening a maintainer `.blend`. Files under `extracted_files/` are local,
+gitignored and frozen at the version they were saved with, so they are not
+fixtures and must not be a default: a probe that needs a saved scene takes an
+explicit `--scene` argument and says so in its usage line.

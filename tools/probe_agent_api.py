@@ -1,9 +1,13 @@
 """Exercise the qyapi script surface in a background Blender session.
 
-    blender.exe -b --factory-startup --python tools/probe_agent_api.py -- --scene <file.blend>
+    blender.exe -b --factory-startup --python tools/probe_agent_api.py [-- --scene <file.blend>]
 
-Registers the add-on first, then opens the scene (the node-tree type has to be
-registered when the file loads), and walks the surface the way a client would:
+Registers the add-on first, then builds its own fixture through
+``tools/make_probe_scene.build_fixture`` - a maintainer ``.blend`` is never the
+default, because those files live in the gitignored ``extracted_files/`` tree
+and carry whatever version they were saved with. With ``--scene`` it opens that
+file instead (the node-tree type has to be registered when the file loads). It
+walks the surface the way a client would:
 import, help, state, prepare, step, read, reset, the live path, the error paths
 and the undo granularity. It runs a short simulation (a few substeps) and prints
 the results it got.
@@ -23,7 +27,6 @@ import numpy as np
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ADDON_PATH = os.path.join(REPO, "Qianyi")
-DEFAULT_SCENE = os.path.join(REPO, "extracted_files", "test", "t1.blend")
 
 results = {"ok": 0, "failed": 0}
 
@@ -57,7 +60,8 @@ def parse_args():
     argv = sys.argv
     argv = argv[argv.index("--") + 1:] if "--" in argv else []
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scene", default=DEFAULT_SCENE)
+    parser.add_argument("--scene", default=None,
+                        help="explicit .blend for a one-off run; omit to build the fixture in-process")
     parser.add_argument("--frames", type=int, default=10)
     parser.add_argument("--blank", action="store_true",
                         help="start from an empty session: projects and the crossing policy")
@@ -94,8 +98,15 @@ def main():
         log(f"checks: {results['ok']} ok, {results['failed']} failed")
         return 0 if results["failed"] == 0 else 3
 
-    log(f"add-on registered; opening {os.path.basename(args.scene)}")
-    bpy.ops.wm.open_mainfile(filepath=args.scene)
+    if args.scene:
+        log(f"add-on registered; opening {os.path.basename(args.scene)}")
+        bpy.ops.wm.open_mainfile(filepath=args.scene)
+    else:
+        sys.path.insert(0, os.path.join(REPO, "tools"))
+        import make_probe_scene
+
+        log("add-on registered; building the fixture in-process (no scene file)")
+        make_probe_scene.build_fixture()
 
     # 1. The surface is reachable under one stable name.
     check("import qyapi", lambda: f"{qyapi.__name__} v{qyapi.VERSION}")

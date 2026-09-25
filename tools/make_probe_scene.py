@@ -8,6 +8,9 @@ the delete regression) open a scene and work on the panels it holds. A scene
 saved before the Sketch layer carries no Sketch and is not converted, so this
 builds the fixture they need: two sewn panels and a third with a copy, the same
 shape the probes were written against.
+
+``build_fixture()`` is the shared entry point: a probe imports it and builds the
+fixture in its own session instead of opening a maintainer ``.blend``.
 """
 
 import argparse
@@ -58,13 +61,8 @@ def build_square(project, name, size, origin=(0.0, 0.0), granularity=20.0):
     return pattern
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--out", required=True)
-    args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:]
-                             if "--" in sys.argv else [])
-
-    log(f"blender {bpy.app.version_string}")
+def register_core():
+    """Register the add-on modules the fixture needs, with the renderers off."""
     from qmyi import global_data
 
     global_data.renderers_enabled = False
@@ -77,6 +75,13 @@ def main():
         if module is not None and hasattr(module, "register"):
             module.register()
 
+
+def build_fixture():
+    """Build the fixture in the current session and return the project.
+
+    Two sewn panels plus a copy, in the two-layer format the probes were written
+    against. No file is opened and nothing is saved; the caller owns the session.
+    """
     from qmyi.model.model_data import refresh_all_uuids
 
     project = bpy.data.node_groups.new("QianyiProject", "QianyiNodeTree")
@@ -103,6 +108,18 @@ def main():
     refresh_all_uuids()
     log(f"patterns={len(project.patterns)} sketches={len(project.sketches)} "
         f"sewings={len(project.sewings)} copy={copy.name}")
+    return project
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out", required=True)
+    args = parser.parse_args(sys.argv[sys.argv.index("--") + 1:]
+                             if "--" in sys.argv else [])
+
+    log(f"blender {bpy.app.version_string}")
+    register_core()
+    build_fixture()
     bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(args.out))
     log(f"saved {args.out}")
     return 0

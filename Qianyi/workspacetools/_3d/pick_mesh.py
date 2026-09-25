@@ -7,7 +7,7 @@ from ...declarations import GizmoGroups, Operators, WorkSpaceTools
 class VIEW3D_T_qmyi_pick_mesh(WorkSpaceTool):
     bl_space_type = "VIEW_3D"
     bl_context_mode = 'OBJECT'
-    bl_idname = WorkSpaceTools.Select
+    bl_idname = WorkSpaceTools.PickMesh
     bl_label = ""
     bl_description = "Select Entities"
     bl_operator = Operators.Pick3D

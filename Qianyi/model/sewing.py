@@ -41,6 +41,20 @@ class SewingOneSide(PropertyGroup, ModelData, Selectable):
         self.reverse = reverse
         self.pattern_uuid = pattern.global_uuid if pattern is not None else -1
 
+    def turn_round(self) -> None:
+        """Read this half the other way: the same span, walked from its far end.
+
+        The two places are swapped and the direction with them, which is what
+        `side_run` reads: a run from A to B going forward is the run from B to A
+        going back. The stretch of the chain the half covers and its length stay
+        as they were, and the order the two halves of a seam are stitched in is
+        what changes - which end of one pattern meets which end of the other.
+        It is its own inverse.
+        """
+        self.line1_uuid, self.line2_uuid = self.line2_uuid, self.line1_uuid
+        self.pos1, self.pos2 = self.pos2, self.pos1
+        self.reverse = not self.reverse
+
     @property
     def pattern(self):
         """The pattern this side was made on.

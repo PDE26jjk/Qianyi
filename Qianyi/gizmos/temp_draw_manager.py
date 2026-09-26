@@ -63,6 +63,11 @@ TOOL_POINT_COLOR = (0.2, 1.0, 1.0, 1.0)
 TOOL_PIVOT_COLOR = (1.0, 0.55, 0.1, 1.0)
 TOOL_TARGET_COLOR = (0.3, 1.0, 0.3, 1.0)
 TOOL_LINE_COLOR = (1.0, 0.65, 0.15, 0.9)
+# The points of a chain, shown while a seam half is being edited: what a dragged
+# end snaps to. Smaller and quieter than a selected point, because they are there
+# to be read, not to be taken.
+SEWING_POINT_COLOR = (0.55, 0.6, 0.5, 1.0)
+SEWING_POINT_SIZE = 6.0
 
 
 def dimmed_selection_color(color):
@@ -491,6 +496,31 @@ class TempDrawManager:
                                 self.draw_sewing_for_pick(s, points_renderer, pointed)
                 points_renderer.draw(15.0, draw_id=True)
 
+    def draw_sewing_points(self, shader, project) -> None:
+        """Draw the points of every chain a half can be snapped to.
+
+        A dragged end snaps to the points of the chain its half runs on, so they
+        are shown while a half is being edited: they are where a drag will land.
+        They are drawn in the window's own pass and not in the id pass, and a
+        pointer only ever picks what that pass drew - so a point here is seen and
+        never taken, which is what makes it a reading aid rather than a target.
+        """
+        gpu.state.point_size_set(SEWING_POINT_SIZE)
+        shader.uniform_float("color", SEWING_POINT_COLOR)
+        gpu.matrix.push()
+        try:
+            for pattern in project.patterns:  # loop: one member of a chain per step
+                chains = [pattern.sketch, *pattern.internal_lines]
+                points = [tuple(point) for chain in chains if chain is not None
+                          for point in sewing_geometry.run_points(chain)]
+                if not points:
+                    continue
+                # Every member draws its own chain, in its own place.
+                gpu.matrix.load_matrix(pattern.calc_matrix())
+                batch_for_shader(shader, 'POINTS', {"pos": points}).draw(shader)
+        finally:
+            gpu.matrix.pop()
+
     def draw_sewing_direction_preview(self, context, project):
         """Show which ends would be stitched while the second edge is hovered.
 
@@ -827,6 +857,10 @@ class TempDrawManager:
                         color=(0.2, 0.8, 0.8, 1), thickness=10.0,
                         pattern=project.selected_sewing_pattern1)
                     self.draw_sewing_direction_preview(context, project)
+            # Every sewing tool snaps to the points of a chain - drawing one,
+            # moving one, or joining two edges - so they are shown for the whole
+            # mode rather than for one of its sub-modes.
+            self.draw_sewing_points(shader, project)
         else:
             # The seams selected in the sewing mode are still selected here:
             # draw those chains dimmed instead of hiding them. The selection

@@ -1,7 +1,7 @@
 import bpy
 
 from .header import header_append, header_prepend
-from .menus import NODE_MT_CustomMenu
+from .menus import NODE_MT_CustomMenu, NODE_MT_qmyi_corner
 from .panels.entities import QY_PT_qmyi_entities
 from .panels.fabrics import QY_UL_FabricList, QY_PT_fabricProperty, QY_PT_fabrics
 from .panels.in_out import NODE_PT_qmyi_in_out
@@ -17,6 +17,7 @@ from .panels_3d.overlays import QY_PT_view3d_overlays
 
 classes = [
     NODE_MT_CustomMenu,
+    NODE_MT_qmyi_corner,
     QY_UL_ProjectList,
     QY_PT_qmyi_projects,
     QY_PT_patterns,

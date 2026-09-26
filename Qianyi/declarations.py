@@ -61,6 +61,7 @@ class Operators(str, Enum):
     SewingAdd1to12D = "qmyi.2d_add_sewing_1to1"
     SewingAddFree2D = "qmyi.2d_add_sewing_free"
     SewingEdit2D = "qmyi.2d_sewing_edit"
+    SewingReverse2D = "qmyi.2d_sewing_reverse"
     SewingAddMtoN2D = "qmyi.2d_add_sewing_m2n"  # TODO
 
 

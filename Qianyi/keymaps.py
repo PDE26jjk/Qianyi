@@ -45,8 +45,20 @@ tool_base_keymap = (
     ),
 )
 
+# The editor's own right-click menu. Every tool of the pattern editor shows it,
+# so the commands it offers - the per-mode ones especially - are reachable from
+# the tool the user is working with rather than only from the selection tool.
+tool_context_menu = (
+    (
+        Operators.ContextMenu,
+        {"type": "RIGHTMOUSE", "value": "PRESS"},
+        {"properties": [("delayed", False)]},
+    ),
+)
+
 tool_generic = (
     *tool_base_keymap,
+    *tool_context_menu,
     *tool_use_select,
     *tool_access,
 )
@@ -54,11 +66,7 @@ tool_generic = (
 tool_select = (
     *tool_base_keymap,
     *tool_access,
-    (
-        Operators.ContextMenu,
-        {"type": "RIGHTMOUSE", "value": "PRESS"},
-        {"properties": [("delayed", False)]},
-    ),
+    *tool_context_menu,
     (
         Operators.Select,
         {"type": "LEFTMOUSE", "value": "CLICK", "any": True},

@@ -30,6 +30,7 @@ modules = [
     '_2d_add_sewing_1to1',
     '_2d_add_sewing_free',
     '_2d_sewing_edit',
+    '_2d_sewing_reverse',
     '_3d_pick_mesh',
     'capture_scene',
 ]

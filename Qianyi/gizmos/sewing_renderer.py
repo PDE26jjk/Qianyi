@@ -89,6 +89,28 @@ class SewingRenderer(BaseRenderer):
     def sewing(self):
         return global_data.get_obj_by_uuid(self.sewing_uuid, False)
 
+    def ensure_batch(self) -> bool:
+        """Whether the batches this renderer draws with are there.
+
+        A seam whose batch was never built - the renderer is made before the two
+        halves are walked, and a half the walk refuses leaves it without points -
+        has to ask the seam to build again, and then say so if it still cannot.
+        Drawing a batch that is not there raises inside the draw callback on
+        every frame, which is what takes the editor's own drawing down with it.
+        """
+        if self.batch_edge1 is not None:
+            return True
+        sewing = self.sewing
+        if sewing is None:
+            return False
+        sewing.need_render_update = True
+        try:
+            sewing.update()
+        except ValueError as refused:
+            console.warning("sewing renderer:", refused)
+            return False
+        return self.batch_edge1 is not None
+
     def update_batch_edge(self, render_points1, render_points2):
         # console.info('update_batch_edge')
         # console.info(render_points1, render_points1.flags['C_CONTIGUOUS'])
@@ -126,9 +148,8 @@ class SewingRenderer(BaseRenderer):
         """
         if not self.shader:
             return
-        if self.batch_edge1 is None:
-            self.sewing.need_update_points = True
-            self.sewing.update()
+        if not self.ensure_batch():
+            return
         gpu.state.blend_set('ALPHA')
         self.shader.bind()
         color = BROKEN_SEAM_COLOR if self.sewing.stitch_error else self.sewing.color
@@ -156,29 +177,38 @@ class SewingRenderer(BaseRenderer):
             self.batch_stitch_lines.draw(self.shader)
             gpu.state.line_width_set(previous_width)
 
-    def draw_id(self):
+    def draw_id(self, side1_id=None, side2_id=None):
+        """Draw both halves with the ids the pick pass registered for them.
+
+        The ids come from the pass: it is the only thing that knows which pattern
+        a half was drawn for, and it records them so a pointer over a half
+        resolves back to that side. A caller that passes none gets the side's own
+        uuid, which is what this drew before the pass registered halves.
+        """
         if not self.shader:
             return
         sewing = self.sewing
-        if self.batch_edge1 is None:
-            sewing.need_update_points = True
-            sewing.update()
+        if sewing is None or not self.ensure_batch():
+            return
 
         gpu.state.depth_test_set('NONE')
+        manager = global_data.temp_draw_manager
 
         self.shader.bind()
-        p1 = self.sewing.pattern1
+        p1 = sewing.pattern1
         if p1 is None:
             return
         transform_matrix = p1.calc_matrix()
         self.update_model_matrix(transform_matrix)
-        self.shader.uniform_float("color", global_data.temp_draw_manager.index_to_rgb(sewing.side1.global_uuid))
+        self.shader.uniform_float("color", manager.index_to_rgb(
+            sewing.side1.global_uuid if side1_id is None else side1_id))
         self.batch_edge1.draw(self.shader)
 
-        p2 = self.sewing.pattern2
+        p2 = sewing.pattern2
         if p2 is None:
             return
         transform_matrix = p2.calc_matrix()
         self.update_model_matrix(transform_matrix)
-        self.shader.uniform_float("color", global_data.temp_draw_manager.index_to_rgb(sewing.side2.global_uuid))
+        self.shader.uniform_float("color", manager.index_to_rgb(
+            sewing.side2.global_uuid if side2_id is None else side2_id))
         self.batch_edge2.draw(self.shader)

@@ -64,50 +64,36 @@ def half_pattern(project, half):
     return global_data.get_obj_by_uuid(int(half["pattern"]), check_uuid=False)
 
 
+def half_run(project, half):
+    """The chain a stored half runs on: the outline, or an internal line."""
+    return global_data.get_obj_by_uuid(int(half.get("run", -1)), check_uuid=False)
+
+
 def place_under(context, project, pointer_region):
-    """Where on a pattern's outline the pointer is: ``(pattern, distance, point)``.
+    """Where on a chain the pointer is: ``(pattern, run, distance, point)``.
 
-    The answer comes from the project's own nearest-outline search, which is the
-    same one the add-vertex tool snaps with, and is turned into a distance around
-    the outline - the space a seam stores its ends in. The pointer is the
-    caller's: a running drag is the one that owns the events, so the position has
-    to come from the event that moved, not from anything the editor kept for a
-    different purpose.
+    A chain is a pattern's outline or one of its internal lines, so a half can be
+    drawn along either; the distance is the one a seam stores its ends in. The
+    pointer is the caller's: a running drag is the one that owns the events, so
+    the position has to come from the event that moved, not from anything the
+    editor kept for a different purpose.
     """
-    if pointer_region is None:
-        return None
-    project.find_nearest_point_on_edge(region2view_coord(context, pointer_region))
-    if project.nearest_point is None or project.nearest_pattern is None:
-        return None
-    try:
-        pattern, edge, point, fraction = project.get_nearest_point_data()
-        distance = sewing.outline_origin(pattern, edge, fraction)
-    except (ValueError, KeyError):
-        # The snapshot behind the answer went stale between the search and the
-        # read: the next move asks again.
-        return None
-    view = region2view_coord(context, pointer_region)
-    radius = sewing.snap_radius(context, pattern, pointer_region, GRAB_PIXELS)
-    if radius > 0.0:
-        drawn = pattern.view_points([point])[0]
-        if float(np.linalg.norm(np.asarray(drawn) - np.asarray(view))) > radius:
-            return None
-    return pattern, float(distance), np.asarray(point, dtype=np.float64)
+    return sewing.run_place_under(context, project, pointer_region, GRAB_PIXELS)
 
 
-def snapped_place(context, project, pattern, pointer_region, entries=None):
+def snapped_place(context, project, pattern, run, pointer_region, entries=None):
     """The snap candidate near the pointer: ``(distance, kind)``, or None."""
     if entries is None:
-        entries = sewing.snap_candidates(project, pattern)
+        entries = sewing.run_candidates(project, run)
     found = sewing.nearest_candidate(context, pattern,
                                      region2view_coord(context, pointer_region), entries)
     if found is None:
         return None
     _away, point, kind, _uuid = found
-    return sewing.nearest_outline_distance(pattern, point), kind
+    return sewing.run_nearest_distance(run, point), kind
 
 
-def second_half_target(context, project, pattern, start_distance, travel, first,
+def second_half_target(context, project, pattern, run, start_distance, travel, first,
                        pointer_region):
     """The place that is exactly as long as the first half, when it is near.
 
@@ -123,7 +109,7 @@ def second_half_target(context, project, pattern, start_distance, travel, first,
     direction = 1.0 if travel >= 0.0 else -1.0
     distance = start_distance + direction * length
     try:
-        _edge, _pos, point = sewing.outline_place(pattern, distance)
+        _edge, _pos, point = sewing.run_place(run, distance)
     except ValueError:
         return None
     if pointer_region is None:
@@ -136,7 +122,7 @@ def second_half_target(context, project, pattern, start_distance, travel, first,
     return float(distance), np.asarray(point, dtype=np.float64)
 
 
-def set_preview(context, project, pattern, start_distance, start_point, travel,
+def set_preview(context, project, pattern, run, start_distance, start_point, travel,
                 first=None, equal=None) -> None:
     """Draw the half being dragged, and what it would snap to.
 
@@ -153,23 +139,24 @@ def set_preview(context, project, pattern, start_distance, start_point, travel,
         # A press that has not moved yet draws its start and nothing else: there
         # is no run to draw until the pointer has gone somewhere.
         try:
-            run = sewing.run_from(pattern, start_distance, travel)
+            walked = sewing.run_from(run, start_distance, travel)
         except ValueError:
             return
-        manager.set_tool_polyline(pattern.view_points(run["polyline"]))
-        entries.append((pattern, run["end_point"], "hover"))
+        manager.set_tool_polyline(pattern.view_points(walked["polyline"]))
+        entries.append((pattern, walked["end_point"], "hover"))
     else:
         manager.set_tool_polyline([])
     if equal is not None:
         entries.append((pattern, equal[1], "target"))
     if first is not None:
-        pattern = half_pattern(project, first)
-        if pattern is not None:
+        first_pattern = half_pattern(project, first)
+        first_run = half_run(project, first)
+        if first_pattern is not None and first_run is not None:
             try:
-                first_run = sewing.run_from(pattern, float(first["start"]),
-                                            float(first["travel"]))
-                entries.append((pattern, first_run["polyline"][0], "pivot"))
-                entries.append((pattern, first_run["end_point"], "target"))
+                drawn = sewing.run_from(first_run, float(first["start"]),
+                                        float(first["travel"]))
+                entries.append((first_pattern, drawn["polyline"][0], "pivot"))
+                entries.append((first_pattern, drawn["end_point"], "target"))
             except ValueError:
                 pass
     manager.set_tool_points(entries)
@@ -228,7 +215,7 @@ class NODE_OT_add_sewing_free(Operator2DBase, StateOperator):
             console.info("draw a sewing: no outline under the pointer")
             self.register_state(RefuseState())
             return
-        self.pattern, self.start_distance, self.start_point = place
+        self.pattern, self.run, self.start_distance, self.start_point = place
         self.travel = 0.0
         self.equal = None
         if manager is not None:
@@ -244,12 +231,12 @@ class NODE_OT_add_sewing_free(Operator2DBase, StateOperator):
         place = place_under(context, project, pointer_region)
         if place is None:
             return None
-        pattern, distance, point = place
-        snapped = snapped_place(context, project, pattern, pointer_region)
+        pattern, run, distance, point = place
+        snapped = snapped_place(context, project, pattern, run, pointer_region)
         if snapped is not None:
             distance, _kind = snapped
-            _edge, _pos, point = sewing.outline_place(pattern, distance)
-        return pattern, float(distance), np.asarray(point, dtype=np.float64)
+            _edge, _pos, point = sewing.run_place(run, distance)
+        return pattern, run, float(distance), np.asarray(point, dtype=np.float64)
 
     def pointer_moved(self, state: IState, context: Context):
         """One move: extend the half to the place under the pointer."""
@@ -257,22 +244,22 @@ class NODE_OT_add_sewing_free(Operator2DBase, StateOperator):
         place = place_under(context, self.project, self.pointer)
         if place is None:
             return
-        pattern, distance, _point = place
-        if pattern.global_uuid != self.pattern.global_uuid:
-            # The half stays on the pattern it was started on; the pointer is
+        _pattern, run, distance, _point = place
+        if sewing.run_key(run) != sewing.run_key(self.run):
+            # The half stays on the chain it was started on; the pointer is
             # simply not over it any more.
             return
         here = self.start_distance + self.travel
-        self.travel += sewing.outline_step(self.pattern, here, distance)
+        self.travel += sewing.run_step(self.run, here, distance)
         self.refresh(context)
 
     def refresh(self, context: Context):
         """Rebuild the preview for the drag as it stands."""
-        equal = second_half_target(context, self.project, self.pattern,
+        equal = second_half_target(context, self.project, self.pattern, self.run,
                                    self.start_distance, self.travel, self.first,
                                    self.pointer)
         self.equal = equal
-        set_preview(context, self.project, self.pattern, self.start_distance,
+        set_preview(context, self.project, self.pattern, self.run, self.start_distance,
                     self.start_point, self.end_travel(), self.first, equal)
         if context.area is not None:
             context.area.tag_redraw()
@@ -285,7 +272,7 @@ class NODE_OT_add_sewing_free(Operator2DBase, StateOperator):
 
     def handle_success(self, context: Context, state: IState):
         try:
-            run = sewing.run_from(self.pattern, self.start_distance, self.end_travel())
+            run = sewing.run_from(self.run, self.start_distance, self.end_travel())
         except ValueError as refused:
             console.info("draw a sewing:", refused)
             self.return_state = ReturnState.CANCELLED
@@ -302,6 +289,7 @@ class NODE_OT_add_sewing_free(Operator2DBase, StateOperator):
     def arm(self, project, run) -> None:
         """Keep the first half, and say how to finish the seam."""
         project.sewing_free_half = {"pattern": self.pattern.global_uuid,
+                                    "run": sewing.run_key(self.run),
                                     "start": float(self.start_distance),
                                     "travel": float(self.end_travel())}
         console.info(f"draw a sewing: the first half is {run['length']:.1f} mm long; "
@@ -310,14 +298,16 @@ class NODE_OT_add_sewing_free(Operator2DBase, StateOperator):
     def join(self, project, run) -> None:
         """Make the seam out of the half that was waiting and this one."""
         first = self.first
-        pattern = half_pattern(project, first)
+        first_pattern = half_pattern(project, first)
+        first_run_chain = half_run(project, first)
         forget(project)
-        if pattern is None:
-            console.info("draw a sewing: the pattern of the first half is gone")
+        if first_pattern is None or first_run_chain is None:
+            console.info("draw a sewing: the first half is gone")
             self.return_state = ReturnState.CANCELLED
             return
         try:
-            first_run = sewing.run_from(pattern, float(first["start"]), float(first["travel"]))
+            first_run = sewing.run_from(first_run_chain, float(first["start"]),
+                                        float(first["travel"]))
         except ValueError as refused:
             console.info("draw a sewing:", refused)
             self.return_state = ReturnState.CANCELLED
@@ -327,7 +317,7 @@ class NODE_OT_add_sewing_free(Operator2DBase, StateOperator):
             first_run["end_edge"], first_run["end_pos"], first_run["reverse"],
             run["start_edge"], run["start_pos"],
             run["end_edge"], run["end_pos"], run["reverse"],
-            pattern1=pattern, pattern2=self.pattern)
+            pattern1=first_pattern, pattern2=self.pattern)
         if seam is None:
             console.warning("draw a sewing:", project.last_sewing_error or "no seam was made")
             self.return_state = ReturnState.CANCELLED

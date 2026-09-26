@@ -7,9 +7,9 @@ from ..declarations import GizmoGroups, Operators, WorkSpaceTools
 from ..keymaps import tool_generic
 from ..model import sewing_geometry as sewing
 from ..model.qianyi_data import ensure_edit_mode
-from ..operators._2d_add_sewing_free import (armed_half, half_pattern, place_under,
-                                             second_half_target, set_preview,
-                                             snapped_place, SUBMODE)
+from ..operators._2d_add_sewing_free import (armed_half, half_pattern, half_run,
+                                             place_under, second_half_target,
+                                             set_preview, snapped_place, SUBMODE)
 from ..utilities.console import console
 from ..utilities.node_tree import get_active_node_tree
 
@@ -63,20 +63,20 @@ class NODE_T_qmyi_add_sewing_free(WorkSpaceTool):
                 draw_waiting(context, project, first, None)
             context.area.tag_redraw()
             return
-        pattern, distance, point = place
-        snapped = snapped_place(context, project, pattern, region_co)
+        pattern, run, distance, point = place
+        snapped = snapped_place(context, project, pattern, run, region_co)
         if snapped is not None:
             distance, _kind = snapped
-            _edge, _pos, point = sewing.outline_place(pattern, distance)
+            _edge, _pos, point = sewing.run_place(run, distance)
         # With a half waiting, the preview is the second half this press would
         # draw: the place it takes, and the place that matches the first.
         travel = 0.0
-        equal = second_half_target(context, project, pattern, distance, travel, first,
-                                   region_co)
+        equal = second_half_target(context, project, pattern, run, distance, travel,
+                                   first, region_co)
         if equal is None:
-            set_preview(context, project, pattern, distance, point, travel, first)
+            set_preview(context, project, pattern, run, distance, point, travel, first)
         else:
-            set_preview(context, project, pattern, distance, point,
+            set_preview(context, project, pattern, run, distance, point,
                         equal[0] - distance, first, equal)
         context.area.tag_redraw()
 
@@ -84,13 +84,14 @@ class NODE_T_qmyi_add_sewing_free(WorkSpaceTool):
 def draw_waiting(context, project, first, pointer) -> None:
     """Show the first half on its own pattern while nothing is under the pointer."""
     pattern = half_pattern(project, first)
+    run = half_run(project, first)
     manager = global_data.temp_draw_manager
-    if pattern is None or manager is None:
+    if pattern is None or run is None or manager is None:
         return
     try:
-        run = sewing.run_from(pattern, float(first["start"]), float(first["travel"]))
+        walked = sewing.run_from(run, float(first["start"]), float(first["travel"]))
     except ValueError:
         return
-    manager.set_tool_polyline(pattern.view_points(run["polyline"]))
-    manager.set_tool_points([(pattern, run["polyline"][0], "pivot"),
-                             (pattern, run["end_point"], "target")])
+    manager.set_tool_polyline(pattern.view_points(walked["polyline"]))
+    manager.set_tool_points([(pattern, walked["polyline"][0], "pivot"),
+                             (pattern, walked["end_point"], "target")])

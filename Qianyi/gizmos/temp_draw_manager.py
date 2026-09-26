@@ -8,6 +8,7 @@ import numpy as np
 from gpu_extras.batch import batch_for_shader
 
 from .color_points_renderer import MultiColorPointsRenderer
+from ..model import sewing_geometry
 from ..model.sewing import SewingOneSide
 from ..model.qianyi_project import QianyiProject, edge_point_at, sewing_half_directions
 from ..utilities.console import console
@@ -112,9 +113,10 @@ class TempDrawManager:
         # says which member was under the pointer.
         self.pick_of_id = {}
         # (pattern, kind, element) under the pointer, as of the last id pass the
-        # pointer read; "kind" is "edge", "vertex", "spline_point", "handle1" or
-        # "handle2". A tool that reacts to a click reads it here, and the
-        # selection turns it into the active pattern.
+        # pointer read; "kind" is "edge", "vertex", "spline_point", "handle1",
+        # "handle2", "sewing_side", "sewing_start" or "sewing_end". A tool that
+        # reacts to a click reads it here, and the selection turns it into the
+        # active pattern.
         self.hover_pick = None
         # Projection of the project's silhouette objects, drawn behind the
         # patterns. Built lazily: a GPU shader cannot be created before the draw
@@ -320,6 +322,70 @@ class TempDrawManager:
         self.pick_of_id[own] = (pattern, "edge", edge.global_uuid)
         renderer.draw(self.index_to_rgb(own), width, draw_id=True, pattern=pattern)
 
+    def pointed_side(self):
+        """The half the pointer was over when the pass last read the frame.
+
+        Reading a half's ends costs an outline walk each, and the pass runs on
+        every gizmo draw, so only the half the pointer is on is given ends to
+        point at. The read that finds an end is the next pass's: pointing at a
+        half answers the half, and the ends appear under the pointer from there.
+        """
+        pick = self.hover_pick
+        if pick is None or not isinstance(pick[2], SewingOneSide):
+            return None
+        return pick[2]
+
+    def draw_sewing_for_pick(self, sewing, points_renderer, pointed=None):
+        """Draw one seam's halves, with ids of their own, and `pointed` ends.
+
+        A half is the pair of its side and the pattern that side was made on, so
+        it is registered the way an edge is: the pointer then answers with that
+        pattern, never with a member of the chain the side merely runs along. The
+        ends of `pointed` are registered as points and drawn after the lines - a
+        pick reads back the last thing drawn at a pixel - so a pointer on an end
+        answers "sewing_start" or "sewing_end", and a pointer anywhere else on a
+        half answers "sewing_side".
+        """
+        renderer = sewing.renderer
+        side_ids = []
+        for side in (sewing.side1, sewing.side2):
+            pattern = side.pattern
+            if pattern is None:
+                # A side whose pattern is gone is not on screen at all; the seam
+                # is what the editor drops, and this only keeps the frame alive.
+                side_ids.append(None)
+                continue
+            # A side is registered the first time it is asked for its own data,
+            # and the pass both keys an id on its uuid and hands it back through
+            # the identity map: do it before either, so a frame that draws before
+            # the seam has been updated still resolves.
+            side.get_temp_data()
+            own = pattern.pick_id("sewing_side", side)
+            self.pick_of_id[own] = (pattern, "sewing_side", side.global_uuid)
+            side_ids.append(own)
+            if pointed is not None and pointed.global_uuid == side.global_uuid:
+                self.add_sewing_end_points(pattern, side, points_renderer)
+        if renderer is not None:
+            renderer.draw_id(side_ids[0], side_ids[1])
+
+    def add_sewing_end_points(self, pattern, side, points_renderer) -> None:
+        """Register and draw a half's two ends as points of this pass."""
+        try:
+            run, start, travel = sewing_geometry.side_run(side)
+        except ValueError:
+            # A half with no length left - a seam being edited - has no ends to
+            # point at.
+            return
+        for kind, distance in (("sewing_start", start), ("sewing_end", start + travel)):
+            # loop: the two ends of one half
+            try:
+                _edge, _pos, point = sewing_geometry.run_place(run, distance)
+            except ValueError:
+                return
+            own = pattern.pick_id(kind, side)
+            self.pick_of_id[own] = (pattern, kind, side.global_uuid)
+            points_renderer.add_point(pattern, point, self.index_to_rgb(own))
+
     def resolve(self, index):
         """What the last id pass drew at one id: (pattern, kind, element).
 
@@ -415,10 +481,14 @@ class TempDrawManager:
                             for e in edges:
                                 self.draw_edge_for_pick(p, e, e.renderer, 10.)
                         else:
-                            sewings = node_tree.sewings
+                            # Editing a half needs to know which half - and which
+                            # of its ends - the pointer is on, so the pass draws
+                            # and registers both, the ends of the half under the
+                            # pointer over the half they sit on.
                             gpu.state.line_width_set(10.0)
-                            for s in sewings:
-                                s.renderer.draw_id()
+                            pointed = self.pointed_side()
+                            for s in node_tree.sewings:
+                                self.draw_sewing_for_pick(s, points_renderer, pointed)
                 points_renderer.draw(15.0, draw_id=True)
 
     def draw_sewing_direction_preview(self, context, project):
@@ -489,6 +559,18 @@ class TempDrawManager:
             # gizmo_axis_draw -> GPU_matrix_translate_3f -> translate_m4).
             try:
                 obj = qmyi.hover_object
+                if isinstance(obj, SewingOneSide):
+                    # A seam under the pointer: drawn again, thicker, so the seam a
+                    # click or a drag would take is visible before it is taken. The
+                    # seam draws both of its halves itself, each in the space of the
+                    # pattern it was made on, so what is loaded here is an identity
+                    # matrix - the halves bring their own.
+                    seam = obj.sewing
+                    if seam is not None and seam.renderer is not None:
+                        gpu.matrix.load_matrix(create_2d_matrix())
+                        gpu.state.line_width_set(20.)
+                        seam.renderer.draw(dashed_line=bool(obj.is_selected))
+                    return
                 # offset = [0., 0.]
                 # The pattern the pointer is over: the id pass recorded which
                 # member drew it, which the element itself cannot say - an edge
@@ -504,11 +586,6 @@ class TempDrawManager:
                         # that owns the Sketch it lives in.
                         p = owner_pattern(obj)
                 if p is None:
-                    if isinstance(obj, SewingOneSide):  # why false?
-                        # if obj.__class__.__name__ == "SewingOneSide":
-                        if obj.sewing is not None:
-                            gpu.state.line_width_set(20.)
-                            obj.sewing.renderer.draw(dashed_line=False)
                     return
                 # gpu.matrix.translate((offset[0], offset[1], 0.0))
                 gpu.matrix.load_matrix(p.calc_matrix())

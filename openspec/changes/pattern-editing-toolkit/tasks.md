@@ -368,13 +368,22 @@
   `.agents/scratch/probe_sewing_geometry.py` for the geometry layer)
 - [x] 13.2 Edit a half: an end that grows or shrinks it, or the half itself
   sliding along the outline keeping its length, both with snapping
-  (`Qianyi/operators/_2d_sewing_edit.py`: the press decides whether it took an
-  end or the body; ends snap to vertices, other halves' ends and the opposite
-  half's length; a sliding half snaps each end on its own. Every move is
-  measured from the shape the drag started with, so dragging back and forth is
-  exact. One drag is one undo step; a move that would leave no half, or one the
-  linking run then refuses, is taken back. Checked by
-  `.agents/scratch/probe_sewing_edit.py`)
+  (`Qianyi/operators/_2d_sewing_edit.py`: the id pass draws every half and, for
+  the half under the pointer, its two ends as points over it, so the pointer
+  decides whether a press took an end or the body instead of guessing from how
+  close it happened to land - the half's ends are selectors of their own, drawn
+  by `TempDrawManager.draw_sewing_for_pick`; ends snap to vertices, other
+  halves' ends and the opposite half's length; a sliding half snaps each end on
+  its own, and each end is measured where that end is rather than where the
+  pointer is; an end dragged past the other one lays the run the long way round
+  the outline - the run keeps its direction and its length wraps at the place
+  the two ends meet (`sewing_geometry.wrapped_travel`), so a half can span
+  almost the whole outline. Every move is measured from the shape the drag
+  started with, so dragging back and forth is exact. One drag is one undo step;
+  a move that would leave no half, or one the linking run then refuses, is taken
+  back. Checked by
+  `.agents/scratch/probe_sewing_edit.py` and, with a real GPU, by
+  `.agents/scratch/probe_sewing_edit_windowed.py`)
 - [x] 13.3 Flag a seam whose two halves cannot be paired, and hold its patterns
   out of the mesh and the simulation
   (`Qianyi/model/sewing_guard.py`: after every linking run each seam's two

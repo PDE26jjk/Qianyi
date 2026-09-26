@@ -5,7 +5,7 @@ from bpy.utils import register_classes_factory
 
 from ..utilities.cubic_spline import get_handles_after_split, compute_split_handles
 from ..utilities.geometric_operation import split_bezier
-from ..model.pattern import Pattern, interactive_edit_allowed
+from ..model.pattern import Pattern, chain_of_edge, interactive_edit_allowed
 from ..model.generator import refuse_generated_edit
 from ..model.qianyi_data import ensure_edit_mode
 from ..utilities.console import console
@@ -41,10 +41,26 @@ class NODE_OT_add_vertex(Operator2DBase):
 
         project = get_active_node_tree(context)
 
-        pattern, edge, add_point_pos, t = project.get_nearest_point_data()
+        # The finder's snapshot carries the outline and every internal line, and it
+        # answers with the edge nearest the pointer rather than the one it is
+        # exactly on: a click near a thin line is what this tool has to work with.
+        try:
+            pattern, edge, add_point_pos, t = project.get_nearest_point_data()
+        except (ValueError, KeyError) as refused:
+            # Nothing is near the pointer, or the snapshot names something the
+            # geometry no longer has: refuse rather than raise out of the tool.
+            console.info("add vertex: no edge under the pointer:", refused)
+            return {'CANCELLED'}
         if refuse_generated_edit(self, project, pattern):
             return {'CANCELLED'}
-        edge_index = edge.get_index()
+        # The chain the edge belongs to: the outline, or the internal line it is
+        # a piece of. The split writes into that chain, and both answer the same
+        # way, so the rest of this tool does not care which one it is.
+        owner, edge_index = chain_of_edge(pattern, edge)
+        if owner is None:
+            console.info("add vertex: that edge is not part of this pattern")
+            return {'CANCELLED'}
+        chain_edges = owner.edges
         edge_points = [p.co for p in edge.spline_points]
         q = np.array((edge.vertex0.co, *edge_points, edge.vertex1.co))
         old_t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
@@ -139,19 +155,19 @@ class NODE_OT_add_vertex(Operator2DBase):
         # each edge is read back by its place after the write that moved it: the
         # old edge is written before the new one exists, and both are read again
         # after that.
-        e = pattern.edges[edge_index]
+        e = chain_edges[edge_index]
         old_end = int(e.vertex_index[1])
         old_end_type = e.handle2_type
         e.handle1.co = handle_a.co
         e.handle2.co = handle_b.co
         handle_type = "ALIGNED" if not is_straight_line else "VECTOR"
-        new_edge = pattern.add_edge(v_index, old_end,
+        new_edge = owner.add_edge(v_index, old_end,
                                     control1=handle_c.co, control2=handle_d.co,
                                     handle1_type=handle_type, handle2_type=old_end_type,
                                     update=False)
         if not is_bz:
-            e = pattern.edges[edge_index]
-            new_edge = pattern.edges[len(pattern.edges) - 1]
+            e = chain_edges[edge_index]
+            new_edge = chain_edges[len(chain_edges) - 1]
             for i in range(insert_at_final, spline_points_size):
                 point = new_edge.spline_points.add()
                 point.get_temp_data()
@@ -164,13 +180,13 @@ class NODE_OT_add_vertex(Operator2DBase):
             pattern.refresh_collection_uuid(e.spline_points)
             pattern.refresh_collection_uuid(new_edge.spline_points)
 
-        e = pattern.edges[edge_index]
+        e = chain_edges[edge_index]
         e.handle2_type = handle_type
         e.vertex_index[1] = v_index
-        if edge_index + 2 != len(pattern.edges):
-            pattern.edges.move(len(pattern.edges) - 1, edge_index + 1)
+        if edge_index + 2 != len(chain_edges):
+            chain_edges.move(len(chain_edges) - 1, edge_index + 1)
         pattern.refresh_collection_uuid(pattern.vertices)
-        pattern.refresh_collection_uuid(pattern.edges)
+        pattern.refresh_collection_uuid(chain_edges)
 
         # One Sketch serves the whole instance chain, so the new point is one
         # edit for every member: the Sketch builds each of their meshes.
@@ -179,9 +195,15 @@ class NODE_OT_add_vertex(Operator2DBase):
         # without this the next click snaps to the shape that used to be there,
         # and its offsets no longer fit the edges the pattern has now.
         project.clear_edge_finder()
-        p = pattern.vertices[len(pattern.vertices) - 1]
-        p.get_temp_data()
+        # What the new point leaves behind: it is the selection, so the move tool
+        # that runs next acts on it, and the member the click was made on becomes
+        # the active pattern, so that move knows which member's transform to use -
+        # a mirrored instance carries the same point in a space of its own.
         project.selected_vertices.clear()
+        project.selected_edges.clear()
+        project.set_active_pattern(pattern)
+        p = pattern.vertices[v_index]
+        p.get_temp_data()
         v = project.selected_vertices.add()
         v.uuid = p.global_uuid
         return {'FINISHED'}

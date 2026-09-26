@@ -82,6 +82,26 @@ def interactive_edit_allowed(context, points):
     return False
 
 
+def chain_of_edge(pattern, edge) -> tuple:
+    """What an edge of this pattern belongs to, and where in it: ``(owner, index)``.
+
+    An outline edge belongs to the pattern - its edges are the Sketch's, and the
+    pattern is what the rest of the editor writes through - while a piece of an
+    internal line belongs to that line. A tool that splits or moves one edge writes
+    its result into the chain the edge came from, and both owners answer the same
+    way: ``.edges``, ``.add_edge(...)`` and the rest of the collection API. None
+    when the edge is not part of this pattern at all.
+    """
+    for line in pattern.internal_lines:  # loop: one internal line per check
+        for index in range(len(line.edges)):  # loop: its own pieces
+            if line.edges[index].global_uuid == edge.global_uuid:
+                return line, index
+    for index in range(len(pattern.edges)):  # loop: one outline edge per check
+        if pattern.edges[index].global_uuid == edge.global_uuid:
+            return pattern, index
+    return None, -1
+
+
 def crossing_check_enabled(context) -> bool:
     """Whether an interactive edit tests its result for a self-crossing.
 
@@ -637,6 +657,14 @@ class Pattern(PropertyGroup, ModelData, Selectable):
                 # edge. Splitting here would cut the piece with a fraction
                 # beyond its own end and leave a piece that runs backwards.
                 continue
+            if pos >= section.end_pos - eps:
+                # The position is already a piece boundary - a seam that ends
+                # where another one starts, or a half moved onto one. The piece
+                # that starts there is the answer; splitting here would cut a
+                # zero-length piece off the end (`radio` 1), and the stitch
+                # walks count every piece, so the two sides of the seam would no
+                # longer pair.
+                return section.next
             radio = (pos - section.start_pos) / (section.end_pos - section.start_pos)
             _, new_section = section.split(radio)
             return new_section
@@ -924,6 +952,51 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             self.sample_sizes[(None, index)] = len(points)
             start_point += points.shape[0]
         return np.concatenate(edge_points, dtype=np.float32)
+
+    def edge_finder_groups(self) -> list:
+        """The chains this pattern feeds the edge finder: the outline, then its lines.
+
+        Each entry is ``(key, points, sizes)``: the chain's key (None for the
+        outline, the index of one internal line otherwise), its points in one flat
+        array, and how many of them each of its edges owns. An edge's own last
+        sample is the next edge's first - the pieces of a chain share their ends -
+        so it is dropped, except at an open chain's own end, where the point is the
+        end of the line and is kept.
+
+        The engine's edge builder closes every group into a loop (`next = (k + 1) %
+        size`), which is what the outline wants: its last point and its first are
+        the same place. An open chain has two ends, so it repeats its last point:
+        the edge that closes it is then a point rather than a line the pointer
+        could snap across.
+        """
+        # The samples are session data: a pattern a file was opened with has none
+        # of them, so they are asked for here rather than left to whoever calls
+        # this. The finder built without them would be an empty snapshot with a
+        # layout that says otherwise, and every tool that reads it would find
+        # nothing to snap to.
+        self.ensure_sections()
+        groups = []
+        for key in (None, *range(len(self.internal_lines))):
+            closed = True if key is None else bool(self.internal_lines[key].is_loop)
+            edges = self.edges if key is None else self.internal_lines[key].edges
+            pieces = []
+            sizes = []
+            for index in range(len(edges)):  # loop: one edge of this chain per run
+                samples = np.asarray(self.sample_points.get((key, index), ()),
+                                     dtype=np.float32)
+                if len(samples) < 2:
+                    sizes.append(0)
+                    continue
+                keep = len(samples) - 1 if (closed or index < len(edges) - 1) else len(samples)
+                sizes.append(keep)
+                pieces.append(samples[:keep])
+            if not pieces:
+                continue
+            points = np.concatenate(pieces, dtype=np.float32)
+            if not closed:
+                points = np.concatenate((points, points[-1:]), dtype=np.float32)
+            groups.append((key, points, tuple(sizes)))
+        return groups
 
     def write_geo_points(self) -> None:
         """Keep a copy of the boundary samples the mesh is about to be built from.

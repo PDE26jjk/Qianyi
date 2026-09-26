@@ -38,6 +38,12 @@ class NODE_T_qmyi_add_vertex(WorkSpaceTool):
         # there is no "the tool does nothing until you change the mode" step.
         if ensure_edit_mode(context, "EDGE", "ADD_VERTEX"):
             console.info('edit_mode = EDGE / ADD_VERTEX')
+        # The finder is what the tool reads and what the preview point is drawn
+        # from, so it is kept current on every frame rather than when the mode
+        # changes: an undo, a reload or another tool's edit leaves the snapshot
+        # describing geometry that is no longer there, and a stale or dropped
+        # snapshot is exactly what makes this tool look dead.
+        if not node_tree.edge_finder_is_current():
             node_tree.update_edge_finder()
         region = context.region
         if not region:

@@ -4,8 +4,7 @@ from bpy.types import Context
 from bpy.utils import register_classes_factory
 
 from ..utilities.cubic_spline import get_handles_after_split
-from ..utilities.geometric_operation import sample_polyline
-from ..model.pattern import Pattern, interactive_edit_allowed
+from ..model.pattern import Pattern, chain_of_edge, interactive_edit_allowed
 from ..model.generator import refuse_generated_edit
 from ..model.qianyi_data import ensure_edit_mode
 from ..utilities.console import console
@@ -41,12 +40,24 @@ class NODE_OT_add_spline_point(Operator2DBase):
 
         project = get_active_node_tree(context)
 
-        pattern, edge, add_point_pos, t = project.get_nearest_point_data()
+        # The finder's snapshot carries the outline and every internal line, and it
+        # answers with the edge nearest the pointer rather than the one it is
+        # exactly on: a click near a thin line is what this tool has to work with.
+        try:
+            pattern, edge, add_point_pos, t = project.get_nearest_point_data()
+        except (ValueError, KeyError) as refused:
+            # Nothing is near the pointer, or the snapshot names something the
+            # geometry no longer has: refuse rather than raise out of the tool.
+            console.info("add spline point: no edge under the pointer:", refused)
+            return {'CANCELLED'}
         if refuse_generated_edit(self, project, pattern):
             return {'CANCELLED'}
-        if len(edge.render_points) > 200:
-            add_point_pos = sample_polyline(edge.render_points, t)
-        edge_index = edge.get_index()
+        # The chain the piece belongs to: the outline, or the internal line it is
+        # a piece of. The control point is written into that chain.
+        owner, edge_index = chain_of_edge(pattern, edge)
+        if owner is None:
+            console.info("add spline point: that edge is not part of this pattern")
+            return {'CANCELLED'}
         edge_points = [p.co for p in edge.spline_points]
         q = np.array((edge.vertex0.co, *edge_points, edge.vertex1.co))
         old_t = np.r_[0, np.cumsum(np.linalg.norm(np.diff(q, axis=0), axis=1))]
@@ -110,7 +121,7 @@ class NODE_OT_add_spline_point(Operator2DBase):
         insert_at_final = max(0, min(len(edge.spline_points), insert_at - 1))
         # One Sketch per instance chain: the control point is written once. This
         # pattern meshes from it now; the other readers were marked by the write.
-        e = pattern.edges[edge_index]
+        e = owner.edges[edge_index]
         sp = e.spline_points.add()
         sp.get_temp_data()
         sp.co = temp_point.co
@@ -133,9 +144,15 @@ class NODE_OT_add_spline_point(Operator2DBase):
         pattern.require_sketch().rebuild_meshes()
         # The outline moved, so the finder the tools snap against is stale.
         project.clear_edge_finder()
-        sp = pattern.edges[edge_index].spline_points[insert_at_final]
-        sp.get_temp_data()
+        # What the new control point leaves behind: it is the selection, so the
+        # move tool that runs next acts on it, and the member the click was made
+        # on becomes the active pattern, so that move knows which member's
+        # transform to use - a mirrored instance carries the point in its own space.
         project.selected_vertices.clear()
+        project.selected_edges.clear()
+        project.set_active_pattern(pattern)
+        sp = owner.edges[edge_index].spline_points[insert_at_final]
+        sp.get_temp_data()
         v = project.selected_vertices.add()
         v.uuid = sp.global_uuid
         return {'FINISHED'}

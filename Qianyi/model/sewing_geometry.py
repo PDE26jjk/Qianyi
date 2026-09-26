@@ -1,16 +1,21 @@
 """Where a sewing half runs, and what a pointer can snap to while drawing one.
 
-A half is a run of a pattern's outline: from a place on one edge to a place on
-another, with the direction it was drawn in. A place is stored as a fraction of
-its own edge's length (`SewingOneSide.pos1` / `pos2`) - a relative length - so
-everything here that measures converts through the edge lengths and answers in
-millimetres.
+A half is a run of a chain: from a place on one edge to a place on another, with
+the direction it was drawn in. The chain is the outline a pattern reads - closed,
+so a run may go round it and come back - or one internal line, which is open
+unless it was drawn as a loop: a run on an open chain stays between its ends and
+turns round rather than wrapping past them.
 
-Work therefore happens in one absolute space: the distance around the outline,
-from the start of its first edge. `outline_origin` puts a stored place in it,
-`outline_place` answers what a distance lands on, and `run_from` walks one
-distance of the outline into the polyline a half is drawn as. A run that would
-be longer than the outline is refused rather than wrapping onto itself.
+A place is stored as a fraction of its own edge's length (`SewingOneSide.pos1` /
+`pos2`) - a relative length - so everything here that measures converts through
+the edge lengths and answers in millimetres.
+
+Work therefore happens in one space per chain: the distance along it, from the
+start of its first edge. `run_of` names the chain an edge belongs to,
+`run_origin` puts a stored place in it, `run_place` answers what a distance lands
+on, and `run_from` walks one distance of it into the polyline a half is drawn as.
+A run that would be longer than its chain, or leave an open one, is refused
+rather than wrapping onto itself.
 """
 
 from __future__ import annotations
@@ -18,6 +23,49 @@ from __future__ import annotations
 import numpy as np
 
 from ..utilities.curve_fit import polyline_length, slice_by_arc_length
+
+
+def run_of(line):
+    """The chain an edge runs along: its pattern's outline, or its internal line.
+
+    An edge knows what holds it - the Sketch for outline edges, the internal line
+    for the pieces of one - and that holder is what a run between two of its edges
+    is measured in. Several patterns read one Sketch, so the answer is the chain
+    itself and not a member: the outline is shared, and so is the distance.
+    """
+    return line.get_parent()
+
+
+def run_edges(run):
+    """The edges of a chain, in the order it runs."""
+    return run.edges
+
+
+def run_is_loop(run) -> bool:
+    """Whether a chain closes on itself.
+
+    A pattern's outline always does; an internal line says so itself, because a
+    pen may draw one that comes back to where it started.
+    """
+    return bool(getattr(run, "is_loop", True))
+
+
+def run_is_internal(run) -> bool:
+    """Whether a chain is an internal line rather than an outline."""
+    return hasattr(run, "is_loop")
+
+
+def run_key(run) -> int:
+    """The identity of a chain, for the session records that name one.
+
+    An outline is shared by every pattern of a chain, so a pattern answers with
+    the Sketch it reads: two members of one chain, and the Sketch itself, all name
+    that one outline. An internal line is its own.
+    """
+    if run_is_internal(run):
+        return int(run.global_uuid)
+    sketch_uuid = int(getattr(run, "sketch_uuid", -1))
+    return sketch_uuid if sketch_uuid != -1 else int(run.global_uuid)
 
 
 def edge_index(pattern, edge) -> int:
@@ -49,50 +97,64 @@ def point_on_edge(edge, pos) -> np.ndarray:
                      np.interp(distance, steps, points[:, 1])), dtype=np.float64)
 
 
-def outline_length(pattern) -> float:
-    """How long a pattern's outline is, in millimetres."""
-    return float(sum(float(edge.length or 0.0) for edge in pattern.edges))
+def run_length(run) -> float:
+    """How long a chain is, in millimetres."""
+    return float(sum(float(edge.length or 0.0) for edge in run_edges(run)))
 
 
-def outline_origin(pattern, edge, pos) -> float:
-    """Where a stored place sits, as a distance around the whole outline."""
-    index = edge_index(pattern, edge)
+def run_origin(run, edge, pos) -> float:
+    """Where a stored place sits, as a distance along the whole chain."""
+    edges = run_edges(run)
+    index = next((index for index in range(len(edges))
+                  if edges[index].global_uuid == edge.global_uuid), -1)
     if index < 0:
-        raise ValueError("this edge is not part of the pattern's outline")
+        raise ValueError("this edge is not part of the chain it is stored in")
     distance = 0.0
     for before in range(index):  # loop: one edge in front of it per step
-        distance += float(pattern.edges[before].length or 0.0)
+        distance += float(edges[before].length or 0.0)
     return distance + float(pos) * float(edge.length or 0.0)
 
 
-def outline_place(pattern, distance) -> tuple:
-    """What a distance around the outline lands on: ``(edge, pos, point)``."""
-    total = outline_length(pattern)
+def run_place(run, distance) -> tuple:
+    """What a distance along the chain lands on: ``(edge, pos, point)``.
+
+    A closed chain wraps: its own length and zero are the same place. An open
+    chain has ends, so a distance outside it is not a place on it at all, and it
+    is refused here - that is what keeps a run on an internal line inside the
+    line instead of wrapping past its end.
+    """
+    edges = run_edges(run)
+    total = run_length(run)
     if total <= 0.0:
-        raise ValueError("this pattern's outline has no length to walk")
-    distance = float(distance) % total
+        raise ValueError("this chain has no length to walk")
+    distance = float(distance)
+    if run_is_loop(run):
+        distance %= total
+    elif distance < -1e-6 or distance > total + 1e-6:
+        raise ValueError("that place is past the end of the chain")
+    distance = min(max(distance, 0.0), total)
     walked = 0.0
-    for edge in pattern.edges:  # loop: one edge per step around the outline
+    for edge in edges:  # loop: one edge per step along the chain
         length = float(edge.length or 0.0)
         if length > 0.0 and distance <= walked + length:
             pos = min(max((distance - walked) / length, 0.0), 1.0)
             return edge, pos, point_on_edge(edge, pos)
         walked += length
-    last = pattern.edges[-1]
+    last = edges[-1]
     return last, 1.0, point_on_edge(last, 1.0)
 
 
-def nearest_outline_distance(pattern, point) -> float:
-    """The distance around the outline of the place closest to a point.
+def run_nearest_distance(run, point) -> float:
+    """The distance along the chain of the place closest to a point.
 
     A snap candidate is a place in the pattern's own space - a vertex, or the end
-    of a sewing half - and a seam stores places as distances around the outline,
-    so a candidate is measured against every edge and answered in that space.
+    of a sewing half - and a seam stores places as distances along the chain, so
+    a candidate is measured against every edge of it and answered in that space.
     """
     point = np.asarray(point, dtype=np.float64)
     best = None
     walked = 0.0
-    for edge in pattern.edges:  # loop: one edge per comparison
+    for edge in run_edges(run):  # loop: one edge per comparison
         points, steps = edge_samples(edge)
         if len(points) == 0:
             continue
@@ -109,44 +171,145 @@ def nearest_outline_distance(pattern, point) -> float:
             best = (away, walked + at)
         walked += float(steps[-1])
     if best is None:
-        raise ValueError("this pattern's outline has no samples to measure against")
+        raise ValueError("this chain has no samples to measure against")
     return float(best[1])
 
 
-def outline_step(pattern, from_distance, to_distance) -> float:
-    """The signed distance from one place on the outline to another, the short way."""
-    total = outline_length(pattern)
+def run_place_under(context, project, pointer_region, pixels) -> tuple:
+    """The place on a chain under the pointer: ``(pattern, run, distance, point)``.
+
+    The outline comes from the project's own edge finder, which is the search the
+    rest of the editor snaps with, and answers with the place nearest the pointer
+    rather than the place the pointer is exactly on - what a click on a thin line
+    needs. An internal line is measured here, from its own pieces: it is a handful
+    of segments, and reading them directly keeps the sewing tools independent of
+    the finder's snapshot, which the point tools are the ones that need. Whichever
+    answers nearer to the pointer wins, and a pointer further than `pixels` from
+    the nearest chain has no place on one at all. The pattern comes with the
+    answer because that is what draws the chain and what a preview is built in.
+    """
+    from ..utilities.coords_transform import region2view_coord
+
+    if pointer_region is None:
+        return None
+    view = np.asarray(region2view_coord(context, pointer_region), dtype=np.float64)
+    best = None
+
+    def consider(pattern, run, point, distance, away):
+        nonlocal best
+        if best is None or away < best[0]:
+            best = (away, pattern, run, point, distance)
+
+    def drawn_away(pattern, point):
+        """How far a place of a pattern is from the pointer, on screen."""
+        return float(np.linalg.norm(np.asarray(pattern.view_points([point])[0],
+                                               dtype=np.float64) - view))
+
+    project.find_nearest_point_on_edge(view)
+    if project.nearest_point is not None and project.nearest_pattern is not None:
+        try:
+            pattern, edge, point, fraction = project.get_nearest_point_data()
+            run = run_of(edge)
+            consider(pattern, run, np.asarray(point, dtype=np.float64),
+                     run_origin(run, edge, fraction), drawn_away(pattern, point))
+        except (ValueError, KeyError):
+            # The snapshot went stale between the search and the read; the next
+            # move asks again.
+            pass
+
+    for pattern in project.patterns:  # loop: one pattern's lines per step
+        local = np.asarray(pattern.view_to_pattern_pos(view), dtype=np.float64)
+        for line in pattern.internal_lines:  # loop: one internal line per step
+            for edge in run_edges(line):  # loop: one piece of that line
+                points, steps = edge_samples(edge)
+                if len(points) < 2:
+                    continue
+                starts = points[:-1]
+                deltas = points[1:] - starts
+                squares = (deltas * deltas).sum(axis=1)
+                ratios = np.clip(((local - starts) * deltas).sum(axis=1)
+                                 / np.where(squares > 0.0, squares, 1.0), 0.0, 1.0)
+                spots = starts + deltas * ratios[:, None]
+                nearest = int(np.argmin(((spots - local) ** 2).sum(axis=1)))
+                point = spots[nearest]
+                walked = float(steps[nearest] + ratios[nearest]
+                               * float(np.sqrt(squares[nearest])))
+                total = float(steps[-1])
+                fraction = min(max(walked / total, 0.0), 1.0) if total > 0.0 else 0.0
+                consider(pattern, line, point, run_origin(line, edge, fraction),
+                         drawn_away(pattern, point))
+
+    if best is None:
+        return None
+    away, pattern, run, point, distance = best
+    if away > snap_radius(context, pattern, pointer_region, pixels):
+        return None
+    return pattern, run, float(distance), np.asarray(point, dtype=np.float64)
+
+
+def run_step(run, from_distance, to_distance) -> float:
+    """The signed distance from one place on the chain to another.
+
+    A closed chain is measured the short way round - the pointer never crosses
+    more than half of it between two frames. An open chain has no other way, so
+    the answer is simply the difference.
+    """
+    if not run_is_loop(run):
+        return float(to_distance) - float(from_distance)
+    total = run_length(run)
     step = float(to_distance) - float(from_distance)
     if total <= 0.0:
         return step
     return step - total * round(step / total)
 
 
-def run_from(pattern, start_distance, travel) -> dict:
-    """The run a drag of `travel` millimetres from a place on the outline makes.
+def run_travel(run, tail_distance, head_distance, direction) -> float:
+    """How far a run goes from its tail to its head, the way `direction` names.
 
-    The travel is signed: a negative one runs the other way round the outline.
-    The answer carries the polyline in the order it was drawn, its length, the
-    two places a seam records for it, and the point the run ends on. A run
-    longer than the outline is refused - there would be no way to say which way
-    round it went twice.
+    On a closed chain the run is the arc between the two ends in the direction it
+    runs in - the direction it was drawn in - not the shorter of the two arcs, so
+    its length wraps at the place where the two ends meet: an end dragged past the
+    other one keeps going and lays the run the long way round, which is how a seam
+    spans almost the whole outline. `direction` is +1 for the chain's own way
+    round and -1 for the other; the answer carries the same sign.
+
+    An open chain has one way between two places, so there is nothing to wrap: the
+    answer is signed by which end is which, and an end dragged past the other one
+    turns the run round instead of making it span the chain.
     """
-    total = outline_length(pattern)
+    if not run_is_loop(run):
+        return float(head_distance) - float(tail_distance)
+    total = run_length(run)
+    travel = (float(head_distance) - float(tail_distance)) * float(direction)
+    if total > 0.0:
+        travel -= total * np.floor(travel / total)
+    return float(direction) * travel
+
+
+def run_from(run, start_distance, travel) -> dict:
+    """The run a drag of `travel` millimetres from a place on the chain makes.
+
+    The travel is signed: a negative one runs the other way along the chain. The
+    answer carries the polyline in the order it was drawn, its length, the two
+    places a seam records for it, and the point the run ends on. A run longer than
+    its chain - or one that would leave an open chain - is refused.
+    """
+    total = run_length(run)
     if total <= 0.0:
-        raise ValueError("this pattern's outline has no length to draw on")
+        raise ValueError("this chain has no length to draw on")
     travel = float(travel)
     if abs(travel) > total:
-        raise ValueError("a half cannot be longer than the outline it runs on")
-    start_edge, start_pos, _start_point = outline_place(pattern, start_distance)
-    end_edge, end_pos, end_point = outline_place(pattern, float(start_distance) + travel)
+        raise ValueError("a half cannot be longer than the chain it runs on")
+    start_edge, start_pos, _start_point = run_place(run, start_distance)
+    end_edge, end_pos, end_point = run_place(run, float(start_distance) + travel)
     forward = travel >= 0.0
     pieces = []
     remaining = abs(travel)
     distance = float(start_distance)
     guard = 0
-    while remaining > 1e-9 and guard <= len(pattern.edges) + 1:
+    while remaining > 1e-9 and guard <= len(run_edges(run)) + 1:
         guard += 1
-        edge, pos, _point = outline_place(pattern, distance)
+        edge, pos, _point = run_place(run, distance)
         length = float(edge.length or 0.0)
         if length <= 0.0:
             distance += 1e-6 if forward else -1e-6
@@ -174,34 +337,34 @@ def run_from(pattern, start_distance, travel) -> dict:
             "end_edge": end_edge, "end_pos": end_pos, "end_point": end_point}
 
 
-def side_places(pattern, side) -> tuple:
-    """Where a stored side of a seam begins and how far it runs: (from, travel)."""
+def side_run(side) -> tuple:
+    """What a stored side of a seam runs on, and where: ``(run, from, travel)``.
+
+    The chain comes from the edge the side names, so a side made on an internal
+    line is read in the internal line's own space. `travel` is signed - negative
+    when the run goes the other way - and on a closed chain it is the arc the
+    stored flag names: the run is read the way it was drawn, which can be nearly
+    the whole outline. An open chain has one way between two places, so the travel
+    is simply the distance from one end to the other and the run turns round
+    rather than wrapping when an end passes the other.
+    """
     line1, line2 = side.line1, side.line2
     if line1 is None or line2 is None:
         raise ValueError("this sewing side names an edge that is no longer in the scene")
-    return run_span(pattern, line1, side.pos1, line2, side.pos2, side.reverse)
-
-
-def run_span(pattern, line1, pos1, line2, pos2, reverse) -> tuple:
-    """The span of the outline a run covers: ``(from, travel)`` in millimetres.
-
-    The run is read from the place it starts at, and `travel` is signed - it is
-    negative when the run goes the other way round the outline. The stored
-    places are relative lengths on their own edges, so they are turned into
-    distances around the whole outline here, which is the space every comparison
-    between two runs uses.
-    """
-    start = outline_origin(pattern, line1, pos1)
-    end = outline_origin(pattern, line2, pos2)
+    run = run_of(line1)
+    start = run_origin(run, line1, side.pos1)
+    end = run_origin(run, line2, side.pos2)
+    if not run_is_loop(run):
+        return run, start, end - start
     travel = end - start
-    total = outline_length(pattern)
+    total = run_length(run)
     if total > 0.0:
         travel -= total * round(travel / total)
-        if reverse and travel > 0.0:
+        if side.reverse and travel > 0.0:
             travel -= total
-        elif not reverse and travel < 0.0:
+        elif not side.reverse and travel < 0.0:
             travel += total
-    return start, travel
+    return run, start, travel
 
 
 def snap_radius(context, pattern, pointer_region, pixels=None) -> float:
@@ -256,13 +419,29 @@ def nearest_candidate(context, pattern, pointer, entries, radius=None):
     return best
 
 
-def snap_candidates(project, pattern, exclude_side_uuid=None) -> list:
-    """The places a drawn half may snap to on one pattern.
+def run_points(run) -> list:
+    """A chain's own points, in the pattern's space.
 
-    The pattern's own outline vertices, and the two ends of every sewing half made
-    on this pattern. Each source is read on its own, so a half never offers its
-    own ends back to itself, while an end that is also a vertex is still there
-    because the vertex put it there. Returns ``(point, kind, side_uuid)``, kind
+    A pattern's outline has a vertex per corner; an internal line has the places
+    its pieces meet, which are the sketch vertices its edges were built from, plus
+    the far end of its last piece when it does not close.
+    """
+    if hasattr(run, "vertices"):
+        return [vertex.co for vertex in run.vertices]
+    edges = run_edges(run)
+    points = [edge.vertex0.co for edge in edges]
+    if not run_is_loop(run) and edges:
+        points.append(edges[-1].vertex1.co)
+    return points
+
+
+def run_candidates(project, run, exclude_side_uuid=None) -> list:
+    """The places a drawn half may snap to on one chain.
+
+    The chain's own points, and the two ends of every sewing half made on that
+    same chain. Each source is read on its own, so a half never offers its own ends
+    back to itself, while an end that is also a point of the chain is still there
+    because the chain put it there. Returns ``(point, kind, side_uuid)``, kind
     being ``"vertex"`` or ``"sewing"``.
     """
     entries = []
@@ -275,12 +454,13 @@ def snap_candidates(project, pattern, exclude_side_uuid=None) -> list:
         seen.add(key)
         entries.append((np.asarray(point, dtype=np.float64), kind, uuid_value))
 
-    for vertex in pattern.vertices:  # loop: one outline point per entry
-        add(vertex.co, "vertex", None)
+    for point in run_points(run):  # loop: one point of the chain per entry
+        add(point, "vertex", None)
     for sewing in getattr(project, "sewings", ()):  # loop: one seam per entry
         for side in (sewing.side1, sewing.side2):
-            pattern_of_side = side.pattern
-            if pattern_of_side is None or pattern_of_side.global_uuid != pattern.global_uuid:
+            if side.line1 is None:
+                continue
+            if run_key(run_of(side.line1)) != run_key(run):
                 continue
             if exclude_side_uuid is not None and side.global_uuid == exclude_side_uuid:
                 continue

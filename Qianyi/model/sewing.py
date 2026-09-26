@@ -76,23 +76,37 @@ class SewingOneSide(PropertyGroup, ModelData, Selectable):
         opened - is found by walking the project's sewings. Every caller that
         holds a side and needs the seam asks here, and none of them has to know
         which of the two answered.
+
+        What is kept is the seam's identity, not the wrapper the answer came
+        from: removing a seam shifts the ones behind it, and a wrapper kept from
+        before that reads whichever seam moved into its place. The wrapper is
+        re-read from the identity map, which is what makes this answer follow the
+        seam the half is in and not its slot.
         """
-        remembered = self.sewing_temp
-        if remembered is not None:
-            return remembered
+        remembered = self.sewing_uuid_temp
+        if remembered != -1:
+            seam = global_data.uuid2obj.get(remembered)
+            try:
+                if isinstance(seam, Sewing) and seam.global_uuid == remembered:
+                    return seam
+            except Exception:
+                # A removed datablock raises on any read; the walk below is the
+                # answer for a seam that is gone.
+                pass
+            self.sewing_uuid_temp = -1
         for candidate in getattr(self.id_data, "sewings", ()):  # loop: one seam
             for index in range(len(candidate.sides)):  # loop: its two sides
                 if candidate.sides[index].global_uuid == self.global_uuid:
-                    self.sewing_temp = candidate
+                    self.sewing_uuid_temp = candidate.global_uuid
                     return candidate
         return None
 
     @sewing.setter
     def sewing(self, value):
-        self.sewing_temp = value
+        self.sewing_uuid_temp = value.global_uuid if value is not None else -1
 
 
-define_temp_prop(SewingOneSide, "sewing_temp", None)
+define_temp_prop(SewingOneSide, "sewing_uuid_temp", -1)
 
 
 class Sewing(PropertyGroup, ModelData, Selectable):
@@ -139,14 +153,17 @@ class Sewing(PropertyGroup, ModelData, Selectable):
     def update(self):
         if not self.need_render_update:
             return
-        self.need_render_update = False
-        if global_data.renderers_enabled and self.renderer is None:
-            from ..gizmos.sewing_renderer import SewingRenderer
-            self.renderer = SewingRenderer(self)
-
+        # The points are read before the flag is cleared: a half whose run cannot
+        # be walked (`calc_sewing_side_render_points` refuses one that leaves an
+        # open chain, say) leaves the mark standing, so the next frame tries
+        # again instead of being stuck with a renderer and no batch.
         render_points1 = calc_sewing_side_render_points(self.side1)
         render_points2 = calc_sewing_side_render_points(self.side2)
-
+        self.need_render_update = False
+        if global_data.renderers_enabled and (self.renderer is None
+                                              or not self.renderer.bound_to(self)):
+            from ..gizmos.sewing_renderer import SewingRenderer
+            self.renderer = SewingRenderer(self)
         self.side1.sewing = self
         self.side2.sewing = self
         if global_data.renderers_enabled:
@@ -440,11 +457,12 @@ def link_sewings(sewings, link_sections):
                 continue
             if scans1[i] <= scans2[j]:
                 cut_length = scans1[i] - (scans2[j] - lengths2[j])
-                if cut_length <= 0:
+                if cut_length <= 0 or cut_length >= lengths2[j]:
                     # Rounding left the two pieces starting on top of each
-                    # other: pair them and carry on rather than writing an empty
-                    # piece (a zero-length piece makes the sampler divide by
-                    # zero).
+                    # other, or the boundary is already this piece's far end:
+                    # pair them and carry on rather than writing an empty piece
+                    # (a zero-length piece makes the sampler divide by zero, and
+                    # the stitch walks count it as one more sample).
                     sections1[i].link_to(sections2[j], not_same_dir)
                     i += 1
                     j += 1
@@ -462,7 +480,7 @@ def link_sewings(sewings, link_sections):
                 i += 1
             else:
                 cut_length = scans2[j] - (scans1[i] - lengths1[i])
-                if cut_length <= 0:
+                if cut_length <= 0 or cut_length >= lengths1[i]:
                     sections1[i].link_to(sections2[j], not_same_dir)
                     i += 1
                     j += 1
@@ -519,23 +537,32 @@ def calc_sewing_side_edges_index(ss, parent):
 
 
 def calc_sewing_side_edges(ss):
-    parent = ss.line1.get_parent()
-    e1_i, e2_i = calc_sewing_side_edges_index(ss, parent)
-    e_i = e1_i
-    edges: List[Edge2D] = [parent.edges[e_i]]
-    crazy_loop = e1_i == e2_i and (ss.pos1 > ss.pos2) ^ ss.reverse
-    # console.info(crazy_loop,(ss.pos1 > ss.pos2) , ss.reverse)
-    step = -1 if ss.reverse else 1
-    il = parent if isinstance(parent, InternalLine) else None
-    if il:
-        pass  # ?
+    """The edges of the chain one side of a sewing runs along, in its order.
 
+    A closed chain - a pattern's outline, or an internal line drawn as a loop - is
+    a ring: the walk steps over its ends, and a side may wrap all the way round it
+    (the `crazy_loop` case below). An open internal line has two ends, so a side
+    that would have to leave the chain is refused here instead of wrapping onto
+    the other end of the line.
+    """
+    parent = ss.line1.get_parent()
+    chain_edges = parent.edges
+    e1_i, e2_i = calc_sewing_side_edges_index(ss, parent)
+    closed = bool(getattr(parent, "is_loop", True))
+    e_i = e1_i
+    edges: List[Edge2D] = [chain_edges[e_i]]
+    crazy_loop = e1_i == e2_i and (ss.pos1 > ss.pos2) ^ ss.reverse
+    step = -1 if ss.reverse else 1
+    if crazy_loop and not closed:
+        raise ValueError("a sewing side cannot wrap an open internal line")
     if crazy_loop:
-        e_i = (e_i + step) % len(parent.edges)
-        edges.append(parent.edges[e1_i])
+        e_i = (e_i + step) % len(chain_edges)
+        edges.append(chain_edges[e1_i])
     while e_i != e2_i:
-        e_i = (e_i + step) % len(parent.edges)
-        edges.append(parent.edges[e_i])
+        if not closed and not 0 <= e_i + step < len(chain_edges):
+            raise ValueError("a sewing side runs past the end of an internal line")
+        e_i = (e_i + step) % len(chain_edges)
+        edges.append(chain_edges[e_i])
     return edges
 
 

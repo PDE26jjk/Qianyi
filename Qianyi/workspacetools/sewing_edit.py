@@ -7,7 +7,7 @@ from ..declarations import GizmoGroups, Operators, WorkSpaceTools
 from ..keymaps import tool_generic
 from ..model import sewing_geometry as sewing
 from ..model.qianyi_data import ensure_edit_mode
-from ..operators._2d_sewing_edit import SUBMODE, picked_side
+from ..operators._2d_sewing_edit import SUBMODE, picked_target
 from ..utilities.console import console
 from ..utilities.node_tree import get_active_node_tree
 
@@ -32,8 +32,8 @@ class NODE_T_qmyi_sewing_edit(WorkSpaceTool):
         """Mark the ends of the half a press would take hold of.
 
         The ends are what a drag moves, so they are drawn while the pointer is
-        over a half - together with the place that would make the half as long as
-        the one it is sewn to, when the pointer is close to it.
+        over a half, and the one the pointer is on is drawn as the point under
+        it: that is what a press takes. A press between the two takes the half.
         """
         project = get_active_node_tree(context)
         if not project:
@@ -48,19 +48,32 @@ class NODE_T_qmyi_sewing_edit(WorkSpaceTool):
             # A drag draws its own preview.
             return
         manager.clear_tool_preview()
-        side = picked_side(manager)
-        pattern = side.pattern if side is not None else None
-        if side is None or pattern is None:
+        target = picked_target(manager)
+        if target is None:
+            context.area.tag_redraw()
+            return
+        side, grab = target
+        pattern = side.pattern
+        if pattern is None:
             context.area.tag_redraw()
             return
         try:
-            start, travel = sewing.side_places(pattern, side)
+            run, start, travel = sewing.side_run(side)
         except ValueError:
             context.area.tag_redraw()
             return
-        _edge, _pos, first = sewing.outline_place(pattern, start)
-        _edge, _pos, second = sewing.outline_place(pattern, start + travel)
+        _edge, _pos, first = sewing.run_place(run, start)
+        _edge, _pos, second = sewing.run_place(run, start + travel)
         manager.set_tool_polyline(pattern.view_points(sewing.run_from(
-            pattern, start, travel)["polyline"]))
-        manager.set_tool_points([(pattern, first, "pivot"), (pattern, second, "target")])
+            run, start, travel)["polyline"]))
+        # The end a press would take is drawn as the point under the pointer; the
+        # other end shows where the half reaches to, and a press anywhere on the
+        # half between them slides both.
+        if grab == "start":
+            kinds = ("hover", "target")
+        elif grab == "end":
+            kinds = ("target", "hover")
+        else:
+            kinds = ("pivot", "target")
+        manager.set_tool_points([(pattern, first, kinds[0]), (pattern, second, kinds[1])])
         context.area.tag_redraw()

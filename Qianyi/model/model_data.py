@@ -61,7 +61,17 @@ class ModelData:
 
     @classmethod
     def refresh_collection_uuid(cls, coll):
+        """Put every item of one collection into the identity map.
+
+        An item that has no identity yet is left out: its `global_uuid` is the
+        unset value -1, and mapping that would leave `-1` answering with whatever
+        object happened to be added last. A lookup of `-1` then reads a wrapper
+        whose identity does not match, and the caller sees a warning and None
+        instead of some other object.
+        """
         for obj in coll:
+            if obj.global_uuid == -1:
+                continue
             global_data.uuid2obj[obj.global_uuid] = obj
 
     def try_regain_self(self):

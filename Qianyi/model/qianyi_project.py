@@ -17,26 +17,39 @@ from .sketch import Sketch
 from ..declarations import Panels
 
 
-def outline_sample_counts(pattern) -> tuple:
-    """How many outline points the edge finder takes from each edge of a pattern.
+def chain_sample_counts(pattern, key) -> tuple:
+    """How many points the edge finder takes from each edge of one chain.
 
-    Each edge contributes its samples except the last one - the outline is a
-    loop, so an edge's last sample is the next edge's first, which is what
-    `Pattern.get_geo_points_unique` hands the finder. The pattern is brought up to
-    date first: the counts are compared against the snapshot the finder took,
-    and a marked pattern has to answer with the shape it has now. One number per
-    edge and not the total: a split moves the points from one edge onto two
-    without changing how many there are.
+    An edge contributes its samples except its last one - the pieces of a chain
+    share their ends, so an edge's last sample is the next one's first - except at
+    an open chain's own end, where that point is the end of the line and is kept.
+    The chain is brought up to date first: the counts are compared against the
+    snapshot the finder took, and a marked pattern has to answer with the shape it
+    has now. One number per edge and not the total: a split moves the points from
+    one edge onto two without changing how many there are.
+
+    An edge the sampler answered nothing for - a chain the linking run has not cut
+    yet, a piece too short to sample - counts as no points rather than as an error:
+    the chain is simply not part of what a pointer can snap to. Raising here would
+    make one such chain take the whole finder, and every tool that reads it, down
+    with it.
     """
     pattern.ensure_sections()
+    edges = pattern.edges if key is None else pattern.internal_lines[key].edges
+    closed = True if key is None else bool(pattern.internal_lines[key].is_loop)
     counts = []
-    for index in range(len(pattern.edges)):  # loop: one run per outline edge
-        points = pattern.sample_points.get((None, index))
-        if points is None:
-            raise ValueError(f"pattern {pattern.name or '(unnamed)'} has no samples "
-                             f"for its edge {index}")
-        counts.append(max(len(points) - 1, 0))
+    for index in range(len(edges)):  # loop: one run per edge of this chain
+        points = pattern.sample_points.get((key, index), ())
+        keep = max(len(points) - 1, 0)
+        if not closed and index == len(edges) - 1:
+            keep = max(len(points), 0)
+        counts.append(keep)
     return tuple(counts)
+
+
+def outline_sample_counts(pattern) -> tuple:
+    """How many outline points the edge finder takes from each edge of a pattern."""
+    return chain_sample_counts(pattern, None)
 
 
 def section_grid(pattern):
@@ -569,119 +582,175 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         edge_point_sizes = []
         matrices = []
         layout = []
-        for p in self.patterns:
-            ps = p.get_geo_points_unique()
-            edge_points.append(ps)
-            edge_point_sizes.append(len(ps))
-            # What this snapshot was taken from, per pattern: the offsets the snap
-            # reports are indices into these arrays, and a pattern that grew an
-            # edge - or split one into two - has an array they do not fit.
-            layout.append((int(p.global_uuid), outline_sample_counts(p)))
-            matrices.append(np.array(p.calc_matrix()))
-        edge_points = np.concatenate(edge_points, dtype=np.float32)
-        # console.info('edge_point_sizes', edge_point_sizes)
+        for index, pattern in enumerate(self.patterns):  # loop: one pattern per step
+            try:
+                matrix = np.array(pattern.calc_matrix())
+                groups = pattern.edge_finder_groups()
+            except Exception:
+                # A pattern that cannot answer for its geometry is left out of the
+                # snapshot: there is nothing on it a pointer could snap to.
+                continue
+            for key, points, sizes in groups:  # loop: one chain
+                edge_points.append(points)
+                edge_point_sizes.append(len(points))
+                matrices.append(matrix)
+                # The layout describes what went in, taken from the groups
+                # themselves: recomputing it would let the snapshot and its own
+                # description disagree, and a snapshot that describes itself as
+                # current while holding nothing is one no tool can read.
+                layout.append((index, int(pattern.global_uuid), key, sizes))
         edge_point_sizes = np.array(edge_point_sizes, dtype=np.int32)
-        matrices = np.concatenate(matrices, dtype=np.float32)
-        # console.info('matrices', matrices)
-        from Qianyi_DP import pattern_helper
-        pattern_helper.update_edges(edge_points, edge_point_sizes, matrices)
-        self.edge_points = edge_points
         self.edge_point_sizes = np.cumsum(edge_point_sizes)
+        # What this snapshot was taken from, per chain: the offsets the snap
+        # reports are indices into these arrays, and a chain that grew an edge - or
+        # split one into two - has an array they do not fit. `live_edge_finder_layout`
+        # answers the same thing for the geometry as it is now, and the two are
+        # what `edge_finder_is_current` compares.
         self.edge_finder_layout = tuple(layout)
+        if edge_points:
+            self.edge_points = np.concatenate(edge_points, dtype=np.float32)
+            matrices = np.concatenate(matrices, dtype=np.float32)
+        else:
+            self.edge_points = np.zeros((0, 2), dtype=np.float32)
+            matrices = np.zeros((0, 16), dtype=np.float32)
+        from Qianyi_DP import pattern_helper
+        pattern_helper.update_edges(self.edge_points, edge_point_sizes, matrices)
+
+    def live_edge_finder_layout(self) -> tuple:
+        """What the snapshot should hold for the geometry as it is now.
+
+        One entry per chain the finder is fed - a pattern's outline, then each of
+        its internal lines - with the pattern it belongs to, the chain's key and
+        how many points each of its edges contributes. Comparing this with the
+        snapshot's own layout is what says whether a snap's index still describes
+        the geometry it was taken from.
+        """
+        entries = []
+        for index, pattern in enumerate(self.patterns):  # loop: one pattern per step
+            try:
+                for key in (None, *range(len(pattern.internal_lines))):  # loop: one chain
+                    counts = chain_sample_counts(pattern, key)
+                    if not any(counts):
+                        continue
+                    entries.append((index, int(pattern.global_uuid), key, counts))
+            except Exception:
+                # Same as above: a pattern the counts cannot be taken from is not
+                # one the snapshot describes, so it takes no part in it.
+                continue
+        return tuple(entries)
 
     def clear_edge_finder(self):
         self.edge_points = None
+        self.edge_point_sizes = None
         self.edge_finder_layout = None
+        self.nearest_point = None
+        self.nearest_group = None
 
     def edge_finder_is_current(self) -> bool:
         """Whether the edge finder's snapshot still describes the patterns.
 
-        The snapshot is a flat array of every pattern's outline points, and the
-        snap's answer is an index into it. An edit that added or removed an edge
-        makes those indices describe a shape the patterns no longer have, so the
-        snapshot is compared against the patterns before it is read.
+        The snapshot is a flat array of every chain's points - each pattern's
+        outline, then its internal lines - and the snap's answer is an index into
+        it. An edit that added or removed an edge makes those indices describe a
+        shape the chains no longer have, so the snapshot is compared against the
+        chains before it is read.
         """
         layout = getattr(self, "edge_finder_layout", None)
-        if self.edge_points is None or layout is None or len(layout) != len(self.patterns):
+        if self.edge_points is None or layout is None:
             return False
-        for pattern, entry in zip(self.patterns, layout):  # loop: one pattern each
-            if int(pattern.global_uuid) != entry[0]:
-                return False
-            try:
-                counts = outline_sample_counts(pattern)
-            except Exception:
-                # A pattern that cannot answer for its outline is not one the
-                # snapshot can be read against: the finder is rebuilt.
-                return False
-            if counts != entry[1]:
-                return False
-        return True
+        try:
+            return tuple(layout) == self.live_edge_finder_layout()
+        except Exception:
+            # A chain that cannot answer for its samples is not one the snapshot
+            # can be read against: the finder is rebuilt.
+            return False
 
     def find_nearest_point_on_edge(self, query_point):
         if self.edge_points is None:
             self.update_edge_finder()
         from Qianyi_DP import pattern_helper
         res = pattern_helper.find_nearest_edge(query_point)
-        # console.info('res', res)
-        # console.info('self.edge_point_sizes', self.edge_point_sizes)
-        index = res['res_index']
-        weight = res['res_weight']
-        n = np.searchsorted(self.edge_point_sizes, index, side='left')
-        next_index = index + 1
-        if self.edge_point_sizes[n] - 1 == index:
-            next_index = self.edge_point_sizes[n - 1] if n > 0 else 0
-        if self.edge_point_sizes[n] == index:
-            n += 1
-        pattern_point_offset = 0 if n == 0 else self.edge_point_sizes[n - 1]
-        self.edge_point_offset = index - pattern_point_offset
-
-        self.nearest_pattern = n
-        # console.info('n', n, self.edge_point_sizes[n])
-        # console.info('next_index', next_index)
-        self.nearest_point = self.edge_points[index] * (1 - weight) + self.edge_points[next_index] * weight
+        index = int(res['res_index'])
+        weight = float(res['res_weight'])
         self.query_point = query_point
-        # console.warning('self.nearest_point', self.nearest_point)
+        if self.edge_points is None or len(self.edge_points) == 0:
+            self.nearest_point = None
+            self.nearest_pattern = None
+            self.nearest_group = None
+            return
+        if index < 0:
+            self.nearest_point = None
+            self.nearest_pattern = None
+            self.nearest_group = None
+            return
+        # Which chain the id belongs to, and where inside it: every chain is one
+        # run of the flat array, so the answer is one comparison against the
+        # cumulative sizes.
+        # `edge_point_sizes` holds the cumulative *ends* of the groups, so the
+        # group an index belongs to is the number of ends at or before it.
+        group = int(np.searchsorted(self.edge_point_sizes, index, side='right'))
+        group = max(0, min(group, len(self.edge_point_sizes) - 1))
+        group_start = 0 if group == 0 else int(self.edge_point_sizes[group - 1])
+        next_index = index + 1
+        if next_index >= int(self.edge_point_sizes[group]):
+            # The last point of a chain: its neighbour is the chain's own first.
+            # Every group is closed - an open one repeats its end - so this pair is
+            # a point of that chain either way.
+            next_index = group_start
+        self.nearest_group = group
+        self.edge_point_offset = index - group_start
+        self.nearest_pattern = int(self.edge_finder_layout[group][0])
+        self.nearest_point = self.edge_points[index] * (1 - weight) + self.edge_points[next_index] * weight
 
     def get_nearest_point_data(self):
         """Where the snap is: the pattern, its edge, the point and the fraction.
 
-        The numbers come from the edge finder's snapshot. A pattern edited since
-        that snapshot has edges its offsets were never taken over - reading them
-        against the edges the pattern has now is what raised a KeyError - so the
-        snapshot is checked against the patterns, and rebuilt from the pointer
-        that asked for it when it is out of date.
+        The numbers come from the edge finder's snapshot, which carries every
+        pattern's outline and its internal lines as well. A chain edited since that
+        snapshot has edges its offsets were never taken over - reading them against
+        the chain the geometry has now is what raised a KeyError - so the snapshot
+        is checked against the geometry, and rebuilt from the pointer that asked for
+        it when it is out of date. The edge answers which chain it belongs to
+        (`chain_of_edge`), so a caller that writes into it writes into the line the
+        snap was made on.
         """
         if not self.edge_finder_is_current():
             self.clear_edge_finder()
             self.update_edge_finder()
             if self.query_point is not None:
                 self.find_nearest_point_on_edge(self.query_point)
-        if not 0 <= int(self.nearest_pattern) < len(self.patterns):
+        layout = getattr(self, "edge_finder_layout", None)
+        group = getattr(self, "nearest_group", None)
+        if (layout is None or group is None or self.nearest_point is None
+                or not 0 <= int(group) < len(layout)):
+            raise ValueError("the snap names no chain in the project")
+        pattern_index, _uuid_value, key, sizes = layout[int(group)]
+        if not 0 <= int(pattern_index) < len(self.patterns):
             raise ValueError("the snap names a pattern that is not in the project")
-        pattern: Pattern = self.patterns[self.nearest_pattern]
-        # The samples are the ones the snapshot used, taken from the Sketch
-        # again if this pattern was marked since.
+        pattern: Pattern = self.patterns[int(pattern_index)]
+        # The samples are the ones the snapshot used, taken from the Sketch again
+        # if this chain was marked since.
         pattern.ensure_sections()
-        samples = [pattern.sample_points[(None, index)]
-                   for index in range(len(pattern.edges))]
-        point_offsets = []
-        count = 0
-        for points in samples:  # loop: one run per outline edge
-            point_offsets.append(count)
-            count += max(len(points) - 1, 0)
-        edge_index = np.searchsorted(point_offsets, self.edge_point_offset, side='right') - 1
-        if not 0 <= edge_index < len(pattern.edges):
-            raise ValueError("the snap does not land on an edge of the pattern it names")
-        edge = pattern.edges[edge_index]
-        edge_points = np.asarray(samples[edge_index], dtype=np.float32)
-        point_index = int(self.edge_point_offset - point_offsets[edge_index])
-        if point_index >= len(edge_points) - 1:
-            raise ValueError("Point index out of range!!!", point_index, len(edge_points))
+        edges = pattern.edges if key is None else pattern.internal_lines[key].edges
+        starts = np.concatenate(([0], np.cumsum(np.asarray(sizes, dtype=np.int64))))
+        offset = int(self.edge_point_offset)
+        edge_index = int(np.searchsorted(starts, offset, side='right') - 1)
+        if edge_index >= len(edges):
+            # The end of an open chain is repeated so the engine's closing edge
+            # stays inside the chain: a hit on that repeated point is the far end
+            # of the chain's last edge.
+            edge_index = len(edges) - 1
+        if not 0 <= edge_index < len(edges):
+            raise ValueError("the snap does not land on an edge of the chain it names")
+        edge = edges[edge_index]
+        edge_points = np.asarray(pattern.sample_points[(key, edge_index)], dtype=np.float32)
+        point_index = max(0, min(offset - int(starts[edge_index]), len(edge_points) - 2))
         point_start = edge_points[point_index]
         pts = edge_points[:point_index + 1]
         length = (np.sum(np.linalg.norm(pts[1:] - pts[:-1], axis=1)) +
                   np.linalg.norm(self.nearest_point - point_start))
-        t = length / edge.length
+        edge_length = float(edge.length or 0.0)
+        t = min(max(length / edge_length, 0.0), 1.0) if edge_length > 0.0 else 0.0
         return pattern, edge, self.nearest_point, t
 
     def add_pattern(self, sketch=None):
@@ -896,6 +965,8 @@ define_temp_prop(QianyiProject, "nearest_point", None)
 define_temp_prop(QianyiProject, "query_point", None)
 define_temp_prop(QianyiProject, "nearest_pattern", None)
 define_temp_prop(QianyiProject, "edge_point_offset", None)
+define_temp_prop(QianyiProject, "nearest_group", None)
+define_temp_prop(QianyiProject, "edge_finder_layout", None)
 define_temp_prop(QianyiProject, "selected_sewing_edge1", None)
 define_temp_prop(QianyiProject, "selected_sewing_point1", None)
 # The pattern the first click was made on. An edge serves its whole instance

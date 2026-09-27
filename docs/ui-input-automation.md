@@ -316,6 +316,15 @@ judged from it:
 
   Turning the whole overlay off (`space.overlay.show_overlays = False`) is the
   alternative when a picture is wanted with no Blender chrome at all;
+* Blender's Face Orientation overlay is the one worth turning **on** for a
+  placement: back faces come out red, so a panel that was placed inside out - or
+  a sleeve that was mirrored onto the wrong side - is visible in the picture
+  rather than inferred from the geometry:
+
+  ```python
+  area.spaces.active.overlay.show_face_orientation = True
+  ```
+
 * the add-on's own overlay is **not** in the picture - the seam preview, the
   pattern drawing - so a seam can never be checked from an offscreen capture.
   For that, capture the window itself. `bpy.ops.screen.screenshot_area` does it

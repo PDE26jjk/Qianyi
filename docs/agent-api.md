@@ -230,7 +230,9 @@ Two switches are worth the time before a seam is trusted:
   from the evaluated pattern meshes - a mispaired side shows as a long line. It
   is rebuilt when the meshes or the objects move, so it follows a rebuild;
 - Blender's own Face Orientation overlay tints back faces red, which says whether
-  a panel ended up inside out;
+  a panel ended up inside out. It is `space.overlay.show_face_orientation` on the
+  viewport, and it is the one overlay worth turning *on* while a panel is judged
+  - a screenshot carries it, so the picture itself can be the evidence;
 - a screenshot taken through the viewport carries Blender's own overlays - the
   wireframe and the face-orientation colours - and not the add-on's, so the seam
   preview cannot be read off one. Turn the wireframe overlay off to judge the

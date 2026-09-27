@@ -30,6 +30,18 @@ Handshake with `get_addon_info` (`protocol_version`, `blender_version`,
 stdout, so every read-back (coordinates, selection, mesh data, colours) goes
 through it.
 
+Reads through `execute_code` are safe at any time. Writes are not the same
+thing: a script that *rebuilds meshes* in a UI session builds and frees the
+add-on's GPU resources from a context that has no current GL buffer, and this
+has taken Blender down in testing (`gpu::GLContext::buf_free` /
+`GPU_offscreen_free`, both reached from a Python `__dealloc`). Building a
+pattern, a generator or a mesh is safe in a background session, where the
+add-on keeps its renderers off, and safe through the add-on's own operators in
+a UI session - it is the scripted *write* loop in a UI session that is the
+hazard. Registering the add-on itself has the same rule: do it at startup,
+before the file loads, not into a running session (`ui-test-bootstrap.md`
+section 0).
+
 ```python
 import json, socket
 
@@ -181,6 +193,22 @@ screenshot showed the node editor, outliner, properties and timeline together.
 Call the redraw first whenever the capture must reflect a change made in the
 same session.
 
+Two limits found later, both worth knowing before a long capture loop:
+
+* the MCP's offscreen screenshot does **not** include the add-on's own viewport
+  overlay (the seam preview, the vertex-colour modes). Its draw handler's entry
+  point asks `context.space_data` for a `VIEW_3D` space and draws nothing
+  without one, and the offscreen path does not supply it. Blender's own overlays
+  (face orientation, the grid) do appear. Use `bpy.ops.screen.screenshot_area`
+  when the add-on's overlay has to be in the picture - and see the next point;
+* driving `bpy.ops.wm.redraw_timer` from `execute_code` in a UI session has
+  crashed Blender in testing. In the reported crash the corrupted thread was the
+  add-on's own `TaskManager` (`simulation/task_manager.py`, `_process_commands`)
+  and the fault was inside the Python interpreter (`PyMethod_New`), i.e. heap
+  corruption surfacing in a thread that is only polling its queue. Keep
+  script-side redraws out of a session that has real work in it, or expect the
+  session to be lost.
+
 ## 7. Workspaces and area layout (verified)
 
 ```python
@@ -271,3 +299,30 @@ Measured: the synthetic stroke set the affected corner elements exactly to
 offscreen into a PNG; it works with the Blender window in the background.
 Keep the data read-back as the assertion and use the screenshot to confirm that
 what was drawn looks like what was intended.
+
+What the offscreen capture carries, and what it does not, decides what can be
+judged from it:
+
+* Blender's own overlays are in the picture. The wireframe overlay in particular
+  has to be turned off before cloth is judged - with it on, a sleeve or a panel
+  reads as a flat set of edges and its shape cannot be seen at all:
+
+  ```python
+  for area in window.screen.areas:
+      if area.type == "VIEW_3D":
+          area.spaces.active.overlay.show_wireframes = False
+          area.spaces.active.overlay.show_face_orientation = False
+  ```
+
+  Turning the whole overlay off (`space.overlay.show_overlays = False`) is the
+  alternative when a picture is wanted with no Blender chrome at all;
+* the add-on's own overlay is **not** in the picture - the seam preview, the
+  pattern drawing - so a seam can never be checked from an offscreen capture.
+  For that, capture the window itself. `bpy.ops.screen.screenshot_area` does it
+  from inside Blender (see 6b, with its redraw caveat), and the Windows
+  Computer Use route does it from outside: a `Windows.Graphics.Capture`
+  screenshot of the Blender window shows the composited window, add-on overlay
+  included, and needs no repaint from Blender's side. In testing it captured the
+  app's *foreground* window rather than the id it was asked for - with two
+  Blender instances open, the one in front is the one that lands in the picture -
+  so bring the intended window forward first, or keep one instance.

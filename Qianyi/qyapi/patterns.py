@@ -400,10 +400,18 @@ def validate(names=None, project=None):
 
 
 def fabrics(project=None):
-    """The project's fabrics, by name."""
+    """The project's fabric names.
+
+    The names are kept here because a caller that is assigning a fabric looks
+    next to ``assign_fabric``; the list and the properties behind it are
+    ``projects.fabrics()``.
+    """
+    from . import projects as project_api
+
     project = address.project_or_refuse(project)
-    names = [fabric.name for fabric in project.fabrics]
-    return address.jsonify({"project": project.name, "fabrics": names})
+    entries = project_api.fabrics(project.name)["fabrics"]
+    return address.jsonify({"project": project.name,
+                            "fabrics": [entry["name"] for entry in entries]})
 
 
 def assign_fabric(name, fabric, project=None):

@@ -25,6 +25,11 @@ Rules this surface follows
   undo step rather than an error.
 * A call that cannot do its work raises ``qyapi.QyapiError`` and changes
   nothing; it never reports success silently and never opens a dialog.
+* The surface is the model layer, and every write leaves the undo stack and the
+  scene data as the editor's own tools would. It is meant to be driven in a
+  session where the add-on is already registered (its startup's job); a long
+  scripted *build* in a UI session rebuilds the add-on's GPU resources outside
+  a draw context, which is what a background session is for.
 
 Entry points
 ------------
@@ -32,12 +37,14 @@ Entry points
 Discovery: ``help(topic)``, ``state()``.
 Undo: ``transaction(message, push=True)``.
 Projects: ``qyapi.projects.list()``, ``active()``, ``create()``, ``activate()``,
-``rename()``, ``remove()``.
+``rename()``, ``remove()``, ``fabrics()``, ``fabric(name)``.
 Patterns: ``qyapi.patterns.list()``, ``get()``, ``points()``, ``create()``,
 ``set_point()``, ``add_point()``, ``remove_point()``, ``set_handle()``,
 ``add_spline_point()``, ``remove_spline_point()``, ``add_internal_line()``,
 ``remove_internal_line()``, ``transform()``, ``copy()``, ``detach()``,
-``remove()``, ``validate()``, ``fabrics()``, ``assign_fabric()``.
+``remove()``, ``validate()``, ``fabrics()``, ``assign_fabric()``. ``fabrics()``
+here answers with names only; ``projects.fabrics()`` is the same list with each
+fabric's properties.
 Sewings: ``qyapi.sewings.list()``, ``of()``, ``sew()``, ``sew_at()``,
 ``set_color()``, ``remove()``.
 Generators: ``qyapi.generators.list()``, ``get()``, ``create()``,
@@ -47,10 +54,12 @@ Simulation: ``qyapi.sim.status()``, ``prepare()``, ``step(frames)``,
 ``start()``, ``stop()``, ``read(patterns)``, ``reset()``.
 
 ``qyapi.help("objects")`` prints the data model, ``qyapi.help("patterns")`` the
-rules for naming, copies and generated patterns, ``qyapi.help("units")`` the
-units, ``qyapi.help("undo")`` the undo rules and ``qyapi.help("not-offered")``
-what this surface deliberately does not do. The same text ships as
-``docs/agent-api.md`` in the repository; the two are meant to agree.
+rules for naming, copies and generated patterns, ``qyapi.help("placement")``
+where a pattern's mesh is and how a garment gets onto a body,
+``qyapi.help("units")`` the units, ``qyapi.help("undo")`` the undo rules and
+``qyapi.help("not-offered")`` what this surface deliberately does not do. The
+same text ships as ``docs/agent-api.md`` in the repository; the two are meant to
+agree.
 
 The data model, and what to do when a call is missing
 -----------------------------------------------------
@@ -85,7 +94,8 @@ from ..utilities.node_tree import get_all_node_tree
 VERSION = 1
 
 _ENTRY_POINTS = (
-    ("help(topic=None)", "text index, or one topic: objects, patterns, units, undo, not-offered",
+    ("help(topic=None)",
+     "text index, or one topic: objects, patterns, placement, units, undo, not-offered",
      "topic: a topic name (str)"),
     ("state()", "JSON-safe snapshot: projects, patterns, outline validity, simulation state",
      "no arguments"),
@@ -103,36 +113,52 @@ _ENTRY_POINTS = (
      "new_name: str"),
     ("projects.remove(name)", "remove a project and report what went with it",
      "name: str"),
+    ("projects.fabrics(project=None)", "every fabric of the project with its properties",
+     "project: name (str, optional)"),
+    ("projects.fabric(name, project=None)", "one fabric by name, with its properties",
+     "name: fabric name (str)"),
+    ("projects.set_fabric(name, weight=None, thickness=None, friction=None, "
+     "stretch=None, bending=None, color=None)",
+     "change a fabric's properties; the ones left out keep their value",
+     "weight: g/m^2 (float), thickness: mm (float), friction: float, "
+     "stretch/bending: [u, v, shear] (list of float), color: [r, g, b]"),
     ("patterns.list(project=None)", "every pattern with its counts, fabric and chain",
      "project: name (str, optional)"),
     ("patterns.get(name)", "one pattern: summary, edge table and the sewings on it",
      "name: pattern name (str)"),
     ("patterns.points(name)", "the outline vertices, in millimetres",
      "name: pattern name (str)"),
-    ("patterns.create(points, name=None, granularity_mm=None, fabric=None)",
+    ("patterns.create(points, name=None, granularity_mm=None, fabric=None, allow_crossing=False)",
      "a closed counter-clockwise pattern from points in millimetres",
-     "points: [[x, y], ...] (mm), granularity_mm: float, fabric: name (str)"),
-    ("patterns.set_point(name, index, xy)", "move one vertex",
-     "index: vertex index (int), xy: [x, y] (mm)"),
-    ("patterns.add_point(name, edge, xy)", "split one straight edge with a new vertex",
-     "edge: index (int) or label (str), xy: [x, y] (mm)"),
-    ("patterns.remove_point(name, index)", "remove a vertex and merge the edges that met there",
-     "index: vertex index (int)"),
-    ("patterns.set_handle(name, edge, which, xy=None, type=None)",
+     "points: [[x, y], ...] (mm), granularity_mm: float, fabric: name (str), "
+     "allow_crossing: bool"),
+    ("patterns.set_point(name, index, xy, allow_crossing=False)", "move one vertex",
+     "index: vertex index (int), xy: [x, y] (mm), allow_crossing: bool"),
+    ("patterns.add_point(name, edge, xy, allow_crossing=False)",
+     "split one straight edge with a new vertex",
+     "edge: index (int) or label (str), xy: [x, y] (mm), allow_crossing: bool"),
+    ("patterns.remove_point(name, index, allow_crossing=False)",
+     "remove a vertex and merge the edges that met there",
+     "index: vertex index (int), allow_crossing: bool"),
+    ("patterns.set_handle(name, edge, which, xy=None, type=None, allow_crossing=False)",
      "set one edge handle's position and/or type",
-     "which: 1 or 2 (int), xy: [x, y] (mm), type: VECTOR | FREE | ALIGNED"),
-    ("patterns.add_spline_point(name, edge, xy)", "add an interpolating control point",
-     "edge: index (int) or label (str), xy: [x, y] (mm)"),
-    ("patterns.remove_spline_point(name, edge, index)", "remove one control point",
-     "index: control point index (int)"),
+     "which: 1 or 2 (int), xy: [x, y] (mm), type: VECTOR | FREE | ALIGNED, "
+     "allow_crossing: bool"),
+    ("patterns.add_spline_point(name, edge, xy, allow_crossing=False)",
+     "add an interpolating control point",
+     "edge: index (int) or label (str), xy: [x, y] (mm), allow_crossing: bool"),
+    ("patterns.remove_spline_point(name, edge, index, allow_crossing=False)",
+     "remove one control point",
+     "index: control point index (int), allow_crossing: bool"),
     ("patterns.add_internal_line(name, points, is_hole=False, closed=False)",
      "add a cut from a polyline inside the outline",
      "points: [[x, y], ...] (mm), is_hole: bool, closed: bool"),
     ("patterns.remove_internal_line(name, index)", "remove a cut and its control points",
      "index: internal line index (int)"),
     ("patterns.transform(name, anchor=None, rotation=None, grain_dir=None, collision_layer=None, mirror=None)",
-     "place the pattern: anchor, angles, collision layer, mirror",
-     "anchor: [x, y] (mm), rotation/grain_dir: radians, mirror: bool"),
+     "place the pattern *in the pattern window*; the mesh does not follow",
+     "anchor: [x, y] (mm), rotation/grain_dir: radians, mirror: bool "
+     "(see help(\"placement\"))"),
     ("patterns.copy(name, mirror=False, anchor=None)",
      "copy the pattern as an instance or a mirror",
      "mirror: bool, anchor: [x, y] (mm)"),
@@ -143,16 +169,18 @@ _ENTRY_POINTS = (
      "names: one name or a list (str | list)"),
     ("patterns.validate(names=None)", "test the outlines now and report the crossing ones",
      "names: one name or a list (str | list, optional)"),
-    ("patterns.fabrics()", "the project's fabrics, by name", "no arguments"),
+    ("patterns.fabrics()", "the project's fabric names, the same list as projects.fabrics()",
+     "no arguments"),
     ("patterns.assign_fabric(name, fabric)", "give a pattern a fabric",
      "fabric: name (str)"),
     ("sewings.list()", "every seam with both sides, colour and stitch count",
      "no arguments"),
     ("sewings.of(pattern)", "the seams that touch one pattern",
      "pattern: pattern name (str)"),
-    ("sewings.sew(edge_a, edge_b, side1_reverse=False, side2_reverse=True, color=None)",
-     "stitch two edges with the add-on's own one-to-one sewing",
-     "edge: (pattern, index) or (pattern, label), color: [r, g, b]"),
+    ("sewings.sew(edge_a, edge_b, flip=False, color=None)",
+     "stitch two edges with the add-on's own one-to-one sewing; flip pairs the "
+     "first edge's first point with the second edge's second",
+     "edge: (pattern, index) or (pattern, label), flip: bool, color: [r, g, b]"),
     ("sewings.sew_at(pattern_a, edge_a, position_a, pattern_b, edge_b, position_b, color=None)",
      "stitch two edges from a position on each, the way a click would",
      "position: 0..1 (float)"),
@@ -249,6 +277,8 @@ PATTERN   one pattern: its own identity and settings, and the derived data taken
           .name, .sketch, .fabric, .granularity (mm), .collision_layer,
           .mesh_object, .anchor, .rotation, .grain_dir,
           .validity_state (unknown | valid | invalid)
+          .anchor and .rotation place the pattern *in the pattern window*; the
+          mesh does not follow them (help("placement"))
     VERTEX         .co  (x, y)
     EDGE           .vertex_index (two indices), .handle1, .handle2,
                    .handle1_type, .handle2_type (VECTOR is a straight edge)
@@ -256,7 +286,9 @@ PATTERN   one pattern: its own identity and settings, and the derived data taken
 
 SEWING    one seam between two pattern edges
           .side1 and .side2, each a (edge, position on that edge in 0..1) pair
-          with a reverse flag, plus .color and .get_stitch_data()
+          with a reverse flag, which names the pattern it was made on: an edge
+          serves its whole instance chain, so the side's own record is what says
+          which member a seam joins. Plus .color.
 
 FABRIC    .weight (g/m^2), .thickness (mm), .friction, .stretch, .bending
 
@@ -264,6 +296,87 @@ OBJECT    one Blender mesh object; a pattern's mesh lives here
           .qmyi_simulation_props: participate_in_simulation, collision_layer,
           is_pattern_mesh, pattern, get_simulation_vertices()
           shape keys: QYBasis (rest pose), QYSim (simulated positions, local space)
+          .matrix_world is where the simulation runs it, so a pattern's mesh
+          object is the pattern's placement in the scene (help("placement"))
+"""
+
+_PLACEMENT = """\
+Where a pattern's mesh is, and how a garment gets onto a body.
+
+The pattern window is a view onto the pattern's own 2D space, placed there by the
+pattern's own transform: pattern.anchor (millimetres) and pattern.rotation. That
+transform moves what the window draws - the outline, the points, the seam
+preview - and nothing else.
+
+The mesh is built from the pattern's own coordinates (its Sketch), so the mesh a
+pattern gets when it is first generated sits where the pattern's own 2D position
+puts it, with no view offset: at that moment the window and the scene agree. From
+then on they are independent - patterns.transform() moves the window, and only
+the mesh object's own transform moves the mesh.
+
+The simulation runs a pattern's mesh object, so arranging a garment is arranging
+those objects:
+
+* the object's own transform is the placement - location, rotation_euler and
+  scale. A mirror copy carries scale.x = -1. object.matrix_world is what the
+  engine is handed, and what a viewer has to read to know where a panel is;
+* the shape keys QYBasis (the rest pose) and QYSim (the simulated positions) are
+  in that object's local space, and sim.prepare() hands the engine QYSim. Writing
+  QYSim is therefore how a caller starts a run from a form the physics did not
+  produce: put the panels where they belong, then let the solver begin there;
+* give the seams room. The two panels a seam joins should start near each other
+  but not on top of each other: the sewing pulls its sides together, and a
+  garment that starts folded through itself stays folded;
+* cloth that has to end up *on* a body has to start on it. The engine looks for
+  contacts within a few millimetres, so a panel left in its own plane falls
+  through the avatar instead of draping over it.
+
+There is no measurement source and no automatic placement: a caller places the
+panels from the pattern's own coordinates (the edges report their endpoints) or
+from what the scene shows, and the judgement calls - which panel is the front,
+which way a sleeve faces - are made by looking, or by asking the user.
+
+What has to end up inside something has to start inside it. A sleeve's two
+halves belong on tangent planes of the arm - one in front of it, one behind,
+each clear of its surface by a fraction of the cloth's own thickness - so that
+closing the sleeve's own two long seams wraps the tube around the arm. Laid in
+the torso's own front and back planes instead, the tube closes beside the arm
+and the sleeve is left hanging off the armhole.
+
+A flat panel cannot be both "next to the other panel's edge" and "lying on the
+body", and a sleeve is where the two pull apart: placed tangent to the arm, its
+armhole edge starts several centimetres from the bodice's armhole edge, and
+closing that seam moves the sleeve; placed beside that edge, the sleeve never
+contains the arm. Decide which fit is being judged, place for it, and check by
+looking before the seams are made.
+
+Two of the arrangement's own traps:
+
+* a half placed with a 180 degree turn about the vertical lands on the other
+  side of the centre line, so the panel that sits on the left is that half's
+  *mirror* copy. What each name is on is read from the pattern names, not from
+  the side it appears on, and the seams have to be made on those same members;
+* a seam is made once. Sewing the same pair of edges a second time is refused
+  ("that seam was refused: Sewing overlap!!!"), so a script that re-runs a build
+  reads the seams it already has instead of making them again.
+
+Fabric thickness is the shell the cloth is given, and the shipped 0.1 mm leaves
+contact no room: a sleeve or a bodice then reads as the body poking through it.
+1 mm to 2 mm is what keeps a garment out of the body, and raising a contact
+stiffness on its own does not replace it.
+
+Two switches are worth the time before a seam is trusted:
+
+* the 3D viewport panel's "Seams" switch (scene.qmyi.view3d_seams) draws a line
+  between every paired stitch vertex of every seam, in the seam's own colour,
+  from the evaluated pattern meshes - a mispaired side shows as a long line. It
+  is rebuilt when the meshes or the objects move, so it follows a rebuild;
+* Blender's own Face Orientation overlay tints back faces red, which says whether
+  a panel ended up inside out;
+* a screenshot taken through the viewport carries Blender's own overlays - the
+  wireframe and the face-orientation colours - and not the add-on's, so the seam
+  preview cannot be read off one. Turn the wireframe overlay off to judge the
+  cloth's shape, and judge a seam in the window itself, where it is drawn.
 """
 
 _UNITS = """\
@@ -303,6 +416,7 @@ already knows how to run a statement inside Blender.
 _TOPIC_TEXT = {
     "objects": _OBJECT_MODEL,
     "patterns": _PATTERNS,
+    "placement": _PLACEMENT,
     "units": _UNITS,
     "undo": _UNDO,
     "not-offered": _NOT_OFFERED,

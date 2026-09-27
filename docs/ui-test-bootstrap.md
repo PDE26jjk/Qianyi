@@ -7,13 +7,22 @@ verify through data).
 
 Detection of the add-on is by capability, not by the add-on registry: the
 maintainer registers `qmyi` from a script, so `bpy.context.preferences.addons`
-stays empty. Use `hasattr(bpy.ops, 'qmyi')` (or the presence of
-`QianyiNodeTree` node groups) as the availability test.
+stays empty, and the operator namespace alone says nothing: `hasattr(bpy.ops,
+'qmyi')` is **True in a session that never registered the add-on**, because
+reading the attribute creates an empty namespace. Ask for the operators, or for
+the node tree type the add-on registers.
+
+The add-on is to be registered **by the session's own startup**, before the file
+is loaded: the tree type has to exist when the `.blend` loads, and registering
+the package into an already-running UI session from an `execute_code` call has
+been observed to take Blender down on the next redraw (a GPU object freed with
+no current GL context). Reloading an already registered package in place is
+safe and is what `docs/reload-without-restarting.md` describes.
 
 ## 0. Availability check
 
 ```python
-if not hasattr(bpy.ops, 'qmyi'):
+if not [name for name in dir(bpy.ops.qmyi) if not name.startswith("_")]:
     raise RuntimeError("qmyi is not registered in this Blender session")
 ```
 

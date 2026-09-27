@@ -13,7 +13,7 @@ import numpy as np
 from .errors import QyapiError
 from .. import global_data
 
-from ..model.model_data import owner_pattern, refresh_all_uuids
+from ..model.model_data import refresh_all_uuids
 from ..model.pattern import boundary_self_intersection
 from ..utilities.node_tree import get_all_node_tree
 
@@ -185,11 +185,17 @@ def edge_ref(pattern, index):
 
 
 def side_entry(sewing, side_number):
-    """One side of a sewing, as plain data."""
+    """One side of a sewing, as plain data.
+
+    The pattern is the side's own record - the member the seam was made on - and
+    not the owner of the edge it runs along: an edge serves its whole instance
+    chain, so its owner is that chain's first member and every copy's seam would
+    read back under the name of the pattern it was copied from.
+    """
     side = sewing.side1 if side_number == 1 else sewing.side2
     try:
-        pattern = owner_pattern(side.line1)
-        pattern_name = pattern.name
+        pattern = side.pattern
+        pattern_name = None if pattern is None else pattern.name
         label = side.line1.name or None
         index = side.line1.get_index()
     except Exception:

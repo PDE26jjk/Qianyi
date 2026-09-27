@@ -243,6 +243,9 @@ class SimulationManager:
         if self.need_to_set_data:
             self.simulator.input_data({'mesh_list': self.simulated_objects, 'sewings': self.sewings})
             self.need_to_set_data = False
+            time2 = time.time() - start
+            console_print("input_data: ", time2 * 1000)
+            start = time.time()
         self._update_one_frame()
         time2 = time.time() - start
         self.record_frame(self._step_h(), time2)

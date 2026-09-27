@@ -33,10 +33,12 @@
   deselects the mesh of an unselected pattern
 - [x] 3.3 Verify an instance copy is not selected when one member of the chain
   is selected on either side
-- [ ] 3.4 Verify in a live session that a collider selected in 3D leaves the
-  pattern selection alone and stays selected itself
-- [ ] 3.5 Verify in a live session that moving a vertex with the sync on adds no
-  undo step and changes no geometry
+- [x] 3.4 Verify in a live session that a collider selected in 3D leaves the
+  pattern selection alone and stays selected itself (verified by the maintainer
+  in a live session)
+- [x] 3.5 Verify in a live session that moving a vertex with the sync on adds no
+  undo step and changes no geometry (verified by the maintainer in a live
+  session)
 
 ## 4. The selection highlight
 
@@ -44,7 +46,7 @@
   on every call so the width cannot leak between patterns
 - [x] 4.2 Draw a second, thicker outline in a dedicated highlight colour for a
   selected pattern, after its ordinary outline and its internal lines
-- [ ] 4.3 Verify in a live session that the highlight is drawn in every display
+- [x] 4.3 Verify in a live session that the highlight is drawn in every display
   mode and disappears
   when the pattern is deselected, and that the invalid-outline marker still shows
-  on a selected pattern
+  on a selected pattern (verified by the maintainer in a live session)

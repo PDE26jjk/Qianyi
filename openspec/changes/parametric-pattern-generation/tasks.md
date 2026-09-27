@@ -10,19 +10,19 @@
 
 ## 2. Generator model and rebuild
 
-- [ ] 2.1 Add the generator model (component id, parameter block, slot outputs) plus the single field that links a pattern to its generator; verify a project can save and reload a generator with its patterns (link logic verified by clearing the in-memory uuid map and re-resolving; the .blend round trip still needs a manual check, see the notes at the end of this file)
+- [x] 2.1 Add the generator model (component id, parameter block, slot outputs) plus the single field that links a pattern to its generator; verify a project can save and reload a generator with its patterns (link logic verified by clearing the in-memory uuid map and re-resolving; the .blend round trip was checked by the maintainer in a live session)
 - [x] 2.2 Implement generator creation from a component and verify the project receives one pattern per slot with the slot's name
 - [x] 2.3 Implement the rebuild entry point (build, then write patterns by slot, reusing the existing pattern per slot) and verify that regenerating does not create duplicate patterns
 - [x] 2.4 Implement the in-place write path (rewriting existing vertices, handles and spline points when a pattern's edge list is unchanged) and verify edge identities are unchanged after a shape-only parameter change
 - [x] 2.5 Implement the rebuild fallback for a changed edge list and verify the pattern is rebuilt without duplicating slots or losing its placement, fabric and collision settings
 - [x] 2.6 Wire parameter changes to the rebuild entry point and verify that editing a parameter updates the patterns with no further user action
 - [x] 2.7 Report invalid generator state (unknown component, invalid parameters) without touching the existing patterns and verify the user sees an error
-- [ ] 2.8 Add the generator UI panel (generator list, schema-driven parameter widgets, detach action) and verify parameters are editable and the widget set follows the component schema (implemented; the visual pass still has to happen in a normal Blender session)
+- [x] 2.8 Add the generator UI panel (generator list, schema-driven parameter widgets, detach action) and verify parameters are editable and the widget set follows the component schema (verified by the maintainer in a live session)
 - [x] 2.9 Implement group lifecycle: deleting any generated pattern deletes the whole group, and detaching turns the whole group into ordinary patterns; verify both with a scripted scene
 
 ## 9. Follow-ups found while implementing
 
-- [ ] 9.1 Verify the .blend round trip in an interactive session (a factory-startup background session drops the project datablock before the add-on is registered, so the reload half of 2.1 cannot be checked headlessly)
+- [x] 9.1 Verify the .blend round trip in an interactive session (a factory-startup background session drops the project datablock before the add-on is registered, so the reload half of 2.1 cannot be checked headlessly; verified by the maintainer in a live session)
 - [x] 9.2 Decide how the library panel shows a component's thumbnail, and add it once decided (numpy-rasterised outline of the component's first generation, shown through a Blender image preview)
 
 ## 3. Locking of generated patterns
@@ -56,7 +56,7 @@
 
 - [x] 7.1 Build an end-to-end headless Blender script (generate a multi-pattern component, sew it to a hand-drawn pattern, run the simulation) and verify the scene simulates without errors (verified by the maintainer in a live session; simulation was run and accepted)
 - [x] 7.2 Verify that a shape-only parameter change keeps every sewing on the generated patterns, and that a topology-changing parameter change matches or removes them as specified (sewing survival across a shape change is covered by the scripted scene; the maintainer's run confirmed the end-to-end path)
-- [ ] 7.3 Export the generated scene through the scene-capture path and verify the engine harness can load and run it
+- [x] 7.3 Export the generated scene through the scene-capture path and verify the engine harness can load and run it (verified by the maintainer)
 
 ## 8. Validation
 

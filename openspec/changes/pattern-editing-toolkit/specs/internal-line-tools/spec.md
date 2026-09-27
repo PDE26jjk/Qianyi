@@ -54,54 +54,66 @@ report SHALL name the seam it created.
 - **THEN** the two patterns share the cut boundary as plain outline edges and the
   seam list is unchanged
 
-### Requirement: A run of outline edges can become an internal line
+### Requirement: A chain is copied at a distance, and is not itself changed
 
-The editor SHALL convert a run of consecutive outline edges into an internal
-line, re-routing the outline along the straight chord between the run's end
-points. It SHALL refuse when the run is the whole outline or when the chord
-crosses the remaining outline.
-
-#### Scenario: Inset a corner as an internal line
-
-- **WHEN** two consecutive edges of a pattern are converted into an internal line
-- **THEN** the outline is the chord between the run's ends, the run's geometry
-  is an internal line inside the pattern, and the pattern area is smaller by the
-  triangle between the chord and the run
-
-### Requirement: Internal lines can be repeated at a signed distance
-
-The editor SHALL create a requested number of additional internal lines offset
-from a source line - an internal line or a run of outline edges - by a signed
-distance along the local normal, in one undo step. Each generated line SHALL be
-processed according to one of three end modes: `CLIP` trims it to the outline,
-`EXTEND_TO_OUTLINE` projects both of its ends onto the outline, and `KEEP`
-leaves it as the offset produced it. `EXTEND_TO_OUTLINE` SHALL target the
-outline only and SHALL NOT be extended against other internal lines.
+The editor SHALL write internal lines offset from the selected chain - a run of
+consecutive outline edges, or an internal line - along that chain's own normal,
+in one undo step. How far apart the lines are SHALL be either a distance, with a
+line at it, twice it and so on for the number asked for, or the chain's own length
+divided into equal parts, with a line at every division point inside it. The chain
+itself SHALL be left exactly as it was, and the outline SHALL NOT be re-routed. A
+line that lies outside the outline altogether SHALL NOT be written, and the report
+SHALL name it.
 
 #### Scenario: Five fold lines at 20 mm
 
-- **WHEN** five internal lines are requested at 20 mm from a source line across
-  a pattern that is wide enough
-- **THEN** five internal lines are created at 20, 40, 60, 80 and 100 mm, each
-  spanning the pattern according to the selected end mode
+- **WHEN** five internal lines are requested at 20 mm from a source across a
+  pattern that is wide enough
+- **THEN** five internal lines are created at 20, 40, 60, 80 and 100 mm, and the
+  source is the shape it was
+
+#### Scenario: A pleated edge
+
+- **WHEN** one edge of a panel is the source and its length is divided into
+  equal parts
+- **THEN** a line is written at every division point inside it, one part apart,
+  and the outline of the panel is unchanged
 
 #### Scenario: Negative distance offsets the other way
 
 - **WHEN** the same repeat is requested with a negative distance
 - **THEN** the lines are created on the other side of the source line
 
-#### Scenario: Ends projected onto the outline
-
-- **WHEN** `EXTEND_TO_OUTLINE` is selected and an offset line ends inside the
-  pattern
-- **THEN** both of its ends are moved onto the nearest point of the outline and
-  the line spans the pattern
-
 #### Scenario: An offset line leaves the pattern
 
 - **WHEN** an offset line lies completely outside the outline
 - **THEN** no internal line is created for it and the report names the offset
   that was dropped
+
+### Requirement: The ends of an internal line can be put on the outline
+
+The editor SHALL put both ends of the selected internal line on the outline, in
+one undo step, in one of two modes: `TRIM` cuts back the parts that lie outside
+the pattern and lands the ends where the line crosses the outline, and `EXTEND`
+moves an end that lies inside out to the nearest point of the outline. An end
+that lies outside SHALL be cut back in either mode. The pieces of the line
+between the two ends SHALL keep their own identity, so a seam on one of them
+still names it. A line that lies outside the pattern altogether, and a trim that
+would leave nothing of the line, SHALL be refused with the line as it was.
+
+#### Scenario: A line that stops short spans the pattern
+
+- **WHEN** `EXTEND` is applied to an internal line whose ends lie inside the
+  pattern
+- **THEN** both ends are moved onto the nearest point of the outline and the line
+  spans the pattern
+
+#### Scenario: A line that pokes out is cut back
+
+- **WHEN** `TRIM` is applied to an internal line whose ends lie outside the
+  pattern
+- **THEN** the ends land on the outline, the pieces that lay outside it go, and
+  the pieces between them are the pieces they were
 
 ### Requirement: An offset line is never left self-crossing
 

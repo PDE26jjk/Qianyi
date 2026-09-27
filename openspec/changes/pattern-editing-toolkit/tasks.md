@@ -265,13 +265,77 @@
   therefore walks from the same end. A cut with the option off adds no seam, and
   a cut leaves no selection naming the sources it removed, verified in
   `.agents/scratch/probe_cut_along_line.py` and `probe_cut_redo.py`)
-- [ ] 7.5 Implement converting a run of outline edges into an internal line
-  (chord re-route), with the whole-outline and chord-crossing refusals
-- [ ] 7.6 Implement repeated internal lines at a signed distance with the three
-  end modes, and verify the offset placement on both sides of the source line
-- [ ] 7.7 Implement the offset de-looping (self-intersection removal) and verify
+- [x] 7.5 Implement copying a run of outline edges - or an internal line, which is
+  the same job - at a distance, as internal lines (the command is
+  `_2d_offset_copies`, offered by the edge mode's right-button menu as `offset
+  copies`, and the source is read, never changed: the outline is not re-routed
+  and an internal line stays where it is, so what comes out is exactly the lines
+  asked for. How far apart they are is either a division or a step, the way an
+  edge is divided: the source's own length divided into equal parts puts a line
+  at every division point inside it - a 200x300 panel with its 200 mm top edge
+  selected and five parts comes out with four fold lines 40 mm apart, each
+  spanning the panel - or a distance, with a line at it, twice it and so on for
+  as many as were asked for, a negative distance taking them to the other side:
+  an internal line in the middle of a 400 mm panel copied three times at -20 mm
+  lands at 140, 160 and 180 mm. Everything is measured along the source's own
+  normal, every piece is sampled at 0.5 mm along its own arc length and moved
+  along the normal there, and the straight chord between one piece's offset and
+  the next one's joins them. Nothing is clamped to the room the pattern has: a
+  line that lands outside the outline is not written and the report names it,
+  which is three of five 20 mm lines in a 100 mm pattern and two of the six
+  parts of a corner run. Refusals: the whole outline, a selection that is not one
+  consecutive run (the outline is a loop, so a run may cross its first edge), a
+  closed internal line, a part count of one, a distance of zero, and parts so
+  many that the lines would be closer than the merge threshold. A copy is not
+  trimmed or extended - that is its own command, task 7.6 - so a copy of a line
+  that crosses the outline keeps the ends the offset gave it, and the seams of
+  the source are left where they were. Verified in
+  `.agents/scratch/probe_offset_copies.py`. That probe also found a model bug on
+  the way: a line that starts exactly on an outline point cuts a piece of no
+  length into the outline's section stage, and `Pattern.sample_edge` divided the
+  whole edge's sampling step by it, so any pattern with such a line lost its mesh
+  to a zero division; a piece of no length contributes no step now)
+- [x] 7.6 Put the ends of an internal line on the outline, by trimming or
+  extending it (the end modes are their own command, `_2d_line_to_outline`,
+  offered as `line to outline` with the mode in Blender's own redo panel, because
+  what happens where a line leaves the pattern is an edit of *that line*, not
+  something a copy decides. `EXTEND` moves an end that lies inside out to the
+  nearest point of the outline, so a dart or a fold line that stops short spans
+  the pattern; `TRIM` cuts back what lies outside and lands the ends where the
+  line crosses the outline; an end that lies outside is cut back in either mode.
+  The line is a chain and the two ends ask for a span of it: the pieces that stay
+  are the very edges they were, so a seam on one of them still names it and is
+  re-aimed at the point of the new piece closest to where it was, and a seam on a
+  piece that goes is dropped and named. The points of the pattern are the line's
+  own: the span's ends are written onto the line's own end points and the points
+  of the pieces that went leave the pool with them. A line that lies outside the
+  pattern altogether, a trim that would leave nothing of it, and a line whose
+  ends are both already inside under `TRIM`, are refused with the line as it was.
+  Verified in `.agents/scratch/probe_line_to_outline.py`)
+- [x] 7.7 Implement the offset de-looping (self-intersection removal) and verify
   a concave corner, a tight concave arc and a fully degenerate offset each
-  produce the documented result and report
+  produce the documented result and report (every generated offset is de-looped
+  before its end mode is applied: its own crossings are found - every segment
+  against every other, the neighbours left out - and the first crossing in walk
+  order removes the loop between it and the second one, the walk keeping the
+  points up to the crossing and carrying on from where the other segment reaches
+  it, with the piece the crossing lands in being the earlier one's. It repeats
+  until the line has no crossing of its own, which is what the in/out
+  classification of a line's pieces and the seam sampling both need, and the
+  report names the distances that were shortened. Two 50 mm pieces turning left,
+  offset 20 mm to the left, put their offsets across each other at (90, 120) and
+  come out as the corner the loop leaves - x 60..90 by y 120..150, no crossing
+  of its own, reported as shortened - while the same source offset the other way
+  is a corner the offset turns outside of and is not shortened at all; both in
+  `.agents/scratch/probe_offset_copies.py`. A tight concave arc needs nothing
+  removed: a semicircle of 30 mm radius offset 40 mm inwards comes out as the
+  10 mm arc on the other side of its centre, which is what the normal offset of
+  every sample gives and is not a crossing. The complete degeneration the last
+  scenario describes cannot arise from this walk - removing the loop between the
+  first crossing and the second always leaves at least three points, and a
+  three-point line has no crossing - so the drop it asks for is the one a line
+  with no length left takes, which `_split_pieces` decides and the report names
+  alongside the offsets that landed outside the pattern)
 - [ ] 7.8 Allow an internal line to be a sewing side and verify a dart sewn to a
   run of outline edges stitches and closes
 

@@ -225,22 +225,28 @@ ordinary sewing tool.
 *Alternative:* a polygon-clipping library. Rejected: no third-party dependency
 is allowed in this add-on (Blender's numpy only).
 
-### D9. Offsets are de-looped, and the ends are the user's choice
+### D9. Offsets are de-looped, and copies leave the source alone
 
-Internal lines are repeated from a source line by a signed distance along the
-local normal, `N` lines at a time. Because an offset beyond the local radius of
-curvature, or past a concave corner, produces a self-crossing polyline, the raw
-offset is de-looped before it is used: the self-intersections are found, the
-loops they enclose are removed, and the surviving skeleton is what is kept. The
-visible cost is that an offset line can be shorter than its source, and a line
-that degenerates completely is dropped and reported. A self-crossing internal
-line is not an acceptable result in any mode, because the in/out classification
-of its sections and the seam sampling both assume a simple curve.
+Internal lines are copied from a source - a run of outline edges, or another
+internal line - along that source's local normal, `N` lines at a time, by a
+distance or by dividing the source's own length into equal parts. Because an
+offset beyond the local radius of curvature, or past a concave corner, produces a
+self-crossing polyline, the raw offset is de-looped before it is used: the
+self-intersections are found, the loops they enclose are removed, and the
+surviving skeleton is what is kept. The visible cost is that an offset line can
+be shorter than its source, and a line that degenerates completely is dropped and
+reported. A self-crossing internal line is not an acceptable result, because the
+in/out classification of its sections and the seam sampling both assume a simple
+curve.
 
-What happens at the ends is a mode: `CLIP` trims the line to the outline,
-`EXTEND_TO_OUTLINE` projects both ends onto the outline, and `KEEP` leaves the
-line as the offset produced it. `EXTEND_TO_OUTLINE` targets the outline only;
-intersecting or extending against other internal lines is left for later.
+The source is read, never changed: a run of the outline is not re-routed, so the
+pattern keeps its shape and what the command writes is exactly the lines asked
+for. A copy that lands outside the outline is not written - the mesh would
+classify every piece of it as outside - and the report names it. What happens
+where a line leaves the pattern is therefore its own command, `line to outline`,
+which trims a line back to the outline or extends an end that stops short out to
+it. It edits the line it was asked about and nothing else, so a copy and a fit
+can be composed in either order and each undone on its own.
 
 ### D10. Pleats wait for the engine
 

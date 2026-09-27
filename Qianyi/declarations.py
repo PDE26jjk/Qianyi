@@ -52,6 +52,7 @@ class Operators(str, Enum):
     AddVertex2D = "qmyi.2d_add_vertex"
     AddSplinePoint2D = "qmyi.2d_add_spline_point"
     DivideEdge2D = "qmyi.2d_divide_edge"
+    CutAlongLine2D = "qmyi.2d_cut_along_line"
     Corner2D = "qmyi.2d_corner"
     Fan2D = "qmyi.2d_fan"
     CurveFit2D = "qmyi.2d_curve_fit"

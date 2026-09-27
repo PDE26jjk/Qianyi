@@ -223,17 +223,48 @@
 
 ## 7. Internal line tools
 
-- [ ] 7.1 Implement the cut along an internal line that crosses the outline
+- [x] 7.1 Implement the cut along an internal line that crosses the outline
   exactly twice, validating both resulting outlines before committing, and
-  verify the two patterns' areas sum to the original
-- [ ] 7.2 Implement the refusals (no crossing, one crossing, three or more
+  verify the two patterns' areas sum to the original (`plan_cut` in the
+  operator's own `Qianyi/operators/_2d_cut_along_line.py`
+  reads the two crossings off the engine's own intersection call, splits the
+  outline into the two arcs they leave and closes each arc with the stretch of
+  the line between them - read one way on one side and the other way on the
+  other, so both halves carry the same boundary. The two readings of a crossing
+  differ by a fraction of a millimetre, so the joints are sealed to one point and
+  a repeat the slicing leaves at a piece's end is dropped, or the crossing test
+  reads the outline as crossing itself. Both resulting outlines are tested
+  before anything is written, and a straight, a Bezier and a cut that trims a
+  curved outline edge all land within a hundredth of a millimetre of the
+  original, verified in `.agents/scratch/probe_cut_along_line.py`)
+- [x] 7.2 Implement the refusals (no crossing, one crossing, three or more
   crossings, a closed line inside the pattern) and verify each names its reason
-- [ ] 7.3 Verify both halves join the source's instance chain, the cut's
+  (each count is refused with the count in the message, a line that only touches
+  the outline is refused by asking whether its middle is inside the pattern, and
+  an outline edge is refused by name rather than silently treated as a line -
+  `.agents/scratch/probe_cut_along_line.py`)
+- [x] 7.3 Verify both halves join the source's instance chain, the cut's
   property inheritance and its sewing remap, including the report for a sewing
-  that had to be dropped
-- [ ] 7.4 Implement the optional seam along the cut and verify it is off by
+  that had to be dropped (a chain of two comes out as two chains of two - each
+  member is replaced by its own pair of halves, which is what keeps a linked
+  pattern linked - and each half inherits the source's anchor, rotation, grain,
+  fabric, granularity, collision layer and mirror flag. A seam side is moved to
+  the piece that replaced the edge it named, in the half that holds it, with its
+  position re-read against that piece; a side whose two ends land in different
+  halves spans both patterns, which one side cannot do, so its seam is dropped
+  and named in the report - `.agents/scratch/probe_cut_along_line.py`)
+- [x] 7.4 Implement the optional seam along the cut and verify it is off by
   default, that when it is on the report names the seam it created, and that a
-  cut without it leaves the seam list unchanged
+  cut without it leaves the seam list unchanged (the two things the command can
+  do are two entries in the editor's own right-button menu - `cut along line`
+  and `cut along line, sewn` - rather than one operator with a property in
+  Blender's adjust-last-operation panel: a cut takes the patterns it worked on
+  away, so it is not registered for that panel at all. The seam it makes pairs
+  points that meet - the worst pair is 0.0 mm apart - because the half on the
+  far side of the cut reads the same boundary the other way round and its side
+  therefore walks from the same end. A cut with the option off adds no seam, and
+  a cut leaves no selection naming the sources it removed, verified in
+  `.agents/scratch/probe_cut_along_line.py` and `probe_cut_redo.py`)
 - [ ] 7.5 Implement converting a run of outline edges into an internal line
   (chord re-route), with the whole-outline and chord-crossing refusals
 - [ ] 7.6 Implement repeated internal lines at a signed distance with the three

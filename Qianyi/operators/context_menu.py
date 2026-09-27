@@ -57,6 +57,9 @@ class NODE_OT_qmyi_context_menu(Operator):
                 # menu's default call context is not something to rely on here.
                 layout.operator_context = 'INVOKE_DEFAULT'
                 layout.operator(Operators.DivideEdge2D, text="divide")
+                layout.operator(Operators.CutAlongLine2D, text="cut along line")
+                layout.operator(Operators.CutAlongLine2D,
+                                text="cut along line, sewn").sew_along_cut = True
                 layout.menu("NODE_MT_qmyi_corner", text="corner")
                 layout.operator_context = 'EXEC_DEFAULT'
                 layout.label(text="point",)

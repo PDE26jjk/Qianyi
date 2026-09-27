@@ -24,6 +24,7 @@ modules = [
     '_2d_add_vertex',
     '_2d_add_spline_point',
     '_2d_divide_edge',
+    '_2d_cut_along_line',
     '_2d_corner',
     '_2d_fan',
     '_2d_curve_fit',

@@ -943,7 +943,7 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return line
 
     def update_render_line(self):
-        if not self.initialized:
+        if not self.initialized or self.line_renderer is None:
             self.initialize()
             self.initialized = True
 
@@ -961,13 +961,16 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         return self.render_points
 
     def update_render_vertex(self):
-        if not self.initialized:
+        if not self.initialized or self.line_renderer is None:
             self.initialize()
             self.initialized = True
 
         self.line_renderer.update_batch_vertex(self.get_vertice_list())
 
     def update_render_spline_point(self):
+        if not self.initialized or self.line_renderer is None:
+            self.initialize()
+            self.initialized = True
         points = []
         for edge in self.edges:
             if len(edge.spline_points) > 0:

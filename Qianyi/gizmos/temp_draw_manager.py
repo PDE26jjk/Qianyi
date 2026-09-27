@@ -38,6 +38,26 @@ SELECTED_EDGE_COLOR = (1.0, 1.0, 0.0, 1.0)
 SELECTED_VERTEX_COLOR = (1.0, 1.0, 0.0, 1.0)
 DIMMED_SELECTION_ALPHA = 0.35
 
+# The id pass draws into an offscreen render target, and a GPU resource may only
+# be released while a draw context is current. A Python finalizer runs whenever
+# the last reference goes - on unregister, on a package reload, at interpreter
+# exit - and none of those has one: deleting the offscreen from
+# ``TempDrawManager.__del__`` has taken Blender down inside
+# ``gpu::GLContext::tex_free``. The offscreen is therefore owned *here*, keyed by
+# the size the id pass asked for, for the life of the session: the manager only
+# borrows it, and Blender's own GPU teardown releases it at exit.
+_SESSION_OFFSCREENS: dict = {}
+
+
+def session_offscreen(width: int, height: int):
+    """The id pass's offscreen for one size, kept for the session."""
+    key = (int(width), int(height))
+    offscreen = _SESSION_OFFSCREENS.get(key)
+    if offscreen is None:
+        offscreen = gpu.types.GPUOffScreen(key[0], key[1], format="RGBA8")
+        _SESSION_OFFSCREENS[key] = offscreen
+    return offscreen
+
 
 def handles_visible(edge) -> bool:
     """Whether an edge's handles are drawn - and so also pickable.
@@ -417,7 +437,8 @@ class TempDrawManager:
         if self.region_width != width or self.region_height != height or self.id_texture is None:
             self.region_width = width
             self.region_height = height
-            self.id_texture = gpu.types.GPUOffScreen(width, height, format="RGBA8")
+            # Borrowed, not owned: see ``_SESSION_OFFSCREENS``.
+            self.id_texture = session_offscreen(width, height)
         with self.id_texture.bind():
             fb = gpu.state.active_framebuffer_get()
             fb.clear(color=(0.0, 0.0, 0.0, 1.0))
@@ -962,5 +983,7 @@ class TempDrawManager:
         bpy.context.workspace.status_text_set(f"total time: {total_time * 1000}")
 
     def __del__(self):
-        if self.id_texture is not None:
-            del self.id_texture
+        # Only the reference goes: the offscreen belongs to the session (see
+        # ``_SESSION_OFFSCREENS``), because releasing a GPU resource from a
+        # finalizer means releasing it without a draw context.
+        self.id_texture = None

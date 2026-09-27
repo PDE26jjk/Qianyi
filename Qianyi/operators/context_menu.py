@@ -60,6 +60,8 @@ class NODE_OT_qmyi_context_menu(Operator):
                 layout.operator(Operators.CutAlongLine2D, text="cut along line")
                 layout.operator(Operators.CutAlongLine2D,
                                 text="cut along line, sewn").sew_along_cut = True
+                layout.operator(Operators.OffsetCopies2D, text="offset copies")
+                layout.operator(Operators.LineToOutline2D, text="line to outline")
                 layout.menu("NODE_MT_qmyi_corner", text="corner")
                 layout.operator_context = 'EXEC_DEFAULT'
                 layout.label(text="point",)

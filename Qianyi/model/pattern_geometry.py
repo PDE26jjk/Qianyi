@@ -60,6 +60,230 @@ def _chain_members(pattern) -> list:
     return pattern.sketch_members()
 
 
+def run_indices(count, indices) -> list:
+    """Selected edge indices as one run, in the outline's own walk order.
+
+    The outline is a loop, so a run may cross its first edge without being two
+    runs. The run starts where the walk entered it - at the selected edge whose
+    predecessor is not selected - and every other selected edge follows it, or
+    the selection is not one run and a command that works on one has nothing to
+    do. The run also has to leave an outline behind: a closed loop needs at least
+    three edges, so at least two of them have to stay.
+    """
+    wanted = sorted({int(index) for index in indices})
+    for index in wanted:
+        if not 0 <= index < count:
+            raise GeometryRefused(f"the outline has no edge {index}",
+                                  f"it has {count} edges")
+    if len(wanted) >= count:
+        raise GeometryRefused(
+            "the whole outline is selected",
+            "select a run of the outline's edges, not all of them")
+    if count - len(wanted) < 2:
+        raise GeometryRefused(
+            f"the run would leave {count - len(wanted)} edge(s) of the outline",
+            "an outline needs at least three edges: select fewer edges")
+    chosen = set(wanted)
+    starts = [index for index in wanted if (index - 1) % count not in chosen]
+    if len(starts) != 1:
+        raise GeometryRefused(
+            "the selected edges are not consecutive",
+            "select a run of neighbouring edges")
+    start = starts[0]
+    return [(start + step) % count for step in range(len(wanted))]
+
+
+# ------------------------------------------------------------- curve offsets
+
+# How finely a curve is sampled before it is offset. The offset and everything
+# read off it - its ends, its crossings, the loops it runs into - come from these
+# points, so this is the resolution of an offset command.
+CURVE_STEP_MM = 0.5
+# What one piece may spend on that resolution, and what a whole chain may: the
+# crossing searches compare every segment with every other, so the total is what
+# keeps a long source from making them unbounded.
+CURVE_PIECE_CAP = 1200
+CURVE_TOTAL_CAP = 3000
+# How many starting segments one pass of a crossing search compares at a time.
+CROSSING_CHUNK = 192
+
+
+def sampled_pieces(edges) -> list:
+    """These edges as arc-uniform polylines, one per edge, ready to be offset."""
+    raw = []
+    for edge in edges:  # loop: one piece per edge
+        points = np.asarray(edge.render_points, dtype=np.float64)
+        if points.ndim != 2 or len(points) < 2:
+            continue
+        raw.append(points)
+    if not raw:
+        raise GeometryRefused("that line has no shape to offset")
+    steps = [max(int(np.clip(np.ceil(polyline_length(points) / CURVE_STEP_MM), 8,
+                             CURVE_PIECE_CAP)), 2) for points in raw]
+    total = sum(steps)
+    if total > CURVE_TOTAL_CAP:
+        steps = [max(int(round(step * CURVE_TOTAL_CAP / total)), 2) for step in steps]
+    return [resample_by_arc_length(points, step) for points, step in zip(raw, steps)]
+
+
+def offset_normals(points) -> np.ndarray:
+    """The left normal at every sample of one piece.
+
+    The tangent is the central difference of the samples, which is what makes a
+    corner between two pieces a kink rather than a rounded turn: the pieces are
+    offset as the curves they are, and what joins them is written separately.
+    """
+    tangent = np.gradient(points, axis=0)
+    length = np.hypot(tangent[:, 0], tangent[:, 1])
+    length[length <= 0.0] = 1.0
+    return np.column_stack((-tangent[:, 1] / length, tangent[:, 0] / length))
+
+
+def offset_piece(points, distance) -> np.ndarray:
+    """One piece's offset: every sample moved along its own normal.
+
+    A negative distance takes the piece to the other side. A curved piece whose
+    offset is further than its own radius of curvature comes back the other way
+    round, which is what the caller de-loops.
+    """
+    return points + float(distance) * offset_normals(points)
+
+
+def dedupe_points(points, owner) -> tuple:
+    """Drop the points that repeat the one before them, and their owner marks."""
+    keep = [0]
+    for index in range(1, len(points)):  # loop: one point per step
+        if float(np.linalg.norm(points[index] - points[keep[-1]])) > 1e-6:
+            keep.append(index)
+    return points[keep], owner[keep]
+
+
+def split_by_owner(points, owner) -> list:
+    """One polyline as pieces: each owner's own run, and the chord that joins them.
+
+    Consecutive runs do not meet where they are written: what connects them is the
+    straight chord between one run's far end and the next one's near end. The
+    chord is written as the piece it is - two points, which the write below lays
+    down as a straight edge - rather than left inside the run either side of it,
+    where a fitted spline through a corner would bow past it. The pieces share
+    their ends, so the line they are written as is one chain of edges.
+    """
+    pieces, start = [], 0
+    for index in range(1, len(points)):  # loop: one boundary per change of owner
+        if owner[index] == owner[index - 1]:
+            continue
+        pieces.append(points[start:index])
+        pieces.append(points[index - 1:index + 1])
+        start = index
+    pieces.append(points[start:])
+    return [piece for piece in pieces
+            if len(piece) >= 2 and polyline_length(piece) > 1e-9]
+
+
+def write_curve_line(pattern, pieces) -> list:
+    """Write one internal line of these pieces, and answer its edges' uuids.
+
+    The pieces are written as the shape they are: one that is straight within the
+    fit's tolerance becomes a straight edge and anything else a spline through
+    fitted control points, which is the one way the editor writes a curve. The
+    pieces share their ends, so the line is one chain, and the points it runs
+    through join the pattern's own pool rather than any other line's.
+    """
+    sketch = pattern.require_sketch()
+    line = sketch.internal_lines.add()
+    sketch.own(line)
+    line.is_loop = False
+    uuids, previous = [], None
+    for piece in pieces:  # loop: one point pair and one edge per piece
+        start = sketch.add_vertex(_pair(piece[0])) if previous is None else previous
+        end = sketch.add_vertex(_pair(piece[-1]))
+        edge = sketch.own(line.edges.add())
+        edge.vertex_index[0] = start
+        edge.vertex_index[1] = end
+        _write_piece(edge, piece)
+        edge.update()
+        uuids.append(edge.global_uuid)
+        previous = end
+    line.initialize()
+    return uuids
+
+
+def _array_cross(first, second):
+    """The 2D cross product over arrays of vectors (the corner section's is scalar)."""
+    return first[..., 0] * second[..., 1] - first[..., 1] * second[..., 0]
+
+
+def inside_mask(polygon, points) -> np.ndarray:
+    """Whether each point is inside a closed polygon, by the even-odd rule."""
+    polygon = np.asarray(polygon, dtype=np.float64)
+    inside = np.zeros(len(points), dtype=bool)
+    if len(polygon) < 3:
+        return inside
+    first, second = polygon, np.roll(polygon, -1, axis=0)
+    for lower in range(0, len(points), 512):  # loop: one block of points per pass
+        block = points[lower:lower + 512]
+        y = block[:, 1][None, :]
+        crosses = (first[:, 1][:, None] > y) != (second[:, 1][:, None] > y)
+        spans = np.where(second[:, 1] - first[:, 1] == 0.0, 1.0, second[:, 1] - first[:, 1])
+        limit = (first[:, 0][:, None] + (y - first[:, 1][:, None])
+                 * (second[:, 0] - first[:, 0])[:, None] / spans[:, None])
+        inside[lower:lower + 512] = \
+            (crosses & (block[:, 0][None, :] < limit)).sum(axis=0) % 2 == 1
+    return inside
+
+
+def self_crossings(points) -> list:
+    """Every crossing of one polyline with itself, as ``(i, j, t)``.
+
+    `i` and `j` are the two segments and `t` is how far along the first the
+    crossing sits. Segments next to each other share a point by construction and
+    are not crossings of the line; the rest are what an offset that ran into a
+    loop of its own leaves behind.
+    """
+    starts, steps = points[:-1], points[1:] - points[:-1]
+    found = []
+    for lower in range(0, len(starts), CROSSING_CHUNK):  # loop: one block per pass
+        upper = min(lower + CROSSING_CHUNK, len(starts))
+        block, block_step = starts[lower:upper, None, :], steps[lower:upper, None, :]
+        delta = starts[None, :, :] - block
+        denominator = _array_cross(block_step, steps[None, :, :])
+        parallel = np.abs(denominator) <= 1e-12
+        safe = np.where(parallel, 1.0, denominator)
+        weight = _array_cross(delta, steps[None, :, :]) / safe
+        other = _array_cross(delta, block_step) / safe
+        hit = (~parallel & (weight >= -1e-9) & (weight <= 1.0 + 1e-9)
+               & (other >= -1e-9) & (other <= 1.0 + 1e-9))
+        rows, columns = np.nonzero(hit)
+        for row, column in zip(rows, columns):  # loop: one crossing per pair
+            start, end = lower + int(row), int(column)
+            if end > start + 1:
+                found.append((start, end, float(weight[row, column])))
+    found.sort(key=lambda entry: (entry[0], entry[1]))
+    return found
+
+
+def without_loops(points, owner) -> tuple:
+    """One offset with the loops its own crossings enclose removed.
+
+    The first crossing in walk order is the one the line reached first: the walk
+    keeps its points up to that crossing, carries on from the place the other
+    segment reaches it, and the points between the two - the loop - are gone. The
+    owner the crossing lands in is the earlier one's, so the skeleton stays as few
+    pieces as it can be. Returns the points, their owners, and how many loops went.
+    """
+    points, owner = np.array(points, dtype=np.float64), np.array(owner, dtype=np.int64)
+    loops = 0
+    while len(points) > 3:
+        crossings = self_crossings(points)
+        if not crossings:
+            break
+        start, end, weight = crossings[0]
+        crossing = points[start] + weight * (points[start + 1] - points[start])
+        points = np.vstack((points[:start + 1], crossing[None, :], points[end + 1:]))
+        owner = np.concatenate((owner[:start + 1], owner[start:start + 1],
+                                owner[end + 1:]))
+        loops += 1
+    return points, owner, loops
 def _ensure_shape(pattern, indices, edges=None) -> None:
     """Rebuild the drawn points when one of these edges has none.
 

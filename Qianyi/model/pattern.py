@@ -621,7 +621,11 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         for section in sections:  # loop: one segment count per piece
             if section.seg == -1:
                 section.seg = max(math.ceil(section.absolute_length() / granularity), 1)
-            min_g = min(section.absolute_length() / section.seg, min_g)
+            # A piece of no length - the outline cut where an internal line only
+            # touches it - has no step to measure the rest of the edge against.
+            length = section.absolute_length()
+            if length > 0.0:
+                min_g = min(length / section.seg, min_g)
         if len(sections) == 1:
             point_size = sections[0].seg + 1
             sections[0].start_point = 0

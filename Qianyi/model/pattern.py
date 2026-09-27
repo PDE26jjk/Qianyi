@@ -32,13 +32,15 @@ VALIDITY_VALID = "VALID"
 VALIDITY_INVALID = "INVALID"
 
 
-def boundary_self_intersection(points):
-    """Test one closed boundary polyline for a self-crossing.
+def boundary_self_intersection(points, is_loop=True):
+    """Test one boundary polyline for a self-crossing.
 
-    `points` is the concatenated sampled outline (N x 2, in pattern space); the
-    engine treats it as a loop, so the last point connects back to the first.
-    Returns ``(intersected, crossing)``, where `crossing` is the intersection
-    point in the same space, or None when there is none.
+    `points` is the concatenated sampled boundary (N x 2, in pattern space).
+    `is_loop` says whether its last point connects back to its first: an outline
+    is a loop, an internal line drawn as an open one is not, and the engine
+    builds one edge less for the open chain. Returns ``(intersected, crossing)``,
+    where `crossing` is the intersection point in the same space, or None when
+    there is none.
     """
     points = np.ascontiguousarray(points, dtype=np.float32)
     if points.ndim != 2 or points.shape[0] < 3:
@@ -46,7 +48,7 @@ def boundary_self_intersection(points):
         # reports as an intersection ("one point or one edge").
         return True, None
     from Qianyi_DP import pattern_helper
-    result = pattern_helper.check_edge_intersection(points.reshape(-1))
+    result = pattern_helper.check_edge_intersection(points.reshape(-1), bool(is_loop))
     if not result["intersected"]:
         return False, None
     index = int(result["res_index"])
@@ -54,12 +56,15 @@ def boundary_self_intersection(points):
     if not 0 <= index < len(points):
         return True, None
     start = points[index]
-    end = points[(index + 1) % len(points)]
+    # The engine reports the piece of the boundary that crosses another: on a loop
+    # that is the closing pair, on an open chain the one after the index.
+    end = points[(index + 1) % len(points)] if is_loop \
+        else points[min(index + 1, len(points) - 1)]
     return True, (float(start[0] + (end[0] - start[0]) * weight),
                   float(start[1] + (end[1] - start[1]) * weight))
 
 
-def interactive_edit_allowed(context, points):
+def interactive_edit_allowed(context, points, is_loop=True):
     """Whether an interactive edit that produced `points` may be applied.
 
     False means the outline crosses itself, and the user is told why. The
@@ -68,12 +73,15 @@ def interactive_edit_allowed(context, points):
     operator can be written without the check first. Nothing else needs the
     call: `mark_geometry_changed` marks the outline unchecked on every shape
     change, and the mesh and the simulation test it before they use it.
+
+    `is_loop` is false for an internal line drawn as an open chain: it is judged
+    as the open curve it is rather than as a loop that closes on itself.
     """
     scene = getattr(context, "scene", None)
     qmyi = getattr(scene, "qmyi", None)
     if qmyi is not None and not qmyi.interactive_self_intersection_check:
         return True
-    intersected, _crossing = boundary_self_intersection(points)
+    intersected, _crossing = boundary_self_intersection(points, is_loop)
     if not intersected:
         return True
     report_error("edges intersected!", (
@@ -329,6 +337,42 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         if len(chunks) == 0:
             return None
         return np.concatenate(chunks, dtype=np.float32)
+
+    def chain_check_points(self, owner, edge_index, replacements) -> tuple:
+        """One chain's drawn points, with one of its edges replaced by these pieces.
+
+        Returns the polyline the crossing test reads and whether the chain closes.
+        A tool that is about to split an edge judges the whole chain the edge
+        belongs to - the outline as a loop, an internal line as the open chain it
+        was drawn as - with the pieces it would write standing in for the edge they
+        replace. Judging an internal line against the outline's loop would test a
+        shape the edit is not part of. The joining rule is the one the test
+        expects: an edge's last point is the next edge's first and is dropped,
+        except at the end of an open chain, where that point is the end of the
+        line. `owner` is what `chain_of_edge` answered - this pattern for an
+        outline edge, the internal line itself otherwise.
+        """
+        edges = self.edges if owner is self else owner.edges
+        closed = True if owner is self else bool(owner.is_loop)
+        chunks = []
+        for index, edge in enumerate(edges):  # loop: one edge of that chain per run
+            if index == edge_index:
+                chunks.extend(np.asarray(points, dtype=np.float32)
+                              for points in replacements)
+                continue
+            edge.update()
+            points = edge.render_points
+            if points is None or len(points) < 2:
+                continue
+            chunks.append(np.asarray(points, dtype=np.float32))
+        kept = []
+        for position, points in enumerate(chunks):  # loop: one piece per run
+            last = position + 1 == len(chunks)
+            keep = len(points) if (not closed and last) else max(len(points) - 1, 0)
+            kept.append(points[:keep])
+        if not kept:
+            return None, closed
+        return np.concatenate(kept, dtype=np.float32), closed
 
     def check_self_intersection(self):
         """Run the outline test now and cache the result with the crossing."""
@@ -964,10 +1008,10 @@ class Pattern(PropertyGroup, ModelData, Selectable):
         end of the line and is kept.
 
         The engine's edge builder closes every group into a loop (`next = (k + 1) %
-        size`), which is what the outline wants: its last point and its first are
-        the same place. An open chain has two ends, so it repeats its last point:
-        the edge that closes it is then a point rather than a line the pointer
-        could snap across.
+        size`) - that was the old rule. The engine builds every group as an open
+        chain now, one edge less than it has points, so a chain that closes names
+        its first point again at the end: the repeated point is what its closing
+        edge runs to, and the pointer can snap along that edge like any other.
         """
         # The samples are session data: a pattern a file was opened with has none
         # of them, so they are asked for here rather than left to whoever calls
@@ -993,8 +1037,13 @@ class Pattern(PropertyGroup, ModelData, Selectable):
             if not pieces:
                 continue
             points = np.concatenate(pieces, dtype=np.float32)
-            if not closed:
-                points = np.concatenate((points, points[-1:]), dtype=np.float32)
+            if closed:
+                # The closing edge is the chain's last point running back to its
+                # first, and the engine builds no edge for a pair it was not
+                # given: the first point is named again at the end so that edge
+                # exists. An open chain needs nothing - its last point is the end
+                # of its last edge already.
+                points = np.concatenate((points, points[:1]), dtype=np.float32)
             groups.append((key, points, tuple(sizes)))
         return groups
 

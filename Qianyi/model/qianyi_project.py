@@ -47,11 +47,6 @@ def chain_sample_counts(pattern, key) -> tuple:
     return tuple(counts)
 
 
-def outline_sample_counts(pattern) -> tuple:
-    """How many outline points the edge finder takes from each edge of a pattern."""
-    return chain_sample_counts(pattern, None)
-
-
 def section_grid(pattern):
     """A cheap signature of the piece grid the mesh is sampled from.
 
@@ -407,11 +402,12 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         is what lets a selection outlive a mode switch. `submode` only narrows
         the edge mode further; leaving it out returns its edges and vertices.
 
-        An entry whose data is gone is skipped rather than returned as None.
-        `strict` decides what a shifted identity does: the editing callers keep
-        seeing it as an error, while the drawing path asks for the tolerant
-        lookup, because a selection that outlived the element it names must not
-        fail a redraw.
+        An entry whose data is gone drops the whole selection of its mode: an
+        element that was removed has to take its selection with it, or every
+        later read would keep naming something the model no longer has. `strict`
+        decides what a *shifted* identity does - the editing callers keep seeing
+        it as an error, while the drawing path asks for the tolerant lookup -
+        and what a gone one does, which is to clear and answer nothing either way.
         """
         if mode == "PATTERN":
             uuids = [entry.uuid for entry in self.selected_patterns]
@@ -599,8 +595,16 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
                 # description disagree, and a snapshot that describes itself as
                 # current while holding nothing is one no tool can read.
                 layout.append((index, int(pattern.global_uuid), key, sizes))
-        edge_point_sizes = np.array(edge_point_sizes, dtype=np.int32)
-        self.edge_point_sizes = np.cumsum(edge_point_sizes)
+        # What the engine is handed is one size per group, in order: it builds the
+        # group offsets itself, and a cumulative array read as sizes would splice
+        # every group after the first into the one before it. What the snap's
+        # answer is read against is the cumulative ends of those same groups.
+        group_sizes = np.array(edge_point_sizes, dtype=np.int32)
+        self.edge_point_sizes = np.cumsum(group_sizes)
+        # A group of S points is S - 1 edges - the engine chains neighbouring
+        # points and closes nothing - and the answer names an edge counted over
+        # every group, so which group it belongs to is read from these.
+        self.edge_group_edges = np.cumsum(np.maximum(group_sizes - 1, 0))
         # What this snapshot was taken from, per chain: the offsets the snap
         # reports are indices into these arrays, and a chain that grew an edge - or
         # split one into two - has an array they do not fit. `live_edge_finder_layout`
@@ -614,7 +618,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
             self.edge_points = np.zeros((0, 2), dtype=np.float32)
             matrices = np.zeros((0, 16), dtype=np.float32)
         from Qianyi_DP import pattern_helper
-        pattern_helper.update_edges(self.edge_points, edge_point_sizes, matrices)
+        pattern_helper.update_edges(self.edge_points, group_sizes, matrices)
 
     def live_edge_finder_layout(self) -> tuple:
         """What the snapshot should hold for the geometry as it is now.
@@ -642,6 +646,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     def clear_edge_finder(self):
         self.edge_points = None
         self.edge_point_sizes = None
+        self.edge_group_edges = None
         self.edge_finder_layout = None
         self.nearest_point = None
         self.nearest_group = None
@@ -683,24 +688,22 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
             self.nearest_pattern = None
             self.nearest_group = None
             return
-        # Which chain the id belongs to, and where inside it: every chain is one
-        # run of the flat array, so the answer is one comparison against the
-        # cumulative sizes.
-        # `edge_point_sizes` holds the cumulative *ends* of the groups, so the
-        # group an index belongs to is the number of ends at or before it.
-        group = int(np.searchsorted(self.edge_point_sizes, index, side='right'))
-        group = max(0, min(group, len(self.edge_point_sizes) - 1))
-        group_start = 0 if group == 0 else int(self.edge_point_sizes[group - 1])
-        next_index = index + 1
-        if next_index >= int(self.edge_point_sizes[group]):
-            # The last point of a chain: its neighbour is the chain's own first.
-            # Every group is closed - an open one repeats its end - so this pair is
-            # a point of that chain either way.
-            next_index = group_start
+        # Which chain the answer belongs to: it names an edge, and the edges of
+        # every group are counted one after another, so the group is the number of
+        # edge ends at or before it. Inside a group the edge's own number is the
+        # offset of the point it starts from - the points are chained neighbour to
+        # neighbour - and the points of the groups are counted the same way.
+        group = int(np.searchsorted(self.edge_group_edges, index, side='right'))
+        group = max(0, min(group, len(self.edge_group_edges) - 1))
+        group_edge_start = 0 if group == 0 else int(self.edge_group_edges[group - 1])
+        group_point_start = 0 if group == 0 else int(self.edge_point_sizes[group - 1])
+        offset = index - group_edge_start
+        point_index = group_point_start + offset
         self.nearest_group = group
-        self.edge_point_offset = index - group_start
+        self.edge_point_offset = offset
         self.nearest_pattern = int(self.edge_finder_layout[group][0])
-        self.nearest_point = self.edge_points[index] * (1 - weight) + self.edge_points[next_index] * weight
+        self.nearest_point = (self.edge_points[point_index] * (1 - weight)
+                              + self.edge_points[point_index + 1] * weight)
 
     def get_nearest_point_data(self):
         """Where the snap is: the pattern, its edge, the point and the fraction.
@@ -735,11 +738,6 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         starts = np.concatenate(([0], np.cumsum(np.asarray(sizes, dtype=np.int64))))
         offset = int(self.edge_point_offset)
         edge_index = int(np.searchsorted(starts, offset, side='right') - 1)
-        if edge_index >= len(edges):
-            # The end of an open chain is repeated so the engine's closing edge
-            # stays inside the chain: a hit on that repeated point is the far end
-            # of the chain's last edge.
-            edge_index = len(edges) - 1
         if not 0 <= edge_index < len(edges):
             raise ValueError("the snap does not land on an edge of the chain it names")
         edge = edges[edge_index]
@@ -961,6 +959,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
 define_temp_prop(QianyiProject, "initialized", False)
 define_temp_prop(QianyiProject, "edge_points", None)
 define_temp_prop(QianyiProject, "edge_point_sizes", None)
+define_temp_prop(QianyiProject, "edge_group_edges", None)
 define_temp_prop(QianyiProject, "nearest_point", None)
 define_temp_prop(QianyiProject, "query_point", None)
 define_temp_prop(QianyiProject, "nearest_pattern", None)

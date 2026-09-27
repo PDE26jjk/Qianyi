@@ -785,6 +785,8 @@ class TempDrawManager:
                 gpu.state.point_size_set(8.0)
 
                 p.line_renderer.draw_vertices(color=(0.6, 0.6, 0.2, 1))
+                for il in p.internal_lines:
+                    il.renderer.draw_spline_points(pattern=p)
                 # for e in p.edges:
                 #     e: Edge2D
                 #     if e.renderer is None:

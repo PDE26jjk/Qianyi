@@ -36,7 +36,6 @@ import gpu
 import numpy as np
 from gpu.types import GPUShaderCreateInfo
 from gpu_extras.batch import batch_for_shader
-from mathutils import Matrix
 
 from ..declarations import Panels
 from .GizmosMeshRenderer import (mesh_has_simulation_frame, mesh_strain_colors,
@@ -167,16 +166,15 @@ class View3DOverlay:
         interface.smooth('VEC4', "vColor")
         shader_info.vertex_out(interface)
         shader_info.fragment_out(0, 'VEC4', "fragColor")
-        shader_info.push_constant('MAT4', "ModelMatrix")
         shader_info.push_constant('MAT4', "ModelViewProjectionMatrix")
         # The camera position and the lift travel together in one vector: a
         # single VEC4 push constant is the form every other shader in this
         # add-on uses, and it keeps the two values in step by construction.
         shader_info.push_constant('VEC4', "camera_and_offset")
-        # Positions arrive in world space (ModelMatrix is the identity), so the
-        # only transform left is the viewport's own view/projection. Pulling the
-        # vertex towards the camera by depth_offset is what keeps this pass from
-        # tying with the surface Blender has already shaded.
+        # Positions arrive in world space, so the only transform is the
+        # viewport's own view/projection. Pulling the vertex towards the camera
+        # by depth_offset is what keeps this pass from tying with the surface
+        # Blender has already shaded.
         shader_info.vertex_source("""
         void main()
         {
@@ -187,7 +185,7 @@ class View3DOverlay:
             vec3 lifted = pos + (distance > 0.0
                                  ? (to_camera / distance) * depth_offset
                                  : vec3(0.0));
-            gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(lifted, 1.0);
+            gl_Position = ModelViewProjectionMatrix * vec4(lifted, 1.0);
             vColor = color;
         }
         """)
@@ -206,7 +204,6 @@ class View3DOverlay:
         position = tuple(camera) if camera else (0.0, 0.0, 0.0)
         lift = float(self.depth_offset if offset is None else offset)
         self.shader.bind()
-        self.shader.uniform_float("ModelMatrix", Matrix.Identity(4))
         self.shader.uniform_float("camera_and_offset",
                                   (position[0], position[1], position[2], lift))
 

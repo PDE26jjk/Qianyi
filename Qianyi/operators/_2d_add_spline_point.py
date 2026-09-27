@@ -106,14 +106,13 @@ class NODE_OT_add_spline_point(Operator2DBase):
             mc.handle1_type = mc.handle2_type = "VECTOR"
 
         mc.update()
-        checking_edge_points = []
-        for i, e in enumerate(pattern.edges):
-            if i == edge_index:
-                checking_edge_points.append(mc.render_points[:-1])
-            else:
-                checking_edge_points.append(e.render_points[:-1])
-        checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
-        if not interactive_edit_allowed(context, checking_edge_points):
+        # The chain the edge belongs to is what the crossing test reads, with the
+        # edge this control point would reshape standing in for the one it
+        # replaces: an internal line is judged as the open chain it was drawn as.
+        checking_edge_points, closed = pattern.chain_check_points(
+            owner, edge_index, [mc.render_points])
+        if checking_edge_points is None or not interactive_edit_allowed(
+                context, checking_edge_points, is_loop=closed):
             draw_manager.clear()
             return {'CANCELLED'}
 

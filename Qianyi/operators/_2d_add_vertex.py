@@ -132,15 +132,14 @@ class NODE_OT_add_vertex(Operator2DBase):
 
         mc1.update()
         mc2.update()
-        checking_edge_points = []
-        for i, e in enumerate(pattern.edges):
-            if i == edge_index:
-                checking_edge_points.append(mc1.render_points[:-1])
-                checking_edge_points.append(mc2.render_points[:-1])
-            else:
-                checking_edge_points.append(e.render_points[:-1])
-        checking_edge_points = np.concatenate(checking_edge_points, dtype=np.float32)
-        if not interactive_edit_allowed(context, checking_edge_points):
+        # The chain the edge belongs to is what the crossing test reads, with the
+        # two pieces this split would write standing in for the edge they replace:
+        # a piece of an internal line is judged as part of that open chain, not
+        # against the outline it is not on.
+        checking_edge_points, closed = pattern.chain_check_points(
+            owner, edge_index, [mc1.render_points, mc2.render_points])
+        if checking_edge_points is None or not interactive_edit_allowed(
+                context, checking_edge_points, is_loop=closed):
             draw_manager.clear()
             return {'CANCELLED'}
 
@@ -203,7 +202,7 @@ class NODE_OT_add_vertex(Operator2DBase):
         project.selected_edges.clear()
         project.set_active_pattern(pattern)
         p = pattern.vertices[v_index]
-        p.get_temp_data()
+        # p.get_temp_data()
         v = project.selected_vertices.add()
         v.uuid = p.global_uuid
         return {'FINISHED'}

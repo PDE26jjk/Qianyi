@@ -28,7 +28,6 @@ import gpu
 import numpy as np
 from gpu.types import GPUShaderCreateInfo
 from gpu_extras.batch import batch_for_shader
-from mathutils import Matrix
 
 
 # Two world axes are kept per projection axis, in the order the pattern window
@@ -65,13 +64,12 @@ class SilhouetteGuide:
         shader_info = GPUShaderCreateInfo()
         shader_info.vertex_in(0, 'VEC2', "pos")
         shader_info.fragment_out(0, 'VEC4', "fragColor")
-        shader_info.push_constant('MAT4', "ModelMatrix")
         shader_info.push_constant('MAT4', "ModelViewProjectionMatrix")
         shader_info.push_constant('VEC4', "color")
         shader_info.vertex_source("""
         void main()
         {
-            gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos, 0.0, 1.0);
+            gl_Position = ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0);
         }
         """)
         shader_info.fragment_source("""
@@ -218,7 +216,6 @@ class SilhouetteGuide:
         gpu.state.depth_test_set('NONE')
         gpu.state.line_width_set(1.0)
         self.shader.bind()
-        self.shader.uniform_float("ModelMatrix", Matrix.Identity(4))
 
         color = tuple(project.silhouette_color)
         if self.batch_fill is not None and len(color) >= 3:

@@ -12,6 +12,12 @@ from .. import global_data
 from ..utilities.coords_transform import create_2d_matrix
 from ..utilities.strain import strain_colors, vertex_strain
 
+MESH_UNIFORMS = """
+struct MyUniforms {
+    mat4 ModelMatrix;
+};
+"""
+
 
 def read_vertex_colors(mesh):
     """The mesh's ``Color`` attribute as an (N, 4) float32 array, or None.
@@ -94,6 +100,7 @@ class MeshRenderer:
             self.shader = self._create_shader()
         if self.color_shader is None:
             self.color_shader = self._create_color_shader()
+        self.ubo = gpu.types.GPUUniformBuf(np.zeros(16, dtype=np.float32).tobytes())
         self.batch_line = None
         self.batch_triangle = None
         self.batch_color_triangle = None
@@ -110,14 +117,15 @@ class MeshRenderer:
         shader_info.vertex_in(0, 'VEC3', "pos")
         shader_info.fragment_out(0, 'VEC4', "fragColor")
 
-        shader_info.push_constant('MAT4', "ModelMatrix")
+        shader_info.typedef_source(MESH_UNIFORMS)
+        shader_info.uniform_buf(0, "MyUniforms", "ubo_buf")
         shader_info.push_constant('MAT4', "ModelViewProjectionMatrix")
         shader_info.push_constant('VEC4', "color")
 
         shader_info.vertex_source("""
         void main()
         {
-            gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos.x,pos.y,0., 1.0);
+            gl_Position = ModelViewProjectionMatrix * ubo_buf.ModelMatrix * vec4(pos.x,pos.y,0., 1.0);
         }
         """)
         shader_info.fragment_source("""
@@ -145,13 +153,14 @@ class MeshRenderer:
         shader_info.vertex_out(interface)
         shader_info.fragment_out(0, 'VEC4', "fragColor")
 
-        shader_info.push_constant('MAT4', "ModelMatrix")
+        shader_info.typedef_source(MESH_UNIFORMS)
+        shader_info.uniform_buf(0, "MyUniforms", "ubo_buf")
         shader_info.push_constant('MAT4', "ModelViewProjectionMatrix")
 
         shader_info.vertex_source("""
         void main()
         {
-            gl_Position = ModelViewProjectionMatrix * ModelMatrix * vec4(pos.x, pos.y, 0., 1.0);
+            gl_Position = ModelViewProjectionMatrix * ubo_buf.ModelMatrix * vec4(pos.x, pos.y, 0., 1.0);
             vColor = color;
         }
         """)
@@ -303,12 +312,17 @@ class MeshRenderer:
         gpu.state.depth_test_set('NONE')
 
         self.color_shader.bind()
-        self.color_shader.uniform_float("ModelMatrix", self.get_world_matrix())
+        self._use_model_matrix(self.color_shader, self.get_world_matrix())
         self.batch_color_triangle.draw(self.color_shader)
         return True
 
     def get_world_matrix(self):
         return self.pattern.calc_matrix()
+
+    def _use_model_matrix(self, shader, matrix):
+        """Put the pattern's transform in the uniform buffer the shaders read."""
+        self.ubo.update(np.array(matrix, dtype=np.float32).T.tobytes())
+        shader.uniform_block("ubo_buf", self.ubo)
 
     def draw_fill_mesh(self, color=(1.0, 1.0, 1.0, 0.5), draw_id=False):
         if not self.obj or not self.batch_triangle or not self.shader or not self.pattern:
@@ -322,7 +336,7 @@ class MeshRenderer:
 
         self.shader.bind()
 
-        self.shader.uniform_float("ModelMatrix", self.get_world_matrix())
+        self._use_model_matrix(self.shader, self.get_world_matrix())
         self.shader.uniform_float("color", color)
         self.batch_triangle.draw(self.shader)
 
@@ -343,7 +357,7 @@ class MeshRenderer:
         self.shader.bind()
 
         transform_matrix = self.pattern.calc_matrix()
-        self.shader.uniform_float("ModelMatrix", transform_matrix)
+        self._use_model_matrix(self.shader, transform_matrix)
         if dim:
             self.shader.uniform_float("color", (0.843, 0.596, 0.153, 0.35))
         elif selected:

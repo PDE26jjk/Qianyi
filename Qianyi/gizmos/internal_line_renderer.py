@@ -67,6 +67,21 @@ class InternalLineRenderer(BaseRenderer):
         self.shader.uniform_float("color", color)
         self.batch_edge.draw(self.shader)
 
+    def draw_spline_points(self, color=(1.0, 0.2, 0.0, 0.8), pattern=None):
+        """Draw this line's control points; `pattern` is the member to draw in."""
+        if self.batch_spline_point is None:
+            self.line.update_render_spline_point()
+        if pattern is None:
+            pattern = self.pattern
+        if not pattern or self.batch_spline_point is None:
+            return
+        gpu.state.blend_set('ALPHA')
+        self.shader.bind()
+        self.update_model_matrix(pattern.calc_matrix())
+        self.shader.uniform_float("color", color)
+        gpu.state.point_size_set(5)
+        self.batch_spline_point.draw(self.shader)
+
     # def draw_instance_edges(self, anchor, rotation, mirror=False, scale=(1, 1),
     #                         color=(1.0, 1.0, 1.0, 0.7), thickness=2.0):
     #

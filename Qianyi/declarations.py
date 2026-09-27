@@ -55,6 +55,7 @@ class Operators(str, Enum):
     CutAlongLine2D = "qmyi.2d_cut_along_line"
     OffsetCopies2D = "qmyi.2d_offset_copies"
     LineToOutline2D = "qmyi.2d_line_to_outline"
+    LineIntersections2D = "qmyi.2d_line_intersections"
     Corner2D = "qmyi.2d_corner"
     Fan2D = "qmyi.2d_fan"
     CurveFit2D = "qmyi.2d_curve_fit"

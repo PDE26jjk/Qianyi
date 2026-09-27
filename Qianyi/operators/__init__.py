@@ -27,6 +27,7 @@ modules = [
     '_2d_cut_along_line',
     '_2d_offset_copies',
     '_2d_line_to_outline',
+    '_2d_line_intersections',
     '_2d_corner',
     '_2d_fan',
     '_2d_curve_fit',

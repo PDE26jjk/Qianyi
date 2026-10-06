@@ -8,6 +8,7 @@ from .panels.in_out import NODE_PT_qmyi_in_out
 from .panels.patterns import QY_PT_patterns, QY_UL_PatternList, QY_PT_patternProperty
 from .panels.library import (QY_PT_gc_library, QY_PT_gc_generator_property,
                              QY_UL_GeneratorList)
+from .panels.uv import IMAGE_PT_qmyi_pattern_uv
 from .panels.projects import QY_PT_qmyi_projects, QY_UL_ProjectList
 from .panels.silhouette import QY_PT_silhouette
 from .panels_3d.simulation import QY_PT_simulation, SimulationNextNframesOperator, SimulationToNframesOperator
@@ -23,6 +24,7 @@ classes = [
     QY_PT_patterns,
     QY_UL_PatternList,
     QY_PT_patternProperty,
+    IMAGE_PT_qmyi_pattern_uv,
     QY_PT_fabrics,
     QY_UL_FabricList,
     QY_PT_fabricProperty,

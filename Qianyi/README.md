@@ -48,6 +48,11 @@ release.
 - **Simulation**: pick a solver, edit its parameter block (including unknown
   keys), run it freely or with the animation timeline, record and play a frame
   cache, and export the cache as a PC2 Mesh Cache modifier.
+- **Pattern UVs**: every pattern mesh carries a `UVMap` layer, seeded from the
+  pattern's own space at the scene's UV Scale and carried across a mesh rebuild,
+  including the edits a user made in the UV editor. The UV editor's sidebar
+  resets it. UVs are per-vertex, so a UV split made by moving a vertex's loops
+  does not survive a rebuild.
 - **A script surface** (`qyapi`) that can build and drive all of the above from
   a plain Python statement, with one undo step per write.
 
@@ -90,7 +95,9 @@ name are specified in `openspec/changes/<name>/`.
   `pattern-states-and-display`.
 - [ ] Anti-aliased points and lines, and a line-width control that survives a
   redraw.
-- [ ] Fabric texture and UV display on the simulated garment.
+- [x] A per-pattern UV layer on the simulated garment, seeded from pattern space
+  and carried across a mesh rebuild — `pattern-uv`.
+- [ ] Fabric texture on the simulated garment.
 
 ### 3. Pattern geometry tools
 

@@ -47,6 +47,113 @@ def memmove(target_pointer, array) -> None:
     ctypes.memmove(target_pointer, array.ctypes.data_as(ctypes.c_char_p), array.nbytes)
 
 
+# The UV layer every pattern mesh carries. The name is Blender's own default, so
+# a material or an exporter reads it without being told which layer to use.
+UV_LAYER_NAME = "UVMap"
+
+
+def uv_scale_value() -> float:
+    """The scene's UV scale, or 1.0 when it cannot be read.
+
+    Pattern space is metres and the seed is the pattern-space position times
+    this number, so the default makes one metre of pattern one unit of UV. It is
+    read when a UV is seeded - the first mesh build and every reset - and never
+    applied to a UV that already exists.
+    """
+    try:
+        return float(bpy.context.scene.qmyi.uv_scale)
+    except Exception:
+        return 1.0
+
+
+def read_vertex_uv(mesh, loop_vertex=None):
+    """The mesh's ``UVMap`` layer as an (N, 2) float32 array, or None.
+
+    One value per vertex: this add-on writes every loop of a vertex the same, so
+    a loop's value is the vertex's value, and a layer a user changed in the UV
+    editor is read back the way the user left it. None when the mesh carries no
+    layer to read.
+
+    ``loop_vertex`` may be the loop vertex indices the caller already holds -
+    the triangles the mesh was built from, in loop order - so the read does not
+    have to pull them back out of Blender, which costs more than the UVs do.
+    """
+    layer = mesh.uv_layers.get(UV_LAYER_NAME)
+    if layer is None:
+        return None
+    num_vertices = len(mesh.vertices)
+    num_loops = len(mesh.loops)
+    if num_vertices == 0 or num_loops == 0 or len(layer.data) != num_loops:
+        return None
+    if loop_vertex is None:
+        loop_vertex = np.empty(num_loops, dtype=np.int32)
+        mesh.loops.foreach_get("vertex_index", loop_vertex)
+    else:
+        loop_vertex = np.ascontiguousarray(loop_vertex, dtype=np.int32).reshape(-1)
+        if loop_vertex.size != num_loops:
+            return None
+    loop_uv = np.empty(num_loops * 2, dtype=np.float32)
+    layer.data.foreach_get("uv", loop_uv)
+    # numpy: a scatter, not a sort - every loop of a vertex carries that
+    # vertex's UV, so the last one written wins and no unique pass is needed.
+    uv = np.zeros((num_vertices, 2), dtype=np.float32)
+    uv[loop_vertex] = loop_uv.reshape(-1, 2)
+    return uv
+
+
+def write_vertex_uv(mesh, uv, loop_vertex=None) -> None:
+    """Write one UV per vertex into the mesh's ``UVMap`` layer.
+
+    Every loop takes the UV of the vertex it references, which is the shape this
+    add-on writes and reads. ``loop_vertex`` may be the loop vertex indices the
+    caller already holds (the triangles it just wrote), so a rebuild does not
+    have to read them back.
+    """
+    num_loops = len(mesh.loops)
+    if num_loops == 0:
+        return
+    layer = mesh.uv_layers.get(UV_LAYER_NAME)
+    if layer is None:
+        layer = mesh.uv_layers.new(name=UV_LAYER_NAME)
+    if loop_vertex is None:
+        loop_vertex = np.empty(num_loops, dtype=np.int32)
+        mesh.loops.foreach_get("vertex_index", loop_vertex)
+    loop_uv = np.ascontiguousarray(np.asarray(uv, dtype=np.float32)[loop_vertex])
+    layer.data.foreach_set("uv", loop_uv.ravel())
+
+
+def seed_pattern_uv(pattern, positions, scale=1.0):
+    """The UV a pattern starts from: its pattern-space position times ``scale``.
+
+    The mesh is written in unmirrored pattern space and mirrored by the object's
+    own scale, so a mirrored pattern's ``u`` is negated here; without that the
+    object's scale would read the texture flipped.
+    """
+    uv = np.array(np.asarray(positions, dtype=np.float32)[:, :2], dtype=np.float32)
+    uv *= float(scale)
+    if pattern.is_mirror:
+        uv[:, 0] = -uv[:, 0]
+    return uv
+
+
+def mirror_pattern_uv(mesh) -> bool:
+    """Mirror a mesh's ``UVMap`` in place; True when there was one to mirror.
+
+    A pattern's mirror flag changes the object's scale, not the geometry, so
+    nothing rebuilds the mesh when it is toggled. The UV has to be mirrored here
+    instead, or the texture reads flipped after the toggle.
+    """
+    layer = mesh.uv_layers.get(UV_LAYER_NAME)
+    if layer is None or len(layer.data) == 0:
+        return False
+    uv = np.empty(len(layer.data) * 2, dtype=np.float32)
+    layer.data.foreach_get("uv", uv)
+    uv = uv.reshape(-1, 2)
+    uv[:, 0] = -uv[:, 0]
+    layer.data.foreach_set("uv", uv.ravel())
+    return True
+
+
 def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
     points = pattern.mesh_edge_points
     if len(points) < 3:
@@ -105,6 +212,10 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
     # console_print("delaunay: ", time.time() - start_time)
     # start_time = time.time()
     map_vertices = None
+    map_uv = None
+    res_index = None
+    res_weight = None
+    tris = None
     topo_nochanged = False
     old_vertex_group = None
     if mesh_obj is None:
@@ -117,48 +228,73 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
         if len(all_points) == len(mesh.vertices):
             topo_nochanged = True
             old_vertex_group = sim_props.get_vertex_group_weight(sim_props.fix_pin_group_name)
-        if mesh.shape_keys:
-            stamp = time.time()
-            old_sim_vertices = sim_props.get_simulation_vertices()
-            stamp = _mark("read simulation shape key", stamp)
-            if old_sim_vertices is not None:
-                old_pattern_vertices = sim_props.get_pattern_vertices()
-                stamp = _mark("read base shape key", stamp)
-                # The triangles of the mesh that is about to be replaced: the
-                # ones this function wrote last time. Reading them back from
-                # Blender re-tessellates the whole old mesh first, so the array
-                # that was written is kept on the pattern and used again; the
-                # read-back stays as the fallback for a mesh someone else built.
-                stored = pattern.mesh_triangles
-                if stored is not None and len(stored) == len(mesh.polygons):
-                    tris = stored
-                    stamp = _mark("reuse the triangles written last time", stamp)
-                else:
-                    tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
-                    stamp = _mark("loop_triangles buffer", stamp)
-                    mesh.loop_triangles.foreach_get("vertices", tris)
-                    stamp = _mark("loop_triangles read (fallback)", stamp)
-                    tris = tris.reshape(-1, 3)
-                res_index, res_weight = geometry.find_map_weight(old_pattern_vertices, tris, all_points,
-                                                                 map_bounds=scale_data is not None)
-                stamp = _mark("find_map_weight (old triangles -> new points)", stamp)
-                tri_verts_idx = tris[res_index]
-                selected_attrs = old_sim_vertices[tri_verts_idx]
+        # What this mesh holds right now is the source of everything carried
+        # across the rebuild, so all of it is read before the geometry is
+        # cleared - the clear takes the UV layer with it. The positions come
+        # first, because the UV is only read when there is something to map it
+        # from.
+        stamp = time.time()
+        old_pattern_vertices = sim_props.get_pattern_vertices()
+        stamp = _mark("read base shape key", stamp)
+        if old_pattern_vertices is None and mesh.uv_layers.get(UV_LAYER_NAME) is not None:
+            # A mesh whose pattern has no base shape key - one written before the
+            # keys existed, or one whose keys were removed - still carries its
+            # sample positions on its own vertices.
+            mesh_positions = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
+            mesh.vertices.foreach_get("co", mesh_positions)
+            old_pattern_vertices = mesh_positions.reshape(-1, 3)[:, :2]
+        old_uv = None
+        if old_pattern_vertices is not None:
+            # The triangles of the mesh that is about to be replaced: the
+            # ones this function wrote last time. Reading them back from
+            # Blender re-tessellates the whole old mesh first, so the array
+            # that was written is kept on the pattern and used again; the
+            # read-back stays as the fallback for a mesh someone else built.
+            stored = pattern.mesh_triangles
+            if stored is not None and len(stored) == len(mesh.polygons):
+                tris = stored
+                stamp = _mark("reuse the triangles written last time", stamp)
+            else:
+                tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
+                stamp = _mark("loop_triangles buffer", stamp)
+                mesh.loop_triangles.foreach_get("vertices", tris)
+                stamp = _mark("loop_triangles read (fallback)", stamp)
+                tris = tris.reshape(-1, 3)
+            res_index, res_weight = geometry.find_map_weight(old_pattern_vertices, tris, all_points,
+                                                             map_bounds=scale_data is not None)
+            stamp = _mark("find_map_weight (old triangles -> new points)", stamp)
+            # The layer the mesh holds now is what the carry maps, and the loop
+            # order it is folded back from is the same triangles, so neither
+            # needs a read of its own.
+            old_uv = read_vertex_uv(mesh, tris.ravel())
+            stamp = _mark("read the current UVMap", stamp)
+        old_sim_vertices = sim_props.get_simulation_vertices() if mesh.shape_keys else None
+        stamp = _mark("read simulation shape key", stamp)
+        if old_sim_vertices is not None and res_index is not None:
+            tri_verts_idx = tris[res_index]
+            selected_attrs = old_sim_vertices[tri_verts_idx]
 
-                # 使用 einsum 进行批量乘法求和
-                # 'ij,ijk->ik' 含义：
-                # i: 查询点数量 M
-                # j: 三个顶点 (3)
-                # k: 属性维度 K
-                # 对 j 维度进行相乘并求和，保留 i 和 k
-                map_vertices = np.einsum('ij,ijk->ik', res_weight, selected_attrs, dtype=np.float32)
-                stamp = _mark(f"mix attributes ({selected_attrs.shape[1]} values per vertex)",
-                              stamp)
-                if scale_data is not None:
-                    scale_center, scale_factor = scale_data["center"], scale_data["factor"]
-                    local_center = mesh_obj.matrix_world.inverted() @ scale_center
-                    cx = np.array(local_center, dtype=np.float32)
-                    map_vertices = cx + (map_vertices - cx) * scale_factor
+            # 使用 einsum 进行批量乘法求和
+            # 'ij,ijk->ik' 含义：
+            # i: 查询点数量 M
+            # j: 三个顶点 (3)
+            # k: 属性维度 K
+            # 对 j 维度进行相乘并求和，保留 i 和 k
+            map_vertices = np.einsum('ij,ijk->ik', res_weight, selected_attrs, dtype=np.float32)
+            stamp = _mark(f"mix attributes ({selected_attrs.shape[1]} values per vertex)",
+                          stamp)
+            if scale_data is not None:
+                scale_center, scale_factor = scale_data["center"], scale_data["factor"]
+                local_center = mesh_obj.matrix_world.inverted() @ scale_center
+                cx = np.array(local_center, dtype=np.float32)
+                map_vertices = cx + (map_vertices - cx) * scale_factor
+        if old_uv is not None and res_index is not None:
+            # The UV is one more per-vertex attribute, carried by the very same
+            # weights the simulated vertices are: it follows the fabric wherever
+            # they do, and a user's edit of the layer is what gets carried.
+            map_uv = np.einsum('ij,ijk->ik', res_weight, old_uv[tris[res_index]],
+                               dtype=np.float32)
+            stamp = _mark("mix UVs onto the new points", stamp)
 
         # The mesh is rebuilt in full every time. The point order the sampler
         # returns changes between runs, and the attributes and vertex groups on
@@ -254,6 +390,16 @@ def generate_pattern_mesh(pattern, granularity, mesh_obj, scale_data=None):
     # 更新网格
     mesh.update(calc_edges=True)
     _mark("mesh.update(calc_edges=True)", stamp)
+    stamp = time.time()
+    # The UV is written from the points the mesh was just written from: the one
+    # mapped off the mesh this build replaced when there was one to read, and
+    # the pattern-space seed otherwise (a first build, or a mesh carrying no UV).
+    if map_uv is not None:
+        new_uv = map_uv
+    else:
+        new_uv = seed_pattern_uv(pattern, all_points, uv_scale_value())
+    write_vertex_uv(mesh, new_uv, loop_indices)
+    _mark("write UVMap", stamp)
     stamp = time.time()
     if pattern.is_mirror:
         mesh_obj.scale.x = -1

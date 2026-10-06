@@ -101,6 +101,15 @@ class QianyiProps(PropertyGroup, ModelData):
         description="Print what every phase of a mesh rebuild cost, in seconds",
         default=False,
     )
+    uv_scale: FloatProperty(
+        name="UV Scale",
+        description="Size of a pattern's UV relative to its pattern space: at 1 "
+                    "one metre of pattern is one unit of UV. Read when a UV is "
+                    "seeded - the first mesh build and every reset - so changing "
+                    "it never rescales a UV that was edited by hand",
+        default=1.0,
+        min=0.0,
+    )
     pattern_display_mode: EnumProperty(
         name="Display",
         description="What the pattern editor draws for a pattern: the fabric "

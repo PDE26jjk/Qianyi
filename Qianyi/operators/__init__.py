@@ -5,6 +5,7 @@ modules = [
     "select_box",
     "project",
     "pattern_list",
+    "pattern_uv",
     "fabric_list",
     "generator",
     "in_out",

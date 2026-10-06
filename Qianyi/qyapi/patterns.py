@@ -12,6 +12,7 @@ import numpy as np
 from . import _address as address
 from .errors import QyapiError
 from ..model.pattern import VALIDITY_INVALID
+from ..model.pattern_mesh import mirror_pattern_uv
 
 
 def list(project=None):  # noqa: A001 - the surface's name for this call
@@ -320,7 +321,14 @@ def transform(name, anchor=None, rotation=None, grain_dir=None, collision_layer=
     if collision_layer is not None:
         pattern.collision_layer = int(collision_layer)
     if mirror is not None:
-        pattern.is_mirror = bool(mirror)
+        wanted = bool(mirror)
+        if wanted != bool(pattern.is_mirror):
+            # The flag mirrors the object, not the geometry, so nothing rebuilds
+            # the mesh here: the UV is mirrored at this moment, the way the seed
+            # mirrors it for a pattern that is meshed after the flag was set.
+            if pattern.mesh_object is not None:
+                mirror_pattern_uv(pattern.mesh_object.data)
+        pattern.is_mirror = wanted
         pattern.generate_mesh()
     address.write_done(f"place pattern {pattern.name}")
     return address.jsonify(_edit_result(pattern, "transform"))

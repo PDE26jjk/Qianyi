@@ -30,7 +30,7 @@ import bpy
 
 from .declarations import Panels
 from .utilities.console import console
-from .utilities.node_tree import get_active_node_tree
+from .utilities.node_tree import get_active_node_tree, get_all_node_tree
 
 POLL_INTERVAL = 0.1
 
@@ -47,7 +47,13 @@ def active_project(context=None, qmyi=None):
     still syncs its 2D selection through the project index.
     """
     context = context or bpy.context
-    project = get_active_node_tree(context)
+    try:
+        project = get_active_node_tree(context)
+    except AttributeError:
+        # The poll runs from a timer, and a timer's own context can have no
+        # space at all: asking for one raises rather than answering None. That
+        # must fall through to the scene's active project, not end the poll.
+        project = None
     if project is not None:
         return project
     if qmyi is None:
@@ -60,7 +66,14 @@ def active_project(context=None, qmyi=None):
         tree = bpy.data.node_groups[index]
         if tree.bl_idname == Panels.QianyiNodeTree:
             return tree
-    return None
+    # The index is a position in `bpy.data.node_groups`, which is sorted by name
+    # and gains and loses entries: a node group added, removed or renamed ahead
+    # of the project leaves the saved index naming another tree, or nothing at
+    # all, and the poll - which has no editor to ask - stops finding the project
+    # and mirrors nothing. Falling back to the project the scene holds is the
+    # same answer the script surface gives.
+    projects = get_all_node_tree()
+    return projects[0] if projects else None
 
 
 def selected_3d_uuids(context) -> frozenset:
@@ -162,6 +175,14 @@ def sync_once(context=None) -> bool:
         return True
 
     if from_2d != last_2d:
+        if project is None:
+            # There is no project to write to - the editor is showing another
+            # tree, or the active project is not a pattern project. The change
+            # stays pending, because the signature is not recorded, and the
+            # next poll that can reach a project applies it. Raising here
+            # instead would repeat on every poll and wedge the mirror for the
+            # rest of the session.
+            return False
         qmyi.set_temp_data_item(_KEY_BUSY, True)
         try:
             apply_to_objects(context, project, from_2d)

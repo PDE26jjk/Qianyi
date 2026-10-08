@@ -6,10 +6,18 @@ context: |
   Keep OpenSpec structural headings and SHALL/MUST keywords in English.
 
   Project: Qianyi, a Blender add-on for fabric simulation and garment design
-  (GPL-3.0-or-later, requires Blender 4.3+).
-  - Tech stack: Python 3.11 (Blender's interpreter) plus the compiled
-    Qianyi_DP engine module; no third-party Python packages - only the numpy
+  (GPL-3.0-or-later, requires Blender 5.2+).
+  - Tech stack: Python 3.13 (the interpreter Blender 5.2 ships) plus the
+    compiled Qianyi_DP engine module, imported as the top-level module
+    `Qianyi_DP`. The engine ships as a wheel inside the extension, which
+    Blender unpacks into the extensions site-packages before the add-on is
+    enabled; no third-party Python packages beyond it - only the numpy
     bundled with Blender.
+  - Packaging: the add-on is distributed as an extension, so its package is
+    named `bl_ext.<repository>.<id>` and varies with the repository it was
+    installed from. Committed code must not write into the add-on's own
+    directory (`bpy.utils.extension_path_user` is the writable location) and
+    must not publish top-level module names or touch `sys.path`.
   - Domain model: a project (node tree) holds patterns, sewings and fabrics.
     A pattern is a 2D outline of vertices and edges (a two-point edge with
     handles is a cubic Bezier, a multi-point edge is an interpolating cubic

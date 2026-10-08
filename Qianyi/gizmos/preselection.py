@@ -47,6 +47,12 @@ class NODE_GT_qmyi_preselection(Gizmo):
         id_texture = draw_manager.id_texture
         if id_texture is None:
             return -1
+        # Blender 5.1 and later raise on a read that reaches outside the
+        # framebuffer, and the pointer can sit on the last pixel of a region
+        # that has grown since the id pass last ran. A point the pass did not
+        # draw is not over anything.
+        if not (0 <= mouse_x < id_texture.width and 0 <= mouse_y < id_texture.height):
+            return -1
         with id_texture.bind():
             fb = gpu.state.active_framebuffer_get()
             buffer = fb.read_color(mouse_x, mouse_y, 1, 1, 4, 0, "FLOAT")

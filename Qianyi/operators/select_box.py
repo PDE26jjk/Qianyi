@@ -25,6 +25,19 @@ def get_start_dist(value1, value2, invert: bool = False):
     return int(start), int(abs(value2 - value1))
 
 
+def clip_to_extent(start, span, limit):
+    """The part of ``[start, start + span)`` that lies inside ``[0, limit)``.
+
+    The pointer can leave the region while the box is being dragged, and a
+    region bigger than the offscreen the id pass drew into leaves coordinates
+    that no longer fit it. Blender 5.1 and later raise on a read that reaches
+    outside the framebuffer, so the read is clipped to what was drawn.
+    """
+    end = min(start + span, limit)
+    start = max(start, 0)
+    return start, max(0, end - start)
+
+
 def generate_dashed_points(p1, p2, dash_len=6, gap_len=4):
     """
     在两点之间生成虚线顶点对 (用于 GL_LINES 模式)
@@ -121,8 +134,20 @@ class NODE_OT_qmyi_select_box(Operator):
         id_texture = draw_manager.id_texture
         if id_texture is None:
             return False
+        region = context.region
+        if (draw_manager.region_width != region.width
+                or draw_manager.region_height != region.height):
+            # The id pass drew at another size, so what is in the offscreen is
+            # not what is on screen. Applying this click would read the wrong
+            # pixels; ask for the redraw that resizes the pass and let the next
+            # click work.
+            if context.area is not None:
+                context.area.tag_redraw()
+            return False
         start_x, width = get_start_dist(self.start_coords.x, self.end_coords.x)
         start_y, height = get_start_dist(self.start_coords.y, self.end_coords.y)
+        start_x, width = clip_to_extent(start_x, width, id_texture.width)
+        start_y, height = clip_to_extent(start_y, height, id_texture.height)
         if not width or not height:
             return False
         # ── 读取 ID 纹理区域 ──
@@ -139,18 +164,12 @@ class NODE_OT_qmyi_select_box(Operator):
         #         unique_uuids.add(uuid)
         # console.info(unique_uuids)
 
-        buffer.dimensions = (4 , width * height)
-        N = width * height
-        flat = np.array(buffer, dtype=np.float32).ravel()
-
-        if len(flat) == N * 4:
-            r = flat[0:N]
-            g = flat[N:2 * N]
-            b = flat[2 * N:3 * N]
-            a = flat[3 * N:4 * N]
-            pixels = np.stack([r, g, b, a], axis=-1)  # shape 变为 (N, 4)
-        else:
-            pixels = flat.reshape(-1, 4)
+        # ``read_color`` returns the box as one RGBA quad per pixel, in scan
+        # order, so the buffer reads back as (pixel, channel). Splitting the
+        # flat buffer into four channel planes instead decodes every pixel from
+        # the channels of four different pixels: the ids that come out are ones
+        # the pass never drew, so the box selects nothing.
+        pixels = np.array(buffer, dtype=np.float32).reshape(-1, 4)
 
         rgba_255 = (pixels * 255.0).round().astype(np.uint32)
         uuids_uint = (rgba_255[:, 0] << 24) | (rgba_255[:, 1] << 16) | (rgba_255[:, 2] << 8) | rgba_255[:, 3]

@@ -1,15 +1,24 @@
 """Script surface of the Qianyi add-on (``qyapi``).
 
-Import this module in a Blender session that has the add-on registered::
+Import this module from the registered add-on package::
 
-    import qyapi                     # any session, viewport or -b
+    import bpy, importlib            # any session, viewport or -b
+    addon = next(key for key in bpy.context.preferences.addons
+                 if key.endswith(".Qianyi"))
+    qyapi = importlib.import_module(addon + ".qyapi")
     print(qyapi.help())              # the entry-point index
     print(qyapi.state())             # JSON-safe snapshot of the scene
 
-If the add-on is loaded but not registered yet, import it from the add-on
-package instead (``from Qianyi import qyapi`` for an installed add-on,
-``from qmyi import qyapi`` when a study notebook loaded the package by path).
-Both names resolve to the same module once the add-on is registered.
+The package name carries the repository the add-on was installed from
+(``bl_ext.user_default.Qianyi``, ``bl_ext.blender_org.Qianyi``, ...), which is
+why the key is looked up instead of written out. A session that loaded the
+package by path instead, as a study notebook does, reaches the same module
+under the name it loaded - ``qmyi.qyapi`` there.
+
+This module used to publish itself as a top-level ``qyapi`` entry in
+``sys.modules`` so that a client could write ``import qyapi`` without knowing
+the package name. Blender reports a top-level module whose file lives inside an
+extension as a policy violation, so that name is gone.
 
 Rules this surface follows
 --------------------------
@@ -623,32 +632,15 @@ def end_write(message):
 
 
 def register():
-    """Publish this package under the name ``qyapi``.
+    """Nothing to publish: the surface lives at its own package path.
 
-    The add-on package is called ``Qianyi`` when installed and something else
-    when a study notebook loaded it by path, so a client cannot be asked to
-    guess the import path. Registering the module under this name makes
-    ``import qyapi`` work in every session that registered the add-on.
+    The add-on is registered, and this module is imported as one of its
+    sub-modules, which is all a client needs - see the module docstring for the
+    two lines that find it. No global module name is created, because Blender
+    reports a top-level module whose file lives inside an extension as a policy
+    violation.
     """
-    sys.modules["qyapi"] = sys.modules[__name__]
-    # The submodules are published under the same name too: without this,
-    # ``from qyapi.errors import QyapiError`` would load a second copy of the
-    # module, with its own exception class, and ``except QyapiError`` would miss
-    # the error the surface raised.
-    for name in ("errors", "_address", "sim", "patterns", "sewings", "generators",
-                 "components", "projects"):
-        submodule = sys.modules.get(f"{__name__}.{name}")
-        if submodule is not None:
-            sys.modules[f"qyapi.{name}"] = submodule
 
 
 def unregister():
-    if sys.modules.get("qyapi") is not sys.modules.get(__name__):
-        return
-    for name in ("qyapi.errors", "qyapi._address", "qyapi.sim", "qyapi.patterns",
-                 "qyapi.sewings", "qyapi.generators", "qyapi.components",
-                 "qyapi.projects"):
-        submodule = sys.modules.get(name)
-        if submodule is not None and getattr(submodule, "__name__", "").startswith(__name__):
-            del sys.modules[name]
-    del sys.modules["qyapi"]
+    """Nothing to take back: ``register`` published no global module name."""

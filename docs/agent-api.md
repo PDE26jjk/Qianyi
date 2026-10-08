@@ -9,14 +9,22 @@ only run Python can read the same text with `print(qyapi.help())` and
 ## Loading it
 
 ```python
-import qyapi                      # any session where the add-on is registered
+import bpy, importlib             # any session where the add-on is registered
+addon = next(key for key in bpy.context.preferences.addons
+             if key.endswith(".Qianyi"))
+qyapi = importlib.import_module(addon + ".qyapi")
 ```
 
-`import qyapi` works with a viewport and in a background (`-b`) session. If the
-add-on is loaded but not registered yet, import the module from the add-on
-package instead (`from Qianyi import qyapi` when installed, `from qmyi import
-qyapi` when a study notebook loaded the package by path). Both names resolve to
-the same module once the add-on is registered, submodules included.
+The two lines above work with a viewport and in a background (`-b`) session. The
+package name carries the repository the add-on was installed from
+(`bl_ext.user_default.Qianyi`, `bl_ext.blender_org.Qianyi`, ...), so the key is
+looked up in the preferences rather than written out. A session that loaded the
+package by path instead, as a study notebook does, reaches the same module under
+the name it loaded - `qmyi.qyapi` there.
+
+There is deliberately no top-level `import qyapi`: publishing that name means
+writing into `sys.modules` from the add-on, and Blender reports a top-level
+module whose file lives inside an extension as a policy violation.
 
 ## Discovery
 
@@ -72,7 +80,10 @@ the name - and the middle one only shows up as an assertion inside the first
 pattern call. `projects.create()` does all of it, so this works from a blank file:
 
 ```python
-import qyapi
+import bpy, importlib                          # see "Loading it" above
+qyapi = importlib.import_module(
+    next(k for k in bpy.context.preferences.addons if k.endswith(".Qianyi"))
+    + ".qyapi")
 
 qyapi.projects.create("my project")               # identities, name and active index
 pattern = qyapi.patterns.create([[0, 0], [100, 0], [100, 80], [0, 80]],
@@ -515,7 +526,10 @@ A collar on a generated torso, starting from an empty file and settled after the
 parameters change:
 
 ```python
-import qyapi
+import bpy, importlib                          # see "Loading it" above
+qyapi = importlib.import_module(
+    next(k for k in bpy.context.preferences.addons if k.endswith(".Qianyi"))
+    + ".qyapi")
 
 qyapi.projects.create("collar demo")                  # a blank file is enough
 

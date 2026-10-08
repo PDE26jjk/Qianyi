@@ -75,7 +75,7 @@ def main():
 
     global_data.renderers_enabled = False
     qmyi.register()
-    import qyapi
+    from qmyi import qyapi
 
     if args.blank:
         log("blank session; no scene file")
@@ -108,14 +108,16 @@ def main():
         log("add-on registered; building the fixture in-process (no scene file)")
         make_probe_scene.build_fixture()
 
-    # 1. The surface is reachable under one stable name.
-    check("import qyapi", lambda: f"{qyapi.__name__} v{qyapi.VERSION}")
-    check("qyapi is the add-on module",
-          lambda: sys.modules["qyapi"] is sys.modules["qmyi.qyapi"])
-    check("import qyapi.sim reaches the same module",
-          lambda: __import__("qyapi.sim", fromlist=["x"]) is sys.modules["qmyi.qyapi.sim"])
+    # 1. The surface is reachable, and only under the add-on's own path: a
+    # top-level ``qyapi`` entry would be a policy violation for an extension.
+    check("the surface imports as an add-on sub-module",
+          lambda: f"{qyapi.__name__} v{qyapi.VERSION}")
+    check("registering publishes no top-level module",
+          lambda: "qyapi" not in sys.modules)
+    check("qyapi.sim is the add-on's sub-module",
+          lambda: __import__("qmyi.qyapi.sim", fromlist=["x"]) is sys.modules["qmyi.qyapi.sim"])
     check("qyapi.errors carries the same error class",
-          lambda: __import__("qyapi.errors", fromlist=["x"]).QyapiError is qyapi.QyapiError)
+          lambda: __import__("qmyi.qyapi.errors", fromlist=["x"]).QyapiError is qyapi.QyapiError)
     check("surface docstring documents the entry points",
           lambda: all(name in (qyapi.__doc__ or "")
                       for name in ("state()", "prepare(", "step(", "reset()")))
@@ -415,7 +417,7 @@ def _step_during_live(qyapi, frames):
 
 def _start_during_stepping(qyapi):
     """The stepping mode is transient, so set it the way a nested call would."""
-    import qyapi.sim as sim_module
+    from qmyi.qyapi import sim as sim_module
 
     previous = sim_module._session.mode
     sim_module._session.mode = sim_module.MODE_STEPPING
@@ -439,7 +441,7 @@ def _toggle_check(qyapi):
 
 def _induced_failure(qyapi):
     """An engine exception must reach the caller and leave the stepping mode."""
-    import qyapi.sim as sim_module
+    from qmyi.qyapi import sim as sim_module
 
     qyapi.sim.prepare()
     real = sim_module._substep

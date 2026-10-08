@@ -235,7 +235,12 @@ def ensure_edit_mode(context, mode=None, sub_mode=None) -> bool:
 def register():
     register_class(QianyiProps)
     bpy.types.Scene.qmyi = PointerProperty(type=QianyiProps)
-    qmyi = bpy.context.scene.qmyi
+    # Blender calls this with a restricted context when it enables the add-on
+    # while starting up, and that context has no scene to reach. The values
+    # below are the property defaults, so a startup has nothing to clear.
+    qmyi = getattr(getattr(bpy.context, "scene", None), "qmyi", None)
+    if qmyi is None:
+        return
     qmyi.simulation.enable_free_simulation = False
     qmyi.simulation.simulation_with_animation = False
     qmyi.hover_object = None

@@ -71,7 +71,12 @@ def build_object_payload(obj, depsgraph, ensure_shape_keys=True):
         mesh.loop_triangles.foreach_get("normal", normals)
         mesh.vertices.foreach_get("co", vertices_local)
 
-    world_matrix = np.array(world_matrix, dtype=np.float32)
+    # The engine reads this array with `memcpy`, so it has to be C-contiguous
+    # float32: Blender 5 exposes a mathutils Matrix through the buffer protocol
+    # as a column-major strided view, and copying those bytes straight out would
+    # hand the engine the transpose - a cloth pinned to a rotated pattern then
+    # comes back mirrored. `ascontiguousarray` keeps the row-major values.
+    world_matrix = np.ascontiguousarray(world_matrix, dtype=np.float32)
     tris = np.zeros(len(mesh.loop_triangles) * 3, dtype=np.int32)
     mesh.loop_triangles.foreach_get("vertices", tris)
     if is_cloth or len(mesh.polygons) == len(mesh.loop_triangles):
@@ -443,7 +448,9 @@ class SimulationManager:
         if result is None:
             return False
         self.simulated_objects.append(result)
-        self.world_matrixs.append(result['world_matrix'].copy())
+        # Kept as a mathutils Matrix: the per-frame check compares it against
+        # `obj.matrix_world`, and the engine converts it on its own.
+        self.world_matrixs.append(obj.matrix_world.copy())
         console_print(f"已初始化 {obj.name} 的模拟数据")
         return True
 

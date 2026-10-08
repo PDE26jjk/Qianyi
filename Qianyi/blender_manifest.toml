@@ -7,16 +7,28 @@ tagline = "Fabric simulation, garment design"
 maintainer = "PDE26jjk <26jjk@sina.com>"
 type = "add-on"
 
-permissions = ["files", "network"]
-
 website = "https://github.com/PDE26jjk/Qianyi"
 
 tags = ["3D View", "Modeling", "Mesh", "Object"]
 
-blender_version_min = "4.3.0"
+# The bundled engine wheel is built for the CPython ABI Blender ships from 5.2
+# on (3.13). Blender 4.x runs 3.11 and needs an engine build of its own, so it
+# is out of range until such a build is published next to this one.
+blender_version_min = "5.2.0"
+platforms = ["windows-x64"]
 
 license = [
   "SPDX:GPL-3.0-or-later",
 ]
+
+# The simulation and geometry engine, imported by the add-on as the top-level
+# module `Qianyi_DP`. Blender unpacks the wheel into the extensions
+# site-packages directory before the add-on is enabled.
+wheels = [
+  "./wheels/qianyi_dp-0.0.1-cp313-cp313-win_amd64.whl",
+]
+
+[permissions]
+files = "Read and write project files and simulation caches"
 
 # https://docs.blender.org/manual/en/latest/advanced/extensions/getting_started.html#manifest

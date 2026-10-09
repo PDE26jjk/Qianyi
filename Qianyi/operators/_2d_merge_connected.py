@@ -276,8 +276,10 @@ def drop_sewings_on(project, chains, report) -> int:
     dropped = 0
     for sewing in project.sewings:  # loop: one seam per pass
         sides = (sewing.side1, sewing.side2)
-        if any(int(side.line1_uuid) in wanted or int(side.line2_uuid) in wanted
-               for side in sides):
+        if any(int(span.line1_uuid) in wanted or int(span.line2_uuid) in wanted
+               for side in sides
+               # loop: one drawn run of each side per pass
+               for span in side.spans):
             sewing.impacted = True
             dropped += 1
     if dropped:

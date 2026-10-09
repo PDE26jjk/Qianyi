@@ -705,8 +705,10 @@ def _mark_impacted_sewings(project, uuid):
     """Flag the sewings that will lose this edge; returns how many there are."""
     count = 0
     for sewing in project.sewings:  # loop: one look per sewing
-        keys = (sewing.side1.line1_uuid, sewing.side1.line2_uuid,
-                sewing.side2.line1_uuid, sewing.side2.line2_uuid)
+        keys = [span_line
+                # loop: one drawn run of each side per look
+                for side in (sewing.side1, sewing.side2) for span in side.spans
+                for span_line in (span.line1_uuid, span.line2_uuid)]
         if uuid in keys:
             sewing.impacted = True
             count += 1

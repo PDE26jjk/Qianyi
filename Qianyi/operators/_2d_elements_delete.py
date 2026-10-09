@@ -307,19 +307,20 @@ class NODE_OT_elements_delete(Operator2DBase):
 
             def mark_impacted(sw):
                 sw.impacted = True
-                # The sewing is reachable through all four of its line uuids;
-                # forget every one of them, so a later pattern of this same
-                # delete cannot touch a sewing that is already gone.
-                for key in (sw.side1.line1_uuid, sw.side1.line2_uuid,
-                            sw.side2.line1_uuid, sw.side2.line2_uuid):
-                    sewing_map.pop(key, None)
+                # The sewing is reachable through the line uuids of every drawn
+                # run of both sides; forget every one of them, so a later pattern
+                # of this same delete cannot touch a sewing that is already gone.
+                for side in (sw.side1, sw.side2):  # loop: one side per step
+                    for span in side.spans:  # loop: one drawn run per step
+                        sewing_map.pop(span.line1_uuid, None)
+                        sewing_map.pop(span.line2_uuid, None)
 
             for s in project.sewings:
                 s.impacted = False
-                insert_sewing_map(s.side1.line1_uuid, s)
-                insert_sewing_map(s.side1.line2_uuid, s)
-                insert_sewing_map(s.side2.line1_uuid, s)
-                insert_sewing_map(s.side2.line2_uuid, s)
+                for side in (s.side1, s.side2):  # loop: one side per step
+                    for span in side.spans:  # loop: one drawn run per step
+                        insert_sewing_map(span.line1_uuid, s)
+                        insert_sewing_map(span.line2_uuid, s)
 
             for p in pattern_set:
                 edges_del = []
@@ -454,6 +455,10 @@ class NODE_OT_elements_delete(Operator2DBase):
                     target = getattr(project.sewings[i], attribute, None)
                     if target is not None:
                         target.need_sewing_update = True
+                # The identities go before the seam does: the pick pass still
+                # holds the ids of the seam's sides, and a lookup of one of them
+                # after the seam is gone would read the memory the removal freed.
+                project.sewings[i].forget_identity()
                 project.sewings.remove(i)
             project.refresh_collection_uuid(project.sewings)
             # The seams that are left have to be linked again: the ones that went

@@ -7,6 +7,7 @@ from ..declarations import GizmoGroups, Operators, WorkSpaceTools
 from ..keymaps import tool_generic
 from ..model import sewing_geometry as sewing
 from ..model.qianyi_data import ensure_edit_mode
+from ..operators._2d_add_sewing_free import place_under
 from ..operators._2d_sewing_edit import SUBMODE, picked_target
 from ..utilities.console import console
 from ..utilities.node_tree import get_active_node_tree
@@ -58,10 +59,22 @@ class NODE_T_qmyi_sewing_edit(WorkSpaceTool):
             context.area.tag_redraw()
             return
         try:
-            run, start, travel = sewing.side_run(side)
+            runs = sewing.side_runs(side)
         except ValueError:
             context.area.tag_redraw()
             return
+        # The run under the pointer: a side may be drawn as several, and the one
+        # a press would take is the one whose stretch of the chain the pointer is
+        # on. Nothing under the pointer shows the first run, so the side is still
+        # visible while the pointer is elsewhere.
+        entry = runs[0]
+        region_co = (xy[0] - region.x, xy[1] - region.y)
+        place = place_under(context, project, region_co)
+        if place is not None:
+            index = sewing.span_under_place(runs, sewing.run_key(place[1]), place[2])
+            if index is not None:
+                entry = runs[index]
+        _span, run, start, travel = entry
         _edge, _pos, first = sewing.run_place(run, start)
         _edge, _pos, second = sewing.run_place(run, start + travel)
         manager.set_tool_polyline(pattern.view_points(sewing.run_from(

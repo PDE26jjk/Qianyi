@@ -147,8 +147,10 @@ name are specified in `openspec/changes/<name>/`.
   consecutive edges, with a colour and a direction taken from the click.
 - [x] Seams declared by a generator, remapped by edge label and geometry when
   the pattern is rebuilt.
-- [ ] Many-to-many seams: several drawn spans per side, matched by proportional
-  section mapping — `pattern-editing-toolkit`.
+- [x] Many-to-many seams: several drawn spans per side, matched by proportional
+  section mapping. A side may be longer than the one it is sewn to - a puff
+  sleeve or a binding is designed that way - and the seam stitches it by
+  proportion without measuring the two lengths (`pattern-editing-toolkit`).
 - [ ] Per-seam stitch parameters (strength, stitch count) instead of the single
   global sewing stiffness.
 - [ ] Seam types other than a straight join: tape, binding and folded edges.

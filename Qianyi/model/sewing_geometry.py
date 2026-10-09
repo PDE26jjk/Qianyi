@@ -282,7 +282,11 @@ def run_travel(run, tail_distance, head_distance, direction) -> float:
     total = run_length(run)
     travel = (float(head_distance) - float(tail_distance)) * float(direction)
     if total > 0.0:
-        travel -= total * np.floor(travel / total)
+        # `np.floor` answers a numpy scalar, and this is a length like the
+        # others: a caller that compares it - `places[1] < 0.0`, say - has to get
+        # a Python bool out of it, or the comparison cannot be written to an RNA
+        # property that wants True/False.
+        travel = float(travel - total * np.floor(travel / total))
     return float(direction) * travel
 
 
@@ -337,10 +341,10 @@ def run_from(run, start_distance, travel) -> dict:
             "end_edge": end_edge, "end_pos": end_pos, "end_point": end_point}
 
 
-def side_run(side) -> tuple:
-    """What a stored side of a seam runs on, and where: ``(run, from, travel)``.
+def span_run(span) -> tuple:
+    """What a stored span of a seam runs on, and where: ``(run, from, travel)``.
 
-    The chain comes from the edge the side names, so a side made on an internal
+    The chain comes from the edge the span names, so a span made on an internal
     line is read in the internal line's own space. `travel` is signed - negative
     when the run goes the other way - and on a closed chain it is the arc the
     stored flag names: the run is read the way it was drawn, which can be nearly
@@ -348,23 +352,74 @@ def side_run(side) -> tuple:
     is simply the distance from one end to the other and the run turns round
     rather than wrapping when an end passes the other.
     """
-    line1, line2 = side.line1, side.line2
+    line1, line2 = span.line1, span.line2
     if line1 is None or line2 is None:
-        raise ValueError("this sewing side names an edge that is no longer in the scene")
+        raise ValueError("this sewing span names an edge that is no longer in the scene")
     run = run_of(line1)
-    start = run_origin(run, line1, side.pos1)
-    end = run_origin(run, line2, side.pos2)
+    start = run_origin(run, line1, span.pos1)
+    end = run_origin(run, line2, span.pos2)
     if not run_is_loop(run):
         return run, start, end - start
     travel = end - start
     total = run_length(run)
     if total > 0.0:
         travel -= total * round(travel / total)
-        if side.reverse and travel > 0.0:
+        if span.reverse and travel > 0.0:
             travel -= total
-        elif not side.reverse and travel < 0.0:
+        elif not span.reverse and travel < 0.0:
             travel += total
     return run, start, travel
+
+
+def side_runs(side) -> list:
+    """Every span of a side as ``(span, run, from, travel)``, in drawing order."""
+    runs = []
+    for span in side.spans:  # loop: one drawn run of the side per step
+        run, start, travel = span_run(span)
+        runs.append((span, run, start, travel))
+    return runs
+
+
+def side_run(side) -> tuple:
+    """The one run a side holds, refusing a side that holds several.
+
+    This is what a caller means when it says "the run of this seam" - a
+    one-to-one seam, or one span of a many-to-many one; a side that holds
+    several runs has to be read through `side_runs`.
+    """
+    spans = list(side.spans)
+    if len(spans) != 1:
+        raise ValueError(f"this sewing side holds {len(spans)} spans, not one")
+    return span_run(spans[0])
+
+
+def run_covers(run, start, travel, place) -> bool:
+    """Whether a run's own stretch of its chain reaches a place on that chain."""
+    along = place - start if travel >= 0.0 else start - place
+    if run_is_loop(run):
+        total = run_length(run)
+        if total > 0.0:
+            along -= total * np.floor(along / total)
+    return -1e-6 <= along <= abs(travel) + 1e-6
+
+
+def span_under_place(runs, run_key_value, distance):
+    """The index of the span of a side a place on a chain belongs to, or None.
+
+    The place is a distance along the chain the side runs on, so it only answers
+    for the spans drawn on that chain: a side whose spans are on two chains has
+    no answer for a place of one of them but its own span there.
+    """
+    best = None
+    for index, (_span, run, start, travel) in enumerate(runs):
+        if run_key(run) != run_key_value:
+            continue
+        if run_covers(run, start, travel, distance):
+            return index
+        away = min(abs(distance - start), abs(distance - (start + travel)))
+        if best is None or away < best[0]:
+            best = (away, index)
+    return best[1] if best is not None else None
 
 
 def snap_radius(context, pattern, pointer_region, pixels=None) -> float:
@@ -396,16 +451,17 @@ def snap_radius(context, pattern, pointer_region, pixels=None) -> float:
     return float(np.linalg.norm(there - here))
 
 
-def nearest_candidate(context, pattern, pointer, entries, radius=None):
+def nearest_candidate(context, pattern, pointer, entries, radius):
     """The snap candidate closest to the pointer, or None when none is close.
 
     `pointer` is a view-space position and `entries` is what `snap_candidates`
     answered. The distance is measured in the pattern's own space - the space the
     radius is in - by taking the pointer through the pattern's inverse transform,
-    so a mirrored or scaled member compares where its points really are.
+    so a mirrored or scaled member compares where its points really are. The
+    radius comes from the caller: it is a length of the pattern, and only the
+    caller knows the pointer in the region pixels it has to be measured from
+    (`snap_radius`).
     """
-    if radius is None:
-        radius = snap_radius(context, pattern, pointer)
     if radius <= 0.0 or not entries:
         return None
     here = np.asarray(pattern.view_to_pattern_pos(pointer), dtype=np.float64)
@@ -458,15 +514,16 @@ def run_candidates(project, run, exclude_side_uuid=None) -> list:
         add(point, "vertex", None)
     for sewing in getattr(project, "sewings", ()):  # loop: one seam per entry
         for side in (sewing.side1, sewing.side2):
-            if side.line1 is None:
-                continue
-            if run_key(run_of(side.line1)) != run_key(run):
-                continue
             if exclude_side_uuid is not None and side.global_uuid == exclude_side_uuid:
                 continue
-            try:
-                for line, pos in ((side.line1, side.pos1), (side.line2, side.pos2)):
-                    add(point_on_edge(line, pos), "sewing", side.global_uuid)
-            except ValueError:
-                continue
+            for span in side.spans:  # loop: one drawn run of that side per step
+                if span.line1 is None:
+                    continue
+                if run_key(run_of(span.line1)) != run_key(run):
+                    continue
+                try:
+                    for line, pos in ((span.line1, span.pos1), (span.line2, span.pos2)):
+                        add(point_on_edge(line, pos), "sewing", side.global_uuid)
+                except ValueError:
+                    continue
     return entries

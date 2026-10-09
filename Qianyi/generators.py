@@ -169,6 +169,7 @@ def apply_generator(project, generator) -> dict:
 
         report = {"created": 0, "in_place": 0, "rebuilt": 0, "removed": 0}
         report["remapped"] = 0
+        report["dropped_spans"] = 0
         report["dropped_sewings"] = 0
         report["invalid_patterns"] = 0
         report["hook"] = None
@@ -216,10 +217,11 @@ def apply_generator(project, generator) -> dict:
         if state != hooks.HANDLED:
             index = _sewing_index(project)
             for target, snapshot in written:
-                remapped, dropped = _remap_sewings(project, snapshot, target,
-                                                   override=override, index=index)
+                remapped, dropped_spans, emptied = _remap_sewings(
+                    project, snapshot, target, override=override, index=index)
                 report["remapped"] += remapped
-                report["dropped_sewings"] += dropped
+                report["dropped_spans"] += dropped_spans
+                report["dropped_sewings"] += emptied
         report["removed"] = _drop_stale_outputs(project, generator, keep)
         return report
     except Exception as error:
@@ -330,21 +332,24 @@ def _sewing_index(project) -> dict:
     # Deliberate Python loop: one index entry per sewing side.
     for sewing in project.sewings:
         for side in sewing.sides:
-            index.setdefault(side.line1_uuid, []).append(sewing.get_index())
-            index.setdefault(side.line2_uuid, []).append(sewing.get_index())
+            for span in side.spans:  # loop: one drawn run of that side per step
+                index.setdefault(span.line1_uuid, []).append(sewing.get_index())
+                index.setdefault(span.line2_uuid, []).append(sewing.get_index())
     return index
 
 
 def _remap_sewings(project, snapshot, pattern, override: dict | None = None,
-                   index: dict | None = None) -> tuple[int, int]:
+                   index: dict | None = None) -> tuple[int, int, int]:
     """Keep sewings pointing at the right edges of a rebuilt pattern.
 
     Edges that kept their label are matched by label; the rest are matched by
-    geometry (the previous edge's samples against the new edges). A sewing whose
-    edge has no match is removed, so no invalid sewing state is left behind.
+    geometry (the previous edge's samples against the new edges). A drawn run
+    whose edge has no match is dropped from its seam, so the seam keeps every run
+    that still has both of its edges; a seam left with an empty side is reported
+    as incomplete by the guard rather than stitched with nothing.
     """
     if not snapshot:
-        return 0, 0
+        return 0, 0, 0
 
     new_edges = list(pattern.edges)
     by_name = {}
@@ -371,39 +376,42 @@ def _remap_sewings(project, snapshot, pattern, override: dict | None = None,
 
     remapped = 0
     dropped = []
+    emptied = set()
     candidates = (sorted({entry for uuid in match for entry in index.get(uuid, [])})
                   if index is not None else range(len(project.sewings)))
     # Deliberate Python loop: one pass over the sewings that touch this pattern.
     for position in candidates:
         sewing = project.sewings[position]
         for side in sewing.sides:
-            first = match.get(side.line1_uuid, None)
-            second = match.get(side.line2_uuid, None)
-            if side.line1_uuid in match and first is None:
-                dropped.append(sewing.get_index())
-                break
-            if side.line2_uuid in match and second is None:
-                dropped.append(sewing.get_index())
-                break
-            changed = False
-            if first is not None and first != side.line1_uuid:
-                side.line1_uuid = first
-                changed = True
-            if second is not None and second != side.line2_uuid:
-                side.line2_uuid = second
-                changed = True
-            remapped += 1 if changed else 0
+            # Backwards, because a run whose edge no match is removed from the
+            # list it is being read from.
+            for span_index in range(len(side.spans) - 1, -1, -1):
+                span = side.spans[span_index]
+                first = match.get(span.line1_uuid, None)
+                second = match.get(span.line2_uuid, None)
+                if (span.line1_uuid in match and first is None) or (
+                        span.line2_uuid in match and second is None):
+                    side.spans.remove(span_index)
+                    dropped.append((sewing.get_index(), span_index))
+                    continue
+                changed = False
+                if first is not None and first != span.line1_uuid:
+                    span.line1_uuid = first
+                    changed = True
+                if second is not None and second != span.line2_uuid:
+                    span.line2_uuid = second
+                    changed = True
+                remapped += 1 if changed else 0
+            if not len(side.spans):
+                emptied.add(sewing.get_index())
 
-    for index in sorted(set(dropped), reverse=True):
-        project.sewings.remove(index)
     if dropped:
         project.refresh_collection_uuid(project.sewings)
-        project.selected_sewings.clear()
-        # The seams a rebuild could not remap are gone: what is left is linked
-        # again - the component the rebuilt pattern is in, and no more - and the
-        # guard runs with it.
+        # The seams a rebuild could not fully remap are linked again - the
+        # component the rebuilt pattern is in, and no more - and the guard runs
+        # with it, which is what reports a seam whose side is now empty.
         project.sewings_changed([pattern])
-    return remapped, len(set(dropped))
+    return remapped, len(dropped), len(emptied)
 
 
 def _nearest_edge(points: np.ndarray, new_edges: list, new_points: list):

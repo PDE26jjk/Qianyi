@@ -121,14 +121,15 @@ def report_uuid_state(project, label):
 
     lines = []
     for index, sewing in enumerate(project.sewings):
-        side = sewing.side1
-        uuid = side.line1_uuid
-        target = global_data.uuid2obj.get(uuid)
-        current = None
-        if target is not None:
-            with contextlib.suppress(Exception):
-                current = target.global_uuid
-        lines.append(f"sewing[{index}].side1.line1 uuid={uuid} mapped_to={current}")
+        for run_index, span in enumerate(sewing.side1.spans):
+            uuid = span.line1_uuid
+            target = global_data.uuid2obj.get(uuid)
+            current = None
+            if target is not None:
+                with contextlib.suppress(Exception):
+                    current = target.global_uuid
+            lines.append(f"sewing[{index}].side1.spans[{run_index}].line1 "
+                         f"uuid={uuid} mapped_to={current}")
     log(f"{label}: {len(lines)} sewing(s)")
     for line in lines:
         log("    " + line)
@@ -138,8 +139,9 @@ def sewn_line_uuids(project):
     uuids = set()
     for sewing in project.sewings:
         for side in (sewing.side1, sewing.side2):
-            uuids.add(side.line1_uuid)
-            uuids.add(side.line2_uuid)
+            for span in side.spans:  # loop: one drawn run of that side per step
+                uuids.add(span.line1_uuid)
+                uuids.add(span.line2_uuid)
     return uuids
 
 
@@ -167,7 +169,10 @@ def remove_sewings_on(project, pattern, vertex):
     indexes = []
     for sewing in project.sewings:
         sides = (sewing.side1, sewing.side2)
-        if any(side.line1_uuid in uuids or side.line2_uuid in uuids for side in sides):
+        if any(span.line1_uuid in uuids or span.line2_uuid in uuids
+               for side in sides
+               # loop: one drawn run of each side per step
+               for span in side.spans):
             indexes.append(sewing.get_index())
     for index in sorted(indexes, reverse=True):
         project.sewings.remove(index)
@@ -184,7 +189,7 @@ def pick_both_sides(project):
     sewing = project.sewings[0]
     targets = []
     for side in (sewing.side1, sewing.side2):
-        line = global_data.get_obj_by_uuid(side.line1_uuid)
+        line = global_data.get_obj_by_uuid(side.spans[0].line1_uuid)
         pattern = owner_pattern(line)
         log(f"    target: {pattern.name} edge {line.global_uuid} "
             f"vertex0 {line.vertex0.global_uuid}")

@@ -341,27 +341,244 @@
 
 ## 8. Many-to-many sewing
 
-- [ ] 8.1 Extend the seam model so each side holds a set of spans (a span being
+- [x] 8.1 Extend the seam model so each side holds a set of spans (a span being
   today's run: a pattern, an edge index, a position range and a direction), and
   verify an existing one-to-one seam reads back unchanged
-- [ ] 8.2 Build a side's sections by concatenating its spans' sections in order
+  (`Qianyi/model/sewing.py`: `SewingSpan` is what a side used to be - a start
+  place, an end place and a direction on one chain - and `SewingOneSide` holds a
+  `spans` collection in drawing order plus its pattern. `SewingSpan.turn_round`
+  turns one run round and `SewingOneSide.turn_round` reverses the order as well,
+  which is what makes the reverse tool still mean the same thing. Checked by
+  `.agents/scratch/probe_m2n_model.py`: a one-to-one seam made by
+  `add_sewing1to1` reads back as one run per side and still stitches)
+- [x] 8.2 Build a side's sections by concatenating its spans' sections in order
   and verify a set whose spans are not geometrically contiguous matches end to
   end
-- [ ] 8.3 Implement the proportional two-way merge over the concatenated
+  (`calc_sewing_side_sections` walks each run with `span_pieces` and concatenates
+  the pieces in drawing order; `walk_pieces` is the one walk, shared by the
+  linking run, the stitch pieces and the guard, and `side_pieces` turns a run's
+  pieces into the mesh samples each one holds - in stitching order, with the
+  vertex it is entered at and the one it is left at, which is what the pairing
+  needs on either direction of the chain)
+- [x] 8.3 Implement the proportional two-way merge over the concatenated
   section lists and verify a 200 mm side pairs with spans of 120 mm and 80 mm
-- [ ] 8.4 Run the calibration experiment for the length tolerance and record
-  the value it settles on: a side that should match does, and a side that is
-  genuinely short is still reported unmatched with the length difference
-- [ ] 8.5 Report an unmatched seam and keep it from stitching until the sides
-  agree, and verify the report names the largest unmatched remainder
-- [ ] 8.6 Re-run the mapping when a span is added, removed or invalidated, and
+  (`link_sewings` reads one list per side and takes each piece's own direction
+  (`dirs1[i] ^ dirs2[j]` instead of the side's single flag), so a set drawn in
+  either direction merges the way a single run always did. Checked by
+  `.agents/scratch/probe_m2n_model.py` on a 200 mm band edge sewn to a 120 mm and
+  an 80 mm edge: 11 samples on both sides, and the 60% point of the long side
+  pairs with the join of the two short ones)
+- [x] 8.4 Settle what a length difference means, and take the length requirement
+  out (the requirement this task first asked for - report a seam unmatched and
+  stop stitching when the sides differ by more than a calibrated tolerance - was
+  wrong, and a later pass that measured and reported the difference was wrong
+  too. Both are gone from `specs/sewing-many-to-many` and
+  `specs/agent-sewing-control`. Sewing a longer side to a shorter one is how a
+  garment is designed - a puff sleeve's cap into its armhole, a binding or a band
+  onto the edge it trims, a gathered skirt into its waistband - and the two sides
+  are matched by progress along each side, never by putting their totals beside
+  each other. Nothing measures, reports, flags or refuses the difference.
+  `.agents/scratch/probe_m2n_gather.py` sews a 200 mm side to sides 0, 2, 4, 10,
+  20, 40 and 79 mm shorter at 5, 20 and 50 mm granularity: **every** case
+  stitches, the two walks pair sample for sample, and no seam carries anything
+  about the difference. The shipped library is the same proof from the other
+  side: the GC Tee's collar is 310.0 mm sewn to a 1939.3 mm neckline and its
+  torso halves are 324.6 to 256.5 mm, and all of them stitch and simulate)
+- [x] 8.5 Keep a seam that cannot be paired out of the mesh, and verify the
+  report names the reason
+  (`sewing_guard.seam_error` now reports the structural failures only: a side
+  whose drawn runs are all gone, which would otherwise stitch nothing, and a seam
+  whose two sides the linking run cut into different numbers of pieces. It does
+  not compare the walks any more - the two sides are paired by the linked pieces
+  (`pair_by_sections`), so a side that is longer, or a join the other side has one
+  sample for, is stitched rather than refused. The seam read carries
+  `stitch_count` and `stitch_error`.
+  Checked by `.agents/scratch/probe_m2n_model.py` (an empty side reports "no
+  drawn run") and `.agents/scratch/probe_m2n_pairing.py` (see 8.10).
+  **The count check this task originally specified is gone**, which means the
+  nested-run case of task 13.3 no longer flags: with the pairing by progress it
+  stitches, and the old probe
+  (`.agents/scratch/probe_sewing_guard.py`) is now the record of the behaviour
+  that was removed. Whether a seam whose linking left its pieces out of step
+  should still be held out needs a structural test - whether the pieces of one
+  side's walk are linked to the pieces the other side's walk reaches - which
+  this change does not add; it is left to the maintainer)
+- [x] 8.6 Re-run the mapping when a span is added, removed or invalidated, and
   verify the change report, the dropped-span report and the incomplete-side
   report
-- [ ] 8.7 Add the UI: draw the spans of the first set, Enter, draw the spans of
+  (`QianyiProject.add_sewing_span` / `move_sewing_span` / `remove_sewing_span`
+  each re-link the seam's component and return `{action, seam, spans,
+  stitch_count, changed, error}`, so a change reports how many stitch pairs it
+  moved. A generator rebuild drops the runs whose edges it cannot match
+  (`generators._remap_sewings` now works per run and returns
+  `(remapped, dropped_spans, emptied_sewings)`, reported as `remapped`,
+  `dropped_spans` and `dropped_sewings`) and a side left empty is reported by the
+  guard as incomplete. Checked by `.agents/scratch/probe_m2n_model.py` (a run whose
+  edge is gone drops out and the seam keeps the one that is left) and
+  `.agents/scratch/probe_m2n_tool.py` (add, move, remove, and the two reports))
+- [x] 8.7 Add the UI: draw the spans of the first set, Enter, draw the spans of
   the second, with the pairing direction shown before the seam is created, and
   verify adding, ordering and removing a span afterwards
-- [ ] 8.8 Verify a span that would put a set on a second pattern is refused with
+  (`Qianyi/operators/_2d_add_sewing_m2n.py` and the tool beside it
+  (`Qianyi/workspacetools/add_sewing_m2n.py`, `qmyi.add_sewing_m2n`, keyed on
+  left-mouse, `RET` to close the side being drawn and `ESC` to drop it): each
+  drag adds one run to the side being drawn, the runs wait in the project
+  (`QianyiProject.sewing_m2n`) so the view stays usable, and the seam is created
+  as soon as the second side has a run, which is what the spec asks for. The
+  tool's cursor preview draws the run it would take and the last run drawn for
+  the side, so the direction is visible before the seam exists. Checked by
+  `.agents/scratch/probe_m2n_tool.py`, which drives the operator's own methods:
+  the first drag is held as a run on side 1, the refusal is checked, the first
+  drag of side 2 makes the seam, and add / move / remove each re-run the mapping
+  - a reorder that leaves the runs not continuing each other is reported unpaired
+  rather than silently stitched, and moving it back restores the stitch count)
+- [x] 8.8 Verify a span that would put a set on a second pattern is refused with
   the reason, and that the engine payload is still one stitch group per seam
+  (`accept_pattern` records the pattern the first run of a side was drawn on and
+  refuses a later run on another one with "a side of a seam is on one pattern, and
+  this run is on another one", without changing what was already recorded;
+  `setup_sewings_for_simulation` still hands the engine one `(S, 2)` stitch group
+  per seam. Both checked by `.agents/scratch/probe_m2n_tool.py`)
+- [x] 8.9 Draw the connecting lines per drawn run, so every run's ends are joined
+  to what they pair with
+  (`sewing_renderer.connector_lines`: both sides' run boundaries, as fractions of
+  each side's own length, are the breakpoints; a line is drawn at every one of
+  them and equally spaced lines in between, with the count taken from the shorter
+  side so a seam is never denser than the shorter of the two and never drops a
+  run boundary when the budget thins them out. A breakpoint is drawn from the
+  runs' own ends: `run_end_points` reads each run's own polyline and never a
+  sample of the whole side taken at the fraction, because two runs that do not
+  share a vertex put the same fraction of the side on two different points and
+  `np.interp` over a repeated arc length answers with the later one - the line
+  that started a little past its own run's end. Where a breakpoint has ends on
+  both sides they are joined in the order the runs were drawn; where one side has
+  no end there, its point at the fraction meets both of the other side's ends,
+  which is the middle of a long side reaching the facing ends of two short ones -
+  the join the stitches make, drawn as it is. Between breakpoints the two sides
+  are sampled at the same fraction of their own length, which is the
+  correspondence the merge stitches. Checked by
+  `.agents/scratch/probe_m2n_connectors.py`: a one-run-to-one-run seam draws
+  exactly the uniform lines it drew before the change, a 200 mm side against
+  120 + 80 has a line at 60% and equal spacing inside each run, a four-run side
+  keeps all three of its internal boundaries inside the drawing budget, and on a
+  real seam the 60% line lands on the join vertex (120, 0); a 205 mm side against
+  runs of 120 and 80 that do not share a vertex draws two lines at the join -
+  from the point at 60% of the long side, 123 mm along it, to 120 and to 125,
+  each of which is the run's own end - where sampling the short side at 60%
+  answered only one of the two)
+  The drawing is vector geometry, not the mesh: `edge.render_points` is the
+  edge's own curve sampled into a polyline and `split_polyline` cuts it by arc
+  length, so nothing reads `mesh_edge_points`, `mesh_edge_index_map` or the
+  granularity. The probe pins that too: the same seam meshed at 5 mm and 50 mm
+  granularity (120 against 12 boundary samples) draws bit-identical polylines
+  and bit-identical connecting fractions. What is mesh-based in a seam is the
+  stitch pairs themselves (`get_stitch_data` reads `mesh_edge_index_map`, because
+  a stitch is a pair of mesh vertices) and the sample count the guard predicts
+  for a piece the linking run cut before it was sampled - neither of which the
+  editor draws from.
+- [x] 8.10 Take the stitch pairs from the linked pieces, with no ratio in
+  between (`sewing.side_pieces` answers, per side, every piece in stitching order
+  with its own mesh samples, the vertex at its far end and whether a drawn run
+  ends there; `pair_by_sections` walks the two lists together - the merge cut
+  them into pieces that correspond, so the pieces of one list are the partners of
+  the pieces of the other - and pairs their samples in order. Nothing is divided:
+  the correspondence is the linked pieces themselves, which is where the
+  proportional cutting already happened, so no rounding stands between the two
+  sides. A piece a drawn run ends at carries the run's own end, which meets the
+  other side's end of the same piece - the point two runs' ends meet at - and the
+  pair made twice that way is dropped once; a loop's closing pair is not next to
+  itself and stays. The helpers the earlier passes left behind are gone:
+  `pieces_indices`, `run_samples`, `side_samples`, `pair_by_progress`,
+  `get_stitches_for_side`, `side_join_flags`, `spans_meet` and the guard's
+  per-piece sample counting, none of which the stitched path used any more - the
+  check that needed a walk builds its own from `side_pieces`. Checked by
+  `.agents/scratch/probe_m2n_pairing.py`: a 200 mm side against two runs of 120
+  and 80 that share their vertex walks 11/11 and pairs one to one, with the join
+  landing on the point at 60% of the 200 mm side; the same two runs drawn as
+  separate edges (5 mm apart) walk 11/12 and pair 12 times with exactly one
+  column two to one - the point at 60% of the long side meeting both facing ends
+  of the join; and a one-to-one seam with its second side reversed pairs
+  `(0,10), (1,9), ... (10,0)` - one pair per sample, nothing shifted, which is
+  the bug the maintainer hit when the run's own end was emitted as a pair of its
+  own instead of sitting at the end of the piece's run it belongs to)
+- [x] 8.11 Give the tool its own sub-mode of the editor
+  (`ADD_SEWING_M2N` is an entry of `qmyi.edit_sub_mode` in
+  `Qianyi/model/qianyi_data.py`, next to `ADD_SEWING_FREE`: the mode a tool puts
+  the editor into is the settings layer's, and a name that is not an entry fails
+  the moment the tool draws its cursor - `TypeError: enum "ADD_SEWING_M2N" not
+  found` - which is how the maintainer found it)
+- [x] 8.12 Take a removed seam's ids out of the identity map with it
+  (`ModelData.forget_uuid` and `Sewing.forget_identity`, called by every path
+  that removes a seam - the editor's delete, the project's `remove_sewing` and
+  `remove_impacted_sewings`, the rollback when a seam cannot be made, and the
+  cut-along-line pass. A side is stored in the property group of its seam, so
+  removing the seam frees the memory the side's wrapper reads from, while the
+  pick pass still holds the ids it keyed on the sides: removing a selected
+  many-to-many seam took Blender down on the next move over the editor, with
+  `EXCEPTION_ACCESS_VIOLATION` inside `IDP_GetPropertyFromGroup` reached from the
+  preselection gizmo's `test_select` - what answered there was the identity map's
+  entry for a side that no longer existed. Checked by
+  `.agents/scratch/probe_m2n_delete.py`: after each of the three removal paths,
+  a lookup of the removed seam's and its sides' uuids answers nothing instead of
+  reading them)
+- [x] 8.13 Snap the places a drawn run begins and ends
+  (`_2d_add_sewing_m2n.start_place` and `snapped_end`: the press and the drag
+  both go through `snapped_place`, so a run starts or ends exactly on a chain
+  point or on the end of a run already sewn along it - which is what makes two
+  runs meet at one vertex, and what the maintainer's 2-to-1 seam was missing:
+  the two facing ends of its runs came out 52 mm apart because the tool could
+  not be made to land on a point - 12 screen pixels of reach, the same
+  `SNAP_PIXELS` every sewing tool snaps with, while 24 (`GRAB_PIXELS`) is how far
+  the pointer may be from a chain and still draw on it).
+  `snapped_place` now measures that radius at the pointer itself: it used to
+  pass `nearest_candidate` a view position where `snap_radius` takes region
+  pixels, so the reach was measured somewhere else in the region - harmless
+  where the view is uniformly scaled, wrong the moment it is not - and
+  `nearest_candidate` takes the radius from its caller, which is the caller that
+  knows the pointer in the space it has to be measured in. Checked by
+  `.agents/scratch/probe_m2n_snap.py`: the reach is 12 screen pixels at one zoom
+  and twice that in the pattern's millimetres at half the zoom, a press and a
+  release inside it land exactly on the corner (and the drag callback's own
+  travel records that place), a press outside it keeps the place the pointer is
+  on, and an end of a run already sewn along the chain is a point to snap to)
+- [x] 8.14 Keep the run a drag took out of the operator's own `span` read
+  (`_2d_sewing_edit.setup_state_machine` held the run the press took in
+  `self.span`, which shadowed the operator's `span()` - the read that finds that
+  run again through its side when the drag is written - so every finished drag
+  raised `'SewingSpan' object is not callable`. The record kept at the press is
+  what the write compares against, so the wrapper is a local now and `span()`
+  answers as it did. Checked by `.agents/scratch/probe_m2n_edit_drag.py`: a
+  finished drag writes the run it took with the ends it asked for, leaves the
+  other run of the side alone, reads the run it took back from the side, and
+  answers nothing for a place the side no longer has)
+- [x] 8.15 Join a boundary to the point the other side has there, at every join
+  (`sewing.pair_by_sections` now reads each piece's own vertices first and, at a
+  boundary between two pieces, adds the pair that joins them: where one side's
+  two runs meet and the other side's fabric runs on through the boundary, the end
+  the piece before reached is paired with the point the piece after begins at -
+  the one point the other side has at that place, which the walk then also
+  reaches from the piece after's own first vertex. Both facing ends are therefore
+  joined to that one point, and the duplicate is folded where the two facing ends
+  are one vertex, which is what the maintainer's seam was missing: its join fell
+  on the other side's own piece joint, where the merge aligns the boundaries
+  instead of cutting them, so the two ends were joined one-to-one to the two
+  samples on either side of the joint. Nothing is left unstitched: every sample of
+  both walks is in a pair. Checked by `.agents/scratch/probe_m2n_pairing.py`,
+  which now also covers the piece-joint join (the one point the long side has
+  there takes both facing ends) beside the cases it already pinned: the join that
+  shares its vertex stays one pair, the gapped join stays one point meeting two
+  ends, and a one-to-one seam is unchanged)
+- [x] 8.16 Keep the lengths the drag tools write out of numpy scalars
+  (`sewing_geometry.run_travel` measured with `np.floor` and handed back a numpy
+  float, so the edit tool's `places[1] < 0.0` came out a numpy bool - and RNA
+  refuses that where the span's direction wants True/False: finishing a drag
+  raised `TypeError: SewingSpan.reverse expected True/False or 0/1, not
+  numpy.bool`. The measurement now answers a Python float, the edit tool writes
+  `bool(...)` of the comparison, and `SewingSpan.update_data` coerces the
+  direction at the property it sets. Checked by
+  `.agents/scratch/probe_m2n_edit_drag.py`, which now drives the drag with numpy
+  places - the types the real callback hands over - and pins that a measured
+  travel is a Python float and that comparing it is a Python bool)
 
 ## 9. Copy options
 

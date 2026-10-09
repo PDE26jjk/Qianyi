@@ -80,7 +80,8 @@ def main():
     if len(project.sewings) > 0:
         sewing = project.sewings[0]
         side = sewing.side1
-        ok &= check("sewing.side1.line1", lambda: side.line1.name)
+        ok &= check("sewing.side1.spans[0].line1",
+                    lambda: side.spans[0].line1.name)
 
     from qmyi.gizmos import temp_draw_manager  # imported for its module level only
 

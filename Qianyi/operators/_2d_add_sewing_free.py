@@ -82,11 +82,19 @@ def place_under(context, project, pointer_region):
 
 
 def snapped_place(context, project, pattern, run, pointer_region, entries=None):
-    """The snap candidate near the pointer: ``(distance, kind)``, or None."""
+    """The snap candidate near the pointer: ``(distance, kind)``, or None.
+
+    The radius is measured at the pointer itself (`snap_radius` takes region
+    pixels, the space a mouse event reports) and not at the pointer as a view
+    position: the conversion has to see where on the screen the cursor is, or a
+    zoomed view snaps with the wrong reach.
+    """
     if entries is None:
         entries = sewing.run_candidates(project, run)
+    radius = sewing.snap_radius(context, pattern, pointer_region)
     found = sewing.nearest_candidate(context, pattern,
-                                     region2view_coord(context, pointer_region), entries)
+                                     region2view_coord(context, pointer_region), entries,
+                                     radius=radius)
     if found is None:
         return None
     _away, point, kind, _uuid = found

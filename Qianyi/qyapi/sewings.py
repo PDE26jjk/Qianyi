@@ -70,6 +70,43 @@ def set_color(index, color, project=None):
     return address.jsonify(address.sewing_entry(project, sewing, int(index)))
 
 
+def add_span(index, side, pattern, edge, end_edge=None, pos1=0.0, pos2=1.0,
+             reverse=False, project=None):
+    """Append one drawn run to a side of a seam, and report the new mapping.
+
+    `side` is 1 or 2 and the run is appended after the ones already there, which
+    is the order the side is stitched in. `edge` and `end_edge` are named the way
+    every other edge is: an index or a label of `pattern`. The report says how
+    many runs each side holds, the stitch count the mapping has now, how many
+    pairs that changed, and any reason the seam cannot be paired.
+    """
+    project = address.project_or_refuse(project)
+    target = address.pattern_or_refuse(project, pattern)
+    line1, _index = address.edge_or_refuse(target, edge)
+    line2, _index = address.edge_or_refuse(target, end_edge if end_edge is not None
+                                           else edge)
+    report = project.add_sewing_span(index, side, line1, float(pos1), line2,
+                                     float(pos2), bool(reverse))
+    address.write_done(f"add a drawn run to a sewing of {project.name}")
+    return address.jsonify(report)
+
+
+def remove_span(index, side, span, project=None):
+    """Drop one drawn run from a side of a seam, and report the new mapping."""
+    project = address.project_or_refuse(project)
+    report = project.remove_sewing_span(index, side, span)
+    address.write_done(f"remove a drawn run from a sewing of {project.name}")
+    return address.jsonify(report)
+
+
+def move_span(index, side, span, offset, project=None):
+    """Move one drawn run earlier (a negative offset) or later in the order."""
+    project = address.project_or_refuse(project)
+    report = project.move_sewing_span(index, side, span, offset)
+    address.write_done(f"reorder a sewing of {project.name}")
+    return address.jsonify(report)
+
+
 def remove(index, project=None):
     """Remove one seam."""
     project = address.project_or_refuse(project)

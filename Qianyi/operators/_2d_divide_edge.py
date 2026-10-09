@@ -185,13 +185,17 @@ def describe_sewing(project, index) -> str:
     sewing = project.sewings[index]
     sides = []
     for side in sewing.sides:  # loop: the two sides of one seam
-        line1, line2 = side.line1, side.line2
-        sides.append(
-            f"{_pattern_name(line1)}"
-            f"[{line1.get_index() if line1 else -1}]@{side.pos1:.4f} -> "
-            f"{_pattern_name(line2)}"
-            f"[{line2.get_index() if line2 else -1}]@{side.pos2:.4f} "
-            f"rev={side.reverse}")
+        runs = []
+        # loop: one drawn run of that side per step
+        for span in side.spans:
+            line1, line2 = span.line1, span.line2
+            runs.append(
+                f"{_pattern_name(line1)}"
+                f"[{line1.get_index() if line1 else -1}]@{span.pos1:.4f} -> "
+                f"{_pattern_name(line2)}"
+                f"[{line2.get_index() if line2 else -1}]@{span.pos2:.4f} "
+                f"rev={span.reverse}")
+        sides.append(" + ".join(runs) if runs else "(no run)")
     return f"seam {index}: " + " | ".join(sides)
 
 

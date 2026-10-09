@@ -163,15 +163,52 @@ def check_link_ids(project):
     return f"{linked} linked, {stale} from an older run", problems
 
 
-def side_walk(sewing, side, pair):
-    sections = []
-    section = pair[0]
+def recorded_runs(side, holder) -> list:
+    """The side's drawn runs with the boundary pair recorded for each, or None.
+
+    `Sewing.sections1` / `sections2` hold one `(start, end)` pair per drawn run,
+    in drawing order - the record the linking run refreshed - so the two lists
+    have to have the same length before the record can be read at all.
+    """
+    pairs = list(holder)
+    if len(pairs) != len(side.spans):
+        return None
+    return list(zip(side.spans, pairs))
+
+
+def walk_pieces(start, end, reverse) -> list:
+    """The pieces one run visits, in the order the walk visits them."""
+    pieces = []
+    section = start
+    if section is end:
+        pieces.append(section)
+        section = section.prev if reverse else section.next
     guard = 0
-    while section is not None and (section is not pair[1] or not sections) and guard < 1000:
-        sections.append(section)
-        section = section.prev if side.reverse else section.next
+    while section is not end and guard < 1000:
+        pieces.append(section)
+        section = section.prev if reverse else section.next
         guard += 1
-    return sections
+    return pieces
+
+
+def side_walk(side) -> list:
+    """The samples one side stitches, in stitch order.
+
+    Built here from the model's own pieces (`side_pieces`) rather than read off
+    the model: what this check wants is an independent walk to compare the pairs
+    against, and a piece a drawn run ends at contributes the run's own end - after
+    its samples, or before them when the run is walked backwards.
+    """
+    from qmyi.model.sewing import side_pieces
+
+    walked = []
+    for _piece, samples, head, tail, ends_run, _run, far_first in side_pieces(side):
+        if ends_run and far_first:
+            walked.append(int(head))
+        walked.extend(int(value) for value in samples)
+        if ends_run and not far_first:
+            walked.append(int(tail))
+    return walked
 
 
 def point_at_fraction(edge, fraction):
@@ -197,21 +234,34 @@ def point_at_fraction(edge, fraction):
 
 def check_stitches(project):
     from qmyi.model.model_data import owner_pattern
-    from qmyi.model.sewing import get_stitches_by_sections
+    from qmyi.model import sewing_geometry as sg
 
     problems = []
     checked = 0
     for index, sewing in enumerate(project.sewings):
+        if sewing.stitch_error:
+            # A seam the guard reported is deliberately not stitched; there is
+            # nothing to walk and the reason is the report.
+            log(f"       sewing[{index}] cannot be paired: {sewing.stitch_error}")
+            checked += 1
+            continue
         walks = []
-        for label, side, pair in (("side1", sewing.side1, sewing.sections1),
-                                  ("side2", sewing.side2, sewing.sections2)):
-            sections = side_walk(sewing, side, pair)
+        for label, side, holder in (("side1", sewing.side1, sewing.sections1),
+                                    ("side2", sewing.side2, sewing.sections2)):
+            runs = recorded_runs(side, holder)
+            if runs is None:
+                problems.append(f"sewing[{index}] {label}: {len(list(holder))} recorded "
+                                f"pair(s) for {len(side.spans)} drawn run(s)")
+                walks.append(None)
+                continue
+            sections = [piece for span, pair in runs
+                        for piece in walk_pieces(pair[0], pair[1], span.reverse)]
             if not sections:
                 problems.append(f"sewing[{index}] {label}: empty walk")
                 walks.append(None)
                 continue
             try:
-                stitches = get_stitches_by_sections(pair[0], pair[1], side.reverse)
+                stitches = np.asarray(side_walk(side), dtype=np.int64)
             except Exception as error:
                 problems.append(f"sewing[{index}] {label}: walk raised {error!r}")
                 walks.append(None)
@@ -220,14 +270,16 @@ def check_stitches(project):
                 # The walk marks "outside the pattern" with -1; an unsigned array
                 # would read that back as its maximum value.
                 stitches = stitches.astype(np.int64)
-            walks.append((label, side, stitches, pair[0] is pair[1]))
-            points = owner_pattern(side.line1).mesh_edge_points
+            first_span, last_span = side.spans[0], side.spans[-1]
+            walks.append((label, side, stitches, first_span, last_span,
+                          [pair[0] is pair[1] for _span, pair in runs]))
+            points = owner_pattern(first_span.line1).mesh_edge_points
             inside = stitches[stitches >= 0]
             if len(inside) and (inside.max() >= len(points) or inside.min() < 0):
                 problems.append(f"sewing[{index}] {label}: stitch index outside "
                                 f"mesh_edge_points")
             repeated = len(inside) - len(np.unique(inside))
-            is_loop = pair[0] is pair[1]
+            is_loop = any(pair[0] is pair[1] for _span, pair in runs)
             if repeated and not is_loop:
                 problems.append(f"sewing[{index}] {label}: {repeated} repeated stitch(es)")
             if repeated > 1:
@@ -237,56 +289,65 @@ def check_stitches(project):
         if any(walk is None for walk in walks):
             continue
         raw1, raw2 = walks[0][2], walks[1][2]
-        if len(raw1) != len(raw2):
-            problems.append(f"sewing[{index}]: {len(raw1)} stitches on side1 but "
-                            f"{len(raw2)} on side2")
-            continue
-        paired = (raw1 >= 0) & (raw2 >= 0)
-        if not paired.any():
-            problems.append(f"sewing[{index}]: every pair is outside a pattern")
-            continue
-        positions = np.nonzero(paired)[0]
         data = sewing.get_stitch_data()["stitches"]
-        if data.shape[0] != len(positions):
-            problems.append(f"sewing[{index}]: {data.shape[0]} pairs built but "
-                            f"{len(positions)} positions are inside both patterns")
+        # The two sides are paired by progress along each side, so the walks need
+        # not be the same length: a join pairs two samples of one side with the
+        # one the other side has at that fraction. What still has to hold is that
+        # neither side has a sample the pairing forgot, and that no pair is made
+        # out of nothing.
+        if data.shape[0] == 0:
+            problems.append(f"sewing[{index}]: no pair was built at all")
+            continue
+        if data.shape[0] > len(raw1) + len(raw2):
+            problems.append(f"sewing[{index}]: {data.shape[0]} pairs from walks of "
+                            f"{len(raw1)} and {len(raw2)}")
+        if int(data.min()) < 0:
+            problems.append(f"sewing[{index}]: a pair names no vertex")
+        whole = all(bool(np.all(walk >= 0)) for walk in (raw1, raw2))
         for column, side_index in ((0, 0), (1, 1)):
-            label, side, stitches, is_loop = walks[side_index]
-            expected_first = int(stitches[positions[0]])
-            expected_last = int(stitches[positions[-1]])
+            label, side, stitches, first_span, last_span, _bits = walks[side_index]
+            known = {int(value) for value in stitches}
+            if any(int(value) not in known for value in data[:, column]):
+                problems.append(f"sewing[{index}] {label}: a pair names a vertex "
+                                f"this side's walk does not hold")
+            if not whole:
+                # Samples outside a pattern are dropped with their pairs, so the
+                # first and last pair are not the walk's own ends.
+                continue
+            expected_first = int(stitches[0])
+            expected_last = int(stitches[-1])
             if int(data[0][column]) != expected_first:
                 problems.append(f"sewing[{index}] {label}: first pair is "
                                 f"{int(data[0][column])}, expected {expected_first}")
             if int(data[-1][column]) != expected_last:
                 problems.append(f"sewing[{index}] {label}: last pair is "
                                 f"{int(data[-1][column])}, expected {expected_last}")
-            if positions[0] == 0:
-                # Nothing was dropped at the start, so the first stitch still
-                # has to sit on the sewing's own endpoint.
-                points = owner_pattern(side.line1).mesh_edge_points
-                start = point_at_fraction(side.line1, side.pos1)
-                first = float(np.linalg.norm(points[expected_first] - start))
-                if first > ENDPOINT_TOLERANCE_MM:
-                    problems.append(f"sewing[{index}] {label}: first stitch is "
-                                    f"{first:.3f} mm off the sewing start")
-            if positions[-1] == len(stitches) - 1:
-                points = owner_pattern(side.line1).mesh_edge_points
-                end = point_at_fraction(side.line2, side.pos2)
-                last = float(np.linalg.norm(points[expected_last] - end))
-                if last > ENDPOINT_TOLERANCE_MM:
-                    problems.append(f"sewing[{index}] {label}: last stitch is "
-                                    f"{last:.3f} mm off the sewing end")
-        dropped = int(np.count_nonzero(~paired))
-        if dropped:
-            log(f"       sewing[{index}]: {dropped} sample pair(s) sit outside a "
-                f"pattern and are dropped")
+            # Neither end was dropped, so the end stitches still have to sit on
+            # the sewing's own endpoints.
+            points = owner_pattern(first_span.line1).mesh_edge_points
+            start = point_at_fraction(first_span.line1, first_span.pos1)
+            first = float(np.linalg.norm(points[expected_first] - start))
+            if first > ENDPOINT_TOLERANCE_MM:
+                problems.append(f"sewing[{index}] {label}: first stitch is "
+                                f"{first:.3f} mm off the sewing start")
+            points = owner_pattern(last_span.line1).mesh_edge_points
+            end = point_at_fraction(last_span.line2, last_span.pos2)
+            last = float(np.linalg.norm(points[expected_last] - end))
+            if last > ENDPOINT_TOLERANCE_MM:
+                problems.append(f"sewing[{index}] {label}: last stitch is "
+                                f"{last:.3f} mm off the sewing end")
+        outside = int(np.count_nonzero(raw1 < 0) + np.count_nonzero(raw2 < 0))
+        if outside:
+            log(f"       sewing[{index}]: {outside} sample(s) of the walks sit "
+                f"outside a pattern and are dropped")
         checked += 1
     return checked, problems
 
 
-def piece_fractions(sewing, side, pair):
-    """Where each piece boundary sits, as a fraction of this side's range."""
-    sections = side_walk(sewing, side, pair)
+def piece_fractions(side, runs):
+    """Where each piece boundary sits, as a fraction of the side's whole range."""
+    sections = [piece for span, pair in runs
+                for piece in walk_pieces(pair[0], pair[1], span.reverse)]
     lengths = [section.absolute_length() for section in sections]
     total = sum(lengths)
     if total <= 0:
@@ -312,18 +373,24 @@ def check_grouping(project):
     problems = []
     checked = 0
     for index, sewing in enumerate(project.sewings):
+        if sewing.stitch_error:
+            continue
         fractions = []
         for side in (sewing.side1, sewing.side2):
             try:
                 # The pieces are the pattern's own copy of the Sketch's stage.
-                pattern = owner_pattern(side.line1)
-                start = pattern.boundary_section(side.line1, side.pos1, side.reverse)
-                end = pattern.boundary_section(side.line2, side.pos2, side.reverse)
+                runs = []
+                # loop: one drawn run of that side per step
+                for span in side.spans:
+                    pattern = owner_pattern(span.line1)
+                    start = pattern.boundary_section(span.line1, span.pos1, span.reverse)
+                    end = pattern.boundary_section(span.line2, span.pos2, span.reverse)
+                    runs.append((span, (start, end)))
             except ValueError as error:
                 problems.append(f"sewing[{index}]: {error}")
                 fractions.append(None)
                 continue
-            fractions.append(piece_fractions(sewing, side, (start, end)))
+            fractions.append(piece_fractions(side, runs))
         if None in fractions:
             continue
         left, right = fractions
@@ -347,19 +414,28 @@ def check_recorded_pair(project):
     problems = []
     checked = 0
     for index, sewing in enumerate(project.sewings):
+        if sewing.stitch_error:
+            continue
         for label, side, holder in (("side1", sewing.side1, sewing.sections1),
                                     ("side2", sewing.side2, sewing.sections2)):
-            try:
-                pattern = owner_pattern(side.line1)
-                start = pattern.boundary_section(side.line1, side.pos1, side.reverse)
-                end = pattern.boundary_section(side.line2, side.pos2, side.reverse)
-            except ValueError as error:
-                problems.append(f"sewing[{index}] {label}: {error}")
+            pairs = list(holder)
+            if len(pairs) != len(side.spans):
+                problems.append(f"sewing[{index}] {label}: {len(pairs)} recorded "
+                                f"pair(s) for {len(side.spans)} drawn run(s)")
                 continue
-            checked += 1
-            if holder[0] is not start or holder[1] is not end:
-                problems.append(f"sewing[{index}] {label}: the recorded pair is "
-                                f"not the section a lookup finds")
+            for run_index, span in enumerate(side.spans):
+                # loop: one drawn run of that side per step
+                try:
+                    pattern = owner_pattern(span.line1)
+                    start = pattern.boundary_section(span.line1, span.pos1, span.reverse)
+                    end = pattern.boundary_section(span.line2, span.pos2, span.reverse)
+                except ValueError as error:
+                    problems.append(f"sewing[{index}] {label}[{run_index}]: {error}")
+                    continue
+                checked += 1
+                if pairs[run_index][0] is not start or pairs[run_index][1] is not end:
+                    problems.append(f"sewing[{index}] {label}[{run_index}]: the "
+                                    f"recorded pair is not the section a lookup finds")
     return checked, problems
 
 
@@ -367,6 +443,9 @@ def check_pairs(project):
     problems = []
     checked = 0
     for index, sewing in enumerate(project.sewings):
+        if sewing.stitch_error:
+            # Reported as un-pairable: it deliberately stitches nothing.
+            continue
         try:
             data = sewing.get_stitch_data()
         except Exception as error:
@@ -434,19 +513,25 @@ def scenario_divide_every_side(project):
     for parts in (2, 4):
         for sewing in list(project.sewings):
             for side in (sewing.side1, sewing.side2):
-                pattern = owner_pattern(side.line1)
-                index = side.line1.get_index()
-                if index < len(pattern.edges):
-                    divide_tools.divide_edges(pattern, [index], parts=parts)
+                for span in side.spans:  # loop: one drawn run of that side per step
+                    pattern = owner_pattern(span.line1)
+                    index = span.line1.get_index()
+                    if index < len(pattern.edges):
+                        divide_tools.divide_edges(pattern, [index], parts=parts)
     for pattern in project.patterns:
         pattern.need_sewing_update = True
     project.setup_sewings_for_simulation()
 
 
 def scenario_stretched_seam(project):
-    """One side five times longer than the other: the merge has to stretch."""
+    """One side five times longer than the other: the merge has to stretch.
+
+    A seam may be sewn with one side longer on purpose - a puff sleeve, a band
+    with ease - so the merge cuts both sides at the same fractions and the seam
+    stitches through the difference.
+    """
     sewing = project.sewings[0]
-    sewing.side2.pos2 = 0.2
+    sewing.side2.spans[0].pos2 = 0.2
     for pattern in project.patterns:
         pattern.need_sewing_update = True
     project.setup_sewings_for_simulation()
@@ -455,10 +540,10 @@ def scenario_stretched_seam(project):
 def scenario_reversed_both_sides(project):
     """Both sides sewn backwards: pos1 at the far end, pos2 at the near one."""
     sewing = project.sewings[1]
-    sewing.side1.pos1, sewing.side1.pos2 = 1.0, 0.0
-    sewing.side2.pos1, sewing.side2.pos2 = 1.0, 0.0
-    sewing.side1.reverse = True
-    sewing.side2.reverse = True
+    sewing.side1.spans[0].pos1, sewing.side1.spans[0].pos2 = 1.0, 0.0
+    sewing.side2.spans[0].pos1, sewing.side2.spans[0].pos2 = 1.0, 0.0
+    sewing.side1.spans[0].reverse = True
+    sewing.side2.spans[0].reverse = True
     for pattern in project.patterns:
         pattern.need_sewing_update = True
     project.setup_sewings_for_simulation()
@@ -506,11 +591,12 @@ def scenario_loop_seam(project):
     sewing = project.sewings[0]
     side = sewing.side1
     edge = project.patterns[0].edges[0]
-    side.line1_uuid = edge.global_uuid
-    side.line2_uuid = edge.global_uuid
-    side.pos1 = 0.0
-    side.pos2 = 0.0
-    side.reverse = False
+    span = side.spans[0]
+    span.line1_uuid = edge.global_uuid
+    span.line2_uuid = edge.global_uuid
+    span.pos1 = 0.0
+    span.pos2 = 0.0
+    span.reverse = False
     for pattern in project.patterns:
         pattern.need_sewing_update = True
     project.setup_sewings_for_simulation()
@@ -521,7 +607,7 @@ def scenario_loop_seam_reversed(project):
     other end of the walk, so the endpoint rule has to follow it there."""
     scenario_loop_seam(project)
     sewing = project.sewings[0]
-    sewing.side1.reverse = True
+    sewing.side1.spans[0].reverse = True
     for pattern in project.patterns:
         pattern.need_sewing_update = True
     project.setup_sewings_for_simulation()

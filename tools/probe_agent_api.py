@@ -773,9 +773,15 @@ def _sew_checks(qyapi):
 
 
 def _sides(entry):
-    """What the add-on's own sewing recorded, reported, not interpreted."""
-    return [(side["side"], side["pattern"], side["edge_index"], side["pos1"],
-             side["pos2"], side["reverse"]) for side in entry["sides"]]
+    """What the add-on's own sewing recorded, reported, not interpreted.
+
+    A side is a list of drawn runs now, so each run reports its own edge,
+    position range and direction.
+    """
+    return [(side["side"], side["pattern"],
+             [(run["edge_index"], run["pos1"], run["pos2"], run["reverse"])
+              for run in side["spans"]])
+            for side in entry["sides"]]
 
 
 def _sewing_agreement(qyapi):

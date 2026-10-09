@@ -55,7 +55,8 @@ Patterns: ``qyapi.patterns.list()``, ``get()``, ``points()``, ``create()``,
 here answers with names only; ``projects.fabrics()`` is the same list with each
 fabric's properties.
 Sewings: ``qyapi.sewings.list()``, ``of()``, ``sew()``, ``sew_at()``,
-``set_color()``, ``remove()``.
+``set_color()``, ``remove()``, ``add_span()``, ``remove_span()``,
+``move_span()``.
 Generators: ``qyapi.generators.list()``, ``get()``, ``create()``,
 ``set_params()``, ``rebuild()``, ``detach()``, ``remove()``.
 Components: ``qyapi.components.list()``, ``info()``, ``build()``, ``reload()``.

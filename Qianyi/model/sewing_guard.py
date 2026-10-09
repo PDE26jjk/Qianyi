@@ -1,14 +1,19 @@
-"""Seams whose two sides cannot be paired: flagged, and their patterns kept out.
+"""Seams whose two sides the linking run did not pair: flagged, patterns kept out.
 
-A seam's stitches are the two sides' walks zipped together, which needs both
-walks to take the same number of samples. A run nested inside another seam's run
-on the same edge can break that: the linking cuts the shared edge at the outer
-seam's boundaries, and those cuts are not mirrored onto the inner seam's other
-side, so one walk crosses five pieces and the other three. Nothing here changes
-the linking - that would mean reworking the merge - and nothing here refuses the
-seam either: the seam is flagged, the two patterns it joins are marked the way a
-crossing outline is (no mesh, no simulation start, the reason shown on the
-pattern), and the user is left to fix the seam graph.
+A seam's stitches are the samples of the pieces the linking run paired: a piece
+of one side and the piece of the other it was linked to. A run nested inside
+another seam's run on the same edge can break that: the linking cuts the shared
+edge at the outer seam's boundaries, and those cuts are not mirrored onto the
+inner seam's other side, so one side is left with pieces the other side has no
+partner for. Nothing here changes the linking - that would mean reworking the
+merge - and the seam is not stitched either: it is flagged, the two patterns it
+joins are marked the way a crossing outline is (no mesh, no simulation start, the
+reason shown on the pattern), and the user is left to fix the seam graph.
+
+Sewing a longer side to a shorter one is not one of the ways a seam can fail, and
+nothing here looks at lengths or at sample counts: the two sides are paired by
+the pieces the linking run left, so a puff sleeve's cap goes into its armhole and
+a band onto the edge it trims.
 
 The check is a walk over the pieces, not a stitch, so it can run every time the
 seam graph is re-linked - including right after an edit, before any mesh is
@@ -18,70 +23,15 @@ carry the text this module set, so a mesh error of another kind is left alone.
 
 from __future__ import annotations
 
-import math
-
 from ..utilities.console import console
 from .model_data import define_temp_prop
 from .pattern import Pattern, VALIDITY_INVALID, VALIDITY_UNKNOWN
-from .sewing import Sewing
+from .sewing import Sewing, side_pieces
 
 # The flag a seam carries while its sides do not pair, and the mark this module
 # leaves on a pattern so it clears what it wrote and nothing else.
 define_temp_prop(Sewing, "stitch_error", "")
 define_temp_prop(Pattern, "sewing_error", "")
-
-# How many pieces one walk may visit before the check calls it a loop: a walk is
-# over the pieces of one chain, and no pattern has this many.
-WALK_LIMIT = 10000
-
-
-def piece_samples(piece, pattern) -> int:
-    """How many samples a piece takes in the walk.
-
-    A piece carries the count it was sampled as. A piece that carries none is one
-    a linking run has just cut: the sampling pass would give it one sample per
-    granularity step, capped below at one, which is what the walk will take.
-    """
-    if piece.seg > 0:
-        return piece.seg
-    length = float(piece.absolute_length())
-    step = max(float(pattern.granularity), 1e-6)
-    return max(math.ceil(length / step), 1)
-
-
-def side_walk(side) -> tuple:
-    """One side of a seam as the stitch walk would read it.
-
-    Returns ``(pieces, samples)``: the pieces the walk visits in order, and how
-    many samples they add up to - the count the stitch walk would produce, which
-    is what has to match the other side's.
-    """
-    pattern = side.pattern
-    if pattern is None:
-        raise ValueError("this sewing side names no pattern")
-    start = pattern.boundary_section(side.line1, side.pos1, side.reverse)
-    end = pattern.boundary_section(side.line2, side.pos2, side.reverse)
-    pieces = []
-    samples = 0
-    section = start
-    started = False
-    while (section is not end or not started) and len(pieces) < WALK_LIMIT:
-        following = section.prev if side.reverse else section.next
-        size = piece_samples(section, pattern)
-        # The walk carries the sample at its far end as well: the first piece of
-        # a backwards walk, the last one of a forwards walk.
-        if side.reverse:
-            if not started:
-                size += 1
-        elif following is end:
-            size += 1
-        pieces.append(section)
-        samples += size
-        section = following
-        started = True
-    if len(pieces) >= WALK_LIMIT:
-        raise ValueError("this sewing side walks in a loop")
-    return pieces, samples
 
 
 def piece_key(section) -> tuple:
@@ -93,30 +43,41 @@ def piece_key(section) -> tuple:
             round(float(section.start_pos), 6), round(float(section.end_pos), 6))
 
 
-def pattern_name(pattern) -> str:
-    """A pattern's name for a message, saying so when it is not there any more."""
-    return (pattern.name or "(unnamed pattern)") if pattern is not None else "(a pattern that is gone)"
-
-
 def seam_error(sewing):
-    """Why this seam's two sides cannot be paired, or None.
+    """Why this seam cannot be stitched, or None.
 
-    None covers both "they pair" and "this is not the check's business": a side
-    whose boundaries the linking run did not place at all raises when it is
+    None covers both "it can be stitched" and "this is not the check's business":
+    a side whose boundaries the linking run did not place at all raises when it is
     walked, and that is reported where it happens (`calc_sewing_sections` warns
     about it), not here.
+
+    The two sides are paired by the pieces the linking run left
+    (`pair_by_sections`), so a side that is longer, or a join where one side has
+    two samples and the other one, is stitched rather than refused, and nothing
+    here compares the walks. What is left is a seam the linking run did not pair
+    - a piece of one side with no linked piece on the other, which is what
+    happens when another seam cuts the same edge and the cut is not mirrored -
+    and the seam with nothing to stitch at all, whose drawn runs are gone.
     """
+    if not len(sewing.side1.spans) or not len(sewing.side2.spans):
+        # A side whose drawn runs were all dropped - an edge it used was removed,
+        # say - has nothing to stitch. Saying so is what keeps the seam visible
+        # instead of silently stitching nothing.
+        which = "one side" if not len(sewing.side1.spans) else "the other side"
+        return (f"{which} holds no drawn run left, so there is nothing to stitch: "
+                f"draw a run on it, or remove the seam")
     try:
-        _first, first_samples = side_walk(sewing.side1)
-        _second, second_samples = side_walk(sewing.side2)
+        first = side_pieces(sewing.side1)
+        second = side_pieces(sewing.side2)
     except ValueError:
+        # A side whose boundaries the linking run did not place at all: that is
+        # reported where it happens (`calc_sewing_sections` warns about it).
         return None
-    if first_samples == second_samples:
-        return None
-    return (f"its two sides are walked at {first_samples} and {second_samples} samples, so "
-            f"they cannot be paired: this seam's run is nested inside another seam's run on "
-            f"{pattern_name(sewing.side1.pattern)} or {pattern_name(sewing.side2.pattern)}, and "
-            f"the shared edge is cut where the two sides of it no longer line up")
+    if len(first) != len(second):
+        return (f"its two sides were cut into {len(first)} and {len(second)} pieces, "
+                f"so the linking run did not pair them: another seam cuts the same "
+                f"edge, and the cut is not mirrored onto this one")
+    return None
 
 
 def involved_seams(project, sewing, pieces) -> list:
@@ -133,7 +94,7 @@ def involved_seams(project, sewing, pieces) -> list:
             continue
         for side in (other.side1, other.side2):
             try:
-                walked, _samples = side_walk(side)
+                walked = [entry[0] for entry in side_pieces(side)]
             except ValueError:
                 continue
             if any(piece_key(piece) in keys for piece in walked):
@@ -157,7 +118,7 @@ def check_sewings(project) -> list:
         seam_pieces = []
         for side in (sewing.side1, sewing.side2):
             try:
-                walked, _samples = side_walk(side)
+                walked = [entry[0] for entry in side_pieces(side)]
             except ValueError:
                 continue
             seam_pieces.extend(walked)

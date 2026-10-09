@@ -37,7 +37,7 @@ import numpy as np
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO_ADDON = os.path.join(REPO, "Qianyi")
 # The compiled triangulator the addon imports as `Qianyi_DP`.
-QYIDP_BUILD = r"R:\code\cuda\qmyidp\build\Release"
+QYIDP_BUILD = os.environ.get("QYDP_PYD_DIR", r"R:\code\cuda\qmyidp\build\Release")
 FAILURES = []
 
 
@@ -227,15 +227,15 @@ def main():
     check("a seam between two patterns was created", seam is not None,
           f"error={project.last_sewing_error!r}")
     if seam is not None:
-        named = seam.side1.line1_uuid
+        named = seam.side1.spans[0].line1_uuid
         select(project, [seam_a.edges[0]])
         report = divide_selection(project, parts=2)
         pieces = set(report["piece_uuids"])
-        side = seam.side1
+        run = seam.side1.spans[0]
         check("a seam on a divided outline edge is re-homed",
               report["sewings_moved"] >= 1 and named in pieces
-              and side.line1 is not None and side.line1_uuid in pieces,
-              f"moved={report['sewings_moved']} side_uuid={side.line1_uuid}")
+              and run.line1 is not None and run.line1_uuid in pieces,
+              f"moved={report['sewings_moved']} side_uuid={run.line1_uuid}")
         check("the divided seam asks both patterns to relink",
               seam_a.need_sewing_update and seam_b.need_sewing_update,
               f"a={seam_a.need_sewing_update} b={seam_b.need_sewing_update}")
@@ -252,12 +252,12 @@ def main():
     if seam is not None:
         select(project, [line_s.edges[0]])
         report = divide_selection(project, parts=2)
-        side = seam.side1
+        run = seam.side1.spans[0]
         check("a seam on a divided internal line is re-homed",
-              report["sewings_moved"] >= 1 and side.line1 is not None
-              and side.line1_uuid in set(report["piece_uuids"])
-              and ".internal_lines[" in side.line1.path_from_id(),
-              f"moved={report['sewings_moved']} side_uuid={side.line1_uuid}")
+              report["sewings_moved"] >= 1 and run.line1 is not None
+              and run.line1_uuid in set(report["piece_uuids"])
+              and ".internal_lines[" in run.line1.path_from_id(),
+              f"moved={report['sewings_moved']} side_uuid={run.line1_uuid}")
 
     # a seam endpoint sitting exactly on the cut of a curved edge: the read
     # and the write of the sewing position both go through the arc length, so
@@ -276,13 +276,13 @@ def main():
     if seam is not None:
         select(project, [bow])
         report = divide_selection(project, parts=2)
-        side = seam.side1
+        run = seam.side1.spans[0]
         check("a seam endpoint at the cut lands on the far piece at its start",
-              report["sewings_moved"] >= 1 and side.line2 is not None
-              and side.line2_uuid in set(report["piece_uuids"])
-              and side.line2_uuid != report["piece_uuids"][0]
-              and abs(side.pos2) < 1e-6,
-              f"moved={report['sewings_moved']} pos2={side.pos2:.6f} "
+              report["sewings_moved"] >= 1 and run.line2 is not None
+              and run.line2_uuid in set(report["piece_uuids"])
+              and run.line2_uuid != report["piece_uuids"][0]
+              and abs(run.pos2) < 1e-6,
+              f"moved={report['sewings_moved']} pos2={run.pos2:.6f} "
               f"lengths={report['lengths']}")
 
     # the corner command: an outline corner, the merged end, a line corner
@@ -534,3 +534,4 @@ if __name__ == "__main__":
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(status)
+

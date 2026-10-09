@@ -44,6 +44,7 @@ class QianyiProps(PropertyGroup, ModelData):
             ('ADD_SPLINE_POINT', "ADD_SPLINE_POINT", "", ),
             ('ADD_SEWING1', "ADD_SEWING1", "", ),
             ('ADD_SEWING_FREE', "ADD_SEWING_FREE", "", ),
+            ('ADD_SEWING_M2N', "ADD_SEWING_M2N", "", ),
             ('EDIT_SEWING', "EDIT_SEWING", "", ),
             ('INTERNAL_POINT', "INTERNAL_POINT", "", ),
         ],

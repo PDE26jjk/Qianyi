@@ -108,6 +108,7 @@ class WorkSpaceTools(str, Enum):
     AddVertex = "qmyi.add_vertex"
     AddSewing1 = "qmyi.add_sewing1"
     AddSewingFree = "qmyi.add_sewing_free"
+    AddSewingMtoN = "qmyi.add_sewing_m2n"
     SewingEdit = "qmyi.sewing_edit"
     AddSplinePoint = "qmyi.add_spline_point"
     Select = "qmyi.select"

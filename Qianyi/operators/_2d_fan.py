@@ -670,7 +670,10 @@ def _sewings_on(pattern, edge_indices) -> int:
     count = 0
     for sewing in pattern.project.sewings:
         for side in sewing.sides:
-            if side.line1_uuid in uuids or side.line2_uuid in uuids:
+            touched = any(span.line1_uuid in uuids or span.line2_uuid in uuids
+                          # loop: one drawn run of that side per look
+                          for span in side.spans)
+            if touched:
                 count += 1
                 break
     return count

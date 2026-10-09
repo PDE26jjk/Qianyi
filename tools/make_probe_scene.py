@@ -24,7 +24,10 @@ import bpy
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ADDON_PATH = os.path.join(REPO, "Qianyi")
-QYIDP_BUILD = r"R:\code\cuda\qmyidp\build\Release"
+# The engine build the running Blender can load. The default is the maintainer's
+# 4.5 build; a session on another Blender points `QYDP_PYD_DIR` at the build for
+# its own Python version instead of editing this line.
+QYIDP_BUILD = os.environ.get("QYDP_PYD_DIR", r"R:\code\cuda\qmyidp\build\Release")
 
 
 def log(message):

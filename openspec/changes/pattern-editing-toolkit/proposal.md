@@ -81,8 +81,8 @@ needs the engine to carry an angle on that line, and it does not do so yet.
 ### Modified Capabilities
 
 - `agent-sewing-control`: a seam's sides are reported as ordered span sets
-  rather than one edge each, and the report gains the unmatched remainder, so
-  the existing read requirement changes.
+  rather than one edge each, and nothing about the two sides' lengths is reported
+  - they are matched by proportion, so the existing read requirement changes.
 
 ## Impact
 

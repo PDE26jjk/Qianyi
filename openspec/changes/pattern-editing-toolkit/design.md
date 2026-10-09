@@ -270,8 +270,7 @@ Because a set lives on one pattern, a seam still joins exactly two patterns, so 
 payload stays the existing two-pattern stitch group and no payload
 decomposition is introduced. A span that can no longer be resolved drops out
 and is reported, and a set left with no spans is reported as incomplete instead
-of stitching nothing. The length tolerance that decides "matched" and "unmatched"
-is a project constant to be calibrated by experiment (see Open Questions).
+of stitching nothing.
 
 The interaction follows the free sewing tool: draw the spans of the first set,
 press Enter to finish it, then draw the spans of the second.
@@ -281,6 +280,74 @@ let one set span several patterns. Both are rejected for this change: the first
 needs a branching rule nobody has defined, and the second reopens the section
 linker for a junction case that is rare next to the long-edge-to-several-short
 one.
+
+What the implementation settled that this decision did not say:
+
+- **A run that continues the one before it contributes one vertex, not two.**
+  The stitch pairs read a side piece by piece (`side_pieces`), and each run
+  carries the sample at its own end. Two runs that meet pass through one vertex,
+  so the pair they make there is the same pair twice and is dropped once; that is
+  what makes a side drawn as the pieces of one edge stitch exactly like the
+  single run it is, and what makes "200 mm sewn to 120 + 80" pair end to end.
+  Runs that do **not** meet each carry their own two ends, so such a side has
+  more sample points than a single-run side of the same length; the two facing
+  ends sit at the same fraction of their side, and both are paired with the one
+  point the other side has there (see the pairing bullet below). The spec's
+  "spans need not be geometrically contiguous" is therefore honoured for the
+  ordering of the set as well as the direction.
+- **A seam does not compare the two sides' lengths, and a difference between them
+  is not its business.** An earlier draft of this decision made a length
+  difference beyond a calibrated tolerance report the seam unmatched and stop
+  stitching it, and a later pass still had the guard measure both sides and
+  report the difference. Both are wrong: what a seam does is the section merge it
+  always did - each side generates its own sections, and the two are matched by
+  progress along each side (`scans` of its own total), so the two totals are
+  never put side by side. Sewing a longer side to a shorter one is how garments
+  are designed - a puff sleeve's cap into its armhole, a binding or a band onto
+  the edge it trims, a gathered skirt into its waistband - and it is stitched,
+  not measured. The requirement and its scenarios were removed from
+  `specs/sewing-many-to-many` and the read delta in
+  `specs/agent-sewing-control`, and nothing in the model reads a length
+  difference. `.agents/scratch/probe_m2n_gather.py` is the experiment: a 200 mm
+  side against sides 0 to 79 mm shorter, at 5, 20 and 50 mm granularity, stitches
+  in every case and pairs the same fractions of both sides. The shipped library
+  is the same proof from the other side: the GC Tee's collar is 310.0 mm sewn to
+  a 1939.3 mm neckline and its torso halves are 324.6 to 256.5 mm, and all of
+  them stitch and simulate, as they did before.
+- **The editor's connecting lines are drawn per drawn run.** They are the seam's
+  correspondence made visible: each line joins the two sides at the same fraction
+  of each side's own length - the merge's own rule - and every place a drawn run
+  begins or ends is a breakpoint, so a run's two ends are always among the lines.
+  The join of a 120 + 80 side is therefore joined to the 60% point of the 200 mm
+  side it is sewn to, with equal spacing inside each piece and the number of lines
+  taken from the shorter side so a seam is never denser than the shorter of the
+  two. A seam of one run on each side draws exactly what it drew before this
+  change, which is the regression the probe pins
+  (`.agents/scratch/probe_m2n_connectors.py`).
+- **The stitch pairs come from the linked pieces, not from a ratio between the
+  two sides.** An earlier pass zipped the two walks (so it needed the same number
+  of samples on each) and a later one computed each sample's fraction of its own
+  side and merged by progress; both put something between the seam and its
+  sections, and the second added a division whose rounding decides where a
+  stitch lands. What a seam is, in this model, is the pieces the linking run
+  paired: the merge cut the two sides into pieces that correspond, so the pieces
+  of one side are the partners of the pieces of the other, in stitching order,
+  and their samples are paired in order. `pair_by_sections` does exactly that and
+  divides nothing.
+  The runs of a set are usually the pieces a pattern was cut into, so they mostly
+  do *not* share a vertex - if they did, one run would have been drawn - and a
+  join is where one side's run ends and the next begins: the piece the run ends
+  at carries the run's own end, which meets the other side's end of that same
+  piece, and the next piece's first sample meets the same point. The pair is made
+  twice and dropped once. The engine takes that as it is - the stitch list is a
+  list of pairs and the three vertices fall into one cluster - and what it costs
+  is the seam-bending hinge at that one column, which has no mesh edge to derive
+  from: a local loss, not a failure.
+  The guard keeps its job by the same structure: a seam whose two sides were cut
+  into different numbers of pieces is one the linking run did not pair (another
+  seam cut the same edge without the cut being mirrored), and that is what it
+  reports - the nested-run case of task 13.3, flagged for the structural reason
+  rather than for a count of samples.
 
 ### D12. Only a plain copy carries seams
 
@@ -412,10 +479,11 @@ follows after an undo.
 - [Offset lines lose material where the source curves tighter than the offset
   distance] -> the de-looping is the documented behaviour, and a line that
   degenerates completely is reported rather than kept as a tangle.
-- [The many-to-many tolerance is wrong in either direction: too loose hides a
-  real mismatch, too tight refuses a seam that should match] -> the tolerance is
-  one constant, reported with the unmatched remainder, and calibrated by the
-  experiment in the task list instead of being guessed here.
+- [A seam stitches two sides of different lengths, so a difference that was meant
+  as a design - a puff sleeve's gather, a band with ease - is taken up as
+  material rather than refused] -> that is what the merge has always done and
+  what the craft wants; nothing measures the difference, and the only thing that
+  keeps a seam out of the mesh is a walk the two sides cannot pair at all.
 - [The cut's optional seam duplicates a seam the user creates by hand right
   after] -> the option is off by default, and the report names the seam it
   created so a duplicate is visible in the seam list.
@@ -436,9 +504,10 @@ geometry intact.
 
 ## Open Questions
 
-- The many-to-many length tolerance: which value makes "200 mm sewn to 120 + 80"
-  match while a genuinely short side is still reported unmatched? Decided by the
-  experiment in the task list, not by this document.
+- Whether a seam should offer a *gather* report at all - the excess as a length
+  or a ratio, a per-section breakdown, or a warning when one side is longer
+  without the user having asked for a gather. Deferred: the maintainer's call is
+  that a seam stitches by proportion and says nothing about the difference.
 - Multi-mirror instances: several programs allow a single mirror instance so a
   symmetric seam can be maintained; this project allows a chain with several
   mirrors. Whether the chain should stay that way is a separate discussion, and

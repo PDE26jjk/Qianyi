@@ -259,6 +259,16 @@ Two switches are worth the time before a seam is trusted:
 | `qyapi.sewings.sew_at(pattern_a, edge_a, position_a, pattern_b, edge_b, position_b, color=None)` | a position 0..1 on each edge | the new seam |
 | `qyapi.sewings.set_color(index, color)` | index, `[r, g, b]` | the seam |
 | `qyapi.sewings.remove(index)` | index | what was removed |
+| `qyapi.sewings.add_span(index, side, pattern, edge, end_edge=None, pos1=0.0, pos2=1.0, reverse=False)` | seam index, side 1 or 2, the pattern, both ends as an index or a label | the new mapping report |
+| `qyapi.sewings.remove_span(index, side, span)` | seam index, side, run index | the new mapping report |
+| `qyapi.sewings.move_span(index, side, span, offset)` | seam index, side, run index, how far to move it | the new mapping report |
+
+Every seam read reports each side as its list of drawn runs, and carries
+`stitch_count` and `stitch_error`. The two sides of a seam are not compared in
+length: a seam whose sides differ still stitches, by progress along each side,
+because that difference is the material the longer side gathers - a puff sleeve
+into its armhole, a band onto an edge with ease. `stitch_error` is set only when
+the two sides cannot be paired at all.
 
 Both create calls go through the add-on's own click-based sewing: `sew` hands
 over each edge's first point, or the second edge's second point when the flag is
@@ -280,8 +290,12 @@ A colour is used as given, otherwise a random saturated one.
 
 `set_params` writes every parameter and rebuilds **once**, then reports what the
 rebuild did: `in_place`, `rebuilt`, `created`, `removed`, `remapped`,
-`dropped_sewings`, `invalid_patterns`. A parameter the component does not declare
-is refused; a value outside its range is pulled back to the nearest bound.
+`dropped_spans`, `dropped_sewings`, `invalid_patterns`. `dropped_spans` counts
+the drawn runs of a seam whose edge the rebuild could not match (the run goes,
+the seam keeps the rest), and `dropped_sewings` counts the seams left with a side
+holding no run, which the guard reports as incomplete. A parameter the component
+does not declare is refused; a value outside its range is pulled back to the
+nearest bound.
 
 The report also carries `simulation_before` and `simulation_carried`: the mesh
 stage interpolates a pattern's previous simulated positions onto the new mesh, so
@@ -377,11 +391,12 @@ PATTERN   one pattern: its own identity and settings, and the derived data taken
                    .handle1_type, .handle2_type (VECTOR is a straight edge)
     INTERNAL LINE  .edges, .sketch, .is_hole (a cut inside the outline)
 
-SEWING    one seam between two pattern edges
-          .side1 and .side2, each a (edge, position on that edge in 0..1) pair
-          with a reverse flag, which names the pattern it was made on: an edge
-          serves its whole instance chain, so the side's own record is what says
-          which member a seam joins. Plus .color.
+SEWING    one seam between two patterns
+          .side1 and .side2, each a list of drawn runs on one pattern, in the
+          order they were drawn: a run is a start edge and position, an end edge
+          and position, and a reverse flag. The side's own record names the
+          pattern it was made on: an edge serves its whole instance chain, so
+          the record is what says which member a seam joins. Plus .color.
 
 FABRIC    .weight (g/m^2), .thickness (mm), .friction, .stretch, .bending
 
@@ -547,6 +562,11 @@ qyapi.patterns.validate()                             # nothing crossing before 
 
 qyapi.sewings.sew(("collar", 2), (front, 0))          # and flip=True for the other pairing
 qyapi.sewings.of("collar")                            # what is on it now
+
+qyapi.sewings.add_span(0, 2, "collar", "hem")          # one edge to two short ones
+qyapi.sewings.add_span(0, 2, "collar", "hem2")         #   -> one seam, two runs
+qyapi.sewings.move_span(0, 2, 1, -1)                   # stitch them the other way round
+qyapi.sewings.remove_span(0, 2, 0)                     # take the first run back off
 
 qyapi.generators.set_params(torso["name"], {"bust": 108.0})
 # -> report says in_place / dropped_sewings, and simulation_carried

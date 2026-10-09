@@ -463,26 +463,62 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
     def add_sewing(self, side1_line1, side1_pos1, side1_line2, side1_pos2, side1_reverse,
                    side2_line1, side2_pos1, side2_line2, side2_pos2, side2_reverse, update=True,
                    color=None, pattern1=None, pattern2=None):
-        """Add one sewing; `pattern1` / `pattern2` name the patterns it is made on.
+        """Add a one-run seam; the argument order is the editor's own.
+
+        `pattern1` / `pattern2` name the patterns it is made on.
 
         The edges alone cannot say that: one edge serves every member of its
         instance chain. A caller that does not name a pattern gets the one that
         owns the edge's Sketch - the chain's first member - and that is what the
         seam records; a caller making a seam on a copy names that copy.
         """
+        return self.add_sewing_spans(
+            [(side1_line1, side1_pos1, side1_line2, side1_pos2, side1_reverse)],
+            [(side2_line1, side2_pos1, side2_line2, side2_pos2, side2_reverse)],
+            update=update, color=color, pattern1=pattern1, pattern2=pattern2)
+
+    def add_sewing_spans(self, side1, side2, update=True, color=None,
+                         pattern1=None, pattern2=None):
+        """Add one sewing from the drawn runs of each side, in drawing order.
+
+        Each entry is ``(line1, pos1, line2, pos2, reverse)``: one run of a chain
+        on one pattern. A side with one entry is the seam the click-based tool
+        makes; a side with several is a many-to-many seam - a long edge sewn to
+        several short ones - and the runs of one side all lie on one pattern, so
+        the seam still joins exactly two patterns.
+        """
+        if not side1 or not side2:
+            self.last_sewing_error = "a seam needs at least one drawn run on each side"
+            return None
         if pattern1 is None:
-            pattern1 = owner_pattern(side1_line1)
+            pattern1 = owner_pattern(side1[0][0])
         if pattern2 is None:
-            pattern2 = owner_pattern(side2_line1)
+            pattern2 = owner_pattern(side2[0][0])
         if pattern1 is None or pattern2 is None:
             self.last_sewing_error = ("a seam needs the pattern of each side, and "
                                       "these edges name none")
             return None
         sw = self.sewings.add()
-        sw.side1.update_data(side1_line1, side1_pos1, side1_line2, side1_pos2, side1_reverse,
-                             pattern1)
-        sw.side2.update_data(side2_line1, side2_pos1, side2_line2, side2_pos2, side2_reverse,
-                             pattern2)
+
+        def edge_of(line):
+            """An edge, from the object itself or from the uuid a tool stored."""
+            if line is None or isinstance(line, int):
+                return global_data.get_obj_by_uuid(int(line), check_uuid=False)
+            return line
+
+        for side_object, runs in ((sw.side1, side1), (sw.side2, side2)):
+            # loop: one drawn run per step, written onto the side's collection
+            for run in runs:
+                line1, line2 = edge_of(run[0]), edge_of(run[2])
+                if line1 is None or line2 is None:
+                    sw.forget_identity()
+                    self.sewings.remove(len(self.sewings) - 1)
+                    self.last_sewing_error = ("a seam's run names an edge that is "
+                                              "no longer in the scene")
+                    return None
+                side_object.add_span(line1, run[1], line2, run[3], run[4])
+        sw.side1.pattern_uuid = pattern1.global_uuid
+        sw.side2.pattern_uuid = pattern2.global_uuid
         sw.color = normalize_sewing_color(color)
         if update:
             try:
@@ -495,6 +531,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
                 sw.update()
             except Exception as e:
                 console.warning("Failed to add sewing: ", e)
+                sw.forget_identity()
                 self.sewings.remove(len(self.sewings) - 1)
                 # Keep the reason: the add-sewing operator used to show
                 # "sewing overlap!" for every failure, which hid a missing
@@ -542,6 +579,110 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         return self.add_sewing(edge1, first_half[0], edge1, first_half[1], first_half[2],
                                edge2, second_half[0], edge2, second_half[1], second_half[2],
                                color=color, pattern1=pattern1, pattern2=pattern2)
+
+    # ------------------------------------------------------- seam run editing
+
+    def add_sewing_span(self, index, side, line1, pos1, line2, pos2, reverse=False):
+        """Append one drawn run to a side of a seam and re-run its mapping.
+
+        `side` is 1 or 2. The run is appended after the ones already there, which
+        is the order the side is stitched in; the report says how many stitch
+        pairs the mapping has now and how many that changed.
+        """
+        sewing, side_object = self._sewing_side(index, side)
+        if sewing is None:
+            return {"action": "add", "seam": int(index), "error": self.last_sewing_error}
+        before = self._stitch_count(sewing)
+        side_object.add_span(line1, pos1, line2, pos2, reverse)
+        return self._after_span_change(sewing, before, "add")
+
+    def move_sewing_span(self, index, side, span_index, offset):
+        """Move one drawn run of a side earlier or later in the stitching order."""
+        sewing, side_object = self._sewing_side(index, side)
+        if sewing is None:
+            return {"action": "move", "seam": int(index), "error": self.last_sewing_error}
+        spans = side_object.spans
+        if not 0 <= int(span_index) < len(spans):
+            return {"action": "move", "seam": int(index),
+                    "error": f"that side has {len(spans)} drawn run(s)"}
+        target = int(span_index) + int(offset)
+        if not 0 <= target < len(spans) or target == int(span_index):
+            return {"action": "move", "seam": int(index),
+                    "error": f"there is no run at {target}"}
+        before = self._stitch_count(sewing)
+        # A collection entry cannot be inserted at a place; the run is copied,
+        # removed and put back, which is the one way RNA moves an item.
+        held = (int(spans[int(span_index)].line1_uuid), float(spans[int(span_index)].pos1),
+                int(spans[int(span_index)].line2_uuid), float(spans[int(span_index)].pos2),
+                bool(spans[int(span_index)].reverse))
+        side_object.spans.remove(int(span_index))
+        moved = side_object.spans.add()
+        moved.line1_uuid, moved.pos1, moved.line2_uuid, moved.pos2, moved.reverse = held
+        for position in range(len(spans) - 1, target, -1):  # loop: RNA moves one item
+            earlier = spans[position - 1]
+            later = spans[position]
+            swap = (later.line1_uuid, later.pos1, later.line2_uuid, later.pos2, later.reverse)
+            later.line1_uuid, later.pos1 = earlier.line1_uuid, earlier.pos1
+            later.line2_uuid, later.pos2 = earlier.line2_uuid, earlier.pos2
+            later.reverse = earlier.reverse
+            earlier.line1_uuid, earlier.pos1, earlier.line2_uuid, earlier.pos2, \
+                earlier.reverse = swap
+        return self._after_span_change(sewing, before, "move")
+
+    def remove_sewing_span(self, index, side, span_index):
+        """Drop one drawn run from a side of a seam and re-run its mapping.
+
+        A side left with no run is not silently stitched with nothing: the seam
+        keeps existing, the guard reports it as incomplete, and the report names
+        the side that is empty.
+        """
+        sewing, side_object = self._sewing_side(index, side)
+        if sewing is None:
+            return {"action": "remove", "seam": int(index), "error": self.last_sewing_error}
+        spans = side_object.spans
+        if not 0 <= int(span_index) < len(spans):
+            return {"action": "remove", "seam": int(index),
+                    "error": f"that side has {len(spans)} drawn run(s)"}
+        before = self._stitch_count(sewing)
+        side_object.spans.remove(int(span_index))
+        return self._after_span_change(sewing, before, "remove")
+
+    def _sewing_side(self, index, side):
+        """The seam at `index` and the named side of it, or (None, None)."""
+        index = int(index)
+        if not 0 <= index < len(self.sewings):
+            self.last_sewing_error = f"the project has {len(self.sewings)} sewings"
+            return None, None
+        sewing = self.sewings[index]
+        if int(side) == 1:
+            return sewing, sewing.side1
+        if int(side) == 2:
+            return sewing, sewing.side2
+        self.last_sewing_error = f"a seam side is 1 or 2, got {side}"
+        return None, None
+
+    @staticmethod
+    def _stitch_count(sewing):
+        """The stitch pairs a seam has now, or None when it cannot be walked."""
+        try:
+            return int(len(sewing.get_stitch_data()["stitches"]))
+        except Exception:
+            return None
+
+    def _after_span_change(self, sewing, before, action) -> dict:
+        """Link the seam graph again and report what the mapping does now."""
+        patterns = [pattern for pattern in (sewing.pattern1, sewing.pattern2)
+                    if pattern is not None]
+        self.sewings_changed(patterns)
+        after = self._stitch_count(sewing)
+        sewing.need_render_update = True
+        for pattern in patterns:  # loop: the two patterns of one seam, RNA writes
+            pattern.need_sewing_update = True
+        return {"action": action, "seam": sewing.get_index(),
+                "spans": [len(sewing.side1.spans), len(sewing.side2.spans)],
+                "stitch_count": after,
+                "changed": None if before is None or after is None else after - before,
+                "error": sewing.stitch_error}
 
     def setup_sewings_for_simulation(self):
         # self.calc_all_sewings_sections()
@@ -788,6 +929,10 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         """
         indexes = [sewing.get_index() for sewing in self.sewings if sewing.impacted]
         patterns = self.patterns_of(sewing for sewing in self.sewings if sewing.impacted)
+        for sewing in self.sewings:
+            # loop: one seam that is going per step, before any of them goes
+            if sewing.impacted:
+                sewing.forget_identity()
         for index in sorted(indexes, reverse=True):
             self.sewings.remove(index)
         if indexes:
@@ -800,6 +945,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
         """Drop one sewing, by its index in the project's list."""
         sewing = self.sewings[int(index)]
         patterns = self.patterns_of([sewing])
+        sewing.forget_identity()
         self.sewings.remove(int(index))
         self.refresh_collection_uuid(self.sewings)
         self.sewings_changed(patterns)
@@ -877,6 +1023,7 @@ class QianyiProject(bpy.types.NodeTree, ModelData):
                     break
 
         for i in sorted(del_idx_list, reverse=True):
+            self.sewings[i].forget_identity()
             self.sewings.remove(i)
         self.selected_sewings.clear()
         self.refresh_collection_uuid(self.sewings)
@@ -979,6 +1126,9 @@ define_temp_prop(QianyiProject, "last_sewing_error", "")
 # lives on the project the way the fan's two points do - the two halves are two
 # operator runs, and the view stays usable between them.
 define_temp_prop(QianyiProject, "sewing_free_half", None)
+# What the many-to-many sewing tool is holding: the side being drawn, its
+# pattern and the runs drawn for it so far, in drawing order.
+define_temp_prop(QianyiProject, "sewing_m2n", None)
 # The fan tool's gesture, built one click at a time: the pivot, then the target,
 # then the click that opens the angle. It lives on the project because the tool,
 # the operator and the drawing code all have to see the same thing, and because

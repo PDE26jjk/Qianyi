@@ -797,19 +797,29 @@ def _move_sewings(project, made, tables) -> tuple:
             if pattern is None or pattern.global_uuid not in made:
                 placements.append(None)
                 continue
-            placed = [_find_piece(tables, side.line1_uuid, side.pos1),
-                      _find_piece(tables, side.line2_uuid, side.pos2)]
-            keys = {piece["half"] for piece in placed if piece is not None}
-            if len(keys) != 1 or any(piece is None for piece in placed):
+            runs, keys, keep = [], set(), True
+            # loop: one drawn run of that side per step
+            for span in side.spans:
+                placed = [_find_piece(tables, span.line1_uuid, span.pos1),
+                          _find_piece(tables, span.line2_uuid, span.pos2)]
+                landed = {piece["half"] for piece in placed if piece is not None}
+                if len(landed) != 1 or any(piece is None for piece in placed):
+                    keep = False
+                    break
+                keys |= landed
+                runs.append((placed, _repoint(placed[0], span.pos1),
+                             _repoint(placed[1], span.pos2)))
+            if not keep or len(keys) != 1 or not runs:
+                # A run that lands in two halves, or runs that land in different
+                # ones: a side is on one pattern, so the seam cannot be written
+                # that way and goes.
                 doomed = True
                 placements.append(None)
                 continue
             # Everything that can go wrong - a piece that is not there, a place
             # that cannot be read - is done before the first write, so the loop
             # that writes cannot leave a seam half moved.
-            placements.append((placed, _repoint(placed[0], side.pos1),
-                               _repoint(placed[1], side.pos2),
-                               made[int(side.pattern_uuid)][keys.pop()]))
+            placements.append((runs, made[int(side.pattern_uuid)][keys.pop()]))
         if doomed:
             sides = [side.pattern.name for side in sewing.sides
                      if side.pattern is not None]
@@ -820,14 +830,17 @@ def _move_sewings(project, made, tables) -> tuple:
         for side, placement in zip(sewing.sides, placements):
             if placement is None:
                 continue
-            placed, pos1, pos2, target_uuid = placement
-            side.line1_uuid = int(placed[0]["target"].global_uuid)
-            side.pos1 = pos1
-            side.line2_uuid = int(placed[1]["target"].global_uuid)
-            side.pos2 = pos2
+            runs, target_uuid = placement
+            for span, (placed, pos1, pos2) in zip(side.spans, runs):
+                # loop: one drawn run of that side per step
+                span.line1_uuid = int(placed[0]["target"].global_uuid)
+                span.pos1 = pos1
+                span.line2_uuid = int(placed[1]["target"].global_uuid)
+                span.pos2 = pos2
             side.pattern_uuid = target_uuid
             touched.append(target_uuid)
     for index in sorted(drop_at, reverse=True):
+        project.sewings[index].forget_identity()
         project.sewings.remove(index)
     if drop_at:
         project.refresh_collection_uuid(project.sewings)

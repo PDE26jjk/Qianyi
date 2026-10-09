@@ -77,6 +77,19 @@ class ModelData:
     def try_regain_self(self):
         pass
 
+    def forget_uuid(self) -> None:
+        """Take this object's identity out of the map, before it is removed.
+
+        Removing an item frees the memory its wrapper reads from - an item of a
+        collection is stored in the property group of what holds it, so a seam
+        takes its own sides down with it - and the map keeps answering for the
+        uuid afterwards. One of the ways a removed wrapper answers is a read of
+        freed memory, which takes Blender down instead of raising the
+        ReferenceError `get_obj_by_uuid` guards against. So every removal path
+        drops the identities first, while the wrappers still answer.
+        """
+        global_data.uuid2obj.pop(int(self.global_uuid), None)
+
     def get_index(self):
         return extract_last_bracket_number(self.path_from_id())
 

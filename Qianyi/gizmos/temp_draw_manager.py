@@ -394,22 +394,29 @@ class TempDrawManager:
             renderer.draw_id(side_ids[0], side_ids[1])
 
     def add_sewing_end_points(self, pattern, side, points_renderer) -> None:
-        """Register and draw a half's two ends as points of this pass."""
+        """Register and draw the ends of every run this side is drawn as.
+
+        A side holds one or more drawn runs now, so this is every run's two ends.
+        They share the side's own "start" and "end" ids - the pointer only has to
+        say which end of the side it is on, and the edit tool reads the run the
+        press landed on back from the place under the pointer.
+        """
         try:
-            run, start, travel = sewing_geometry.side_run(side)
+            runs = sewing_geometry.side_runs(side)
         except ValueError:
-            # A half with no length left - a seam being edited - has no ends to
-            # point at.
+            # A side whose spans name edges that are gone has no ends to point at.
             return
-        for kind, distance in (("sewing_start", start), ("sewing_end", start + travel)):
-            # loop: the two ends of one half
-            try:
-                _edge, _pos, point = sewing_geometry.run_place(run, distance)
-            except ValueError:
-                return
-            own = pattern.pick_id(kind, side)
-            self.pick_of_id[own] = (pattern, kind, side.global_uuid)
-            points_renderer.add_point(pattern, point, self.index_to_rgb(own))
+        for _span, run, start, travel in runs:  # loop: one run of the side per step
+            for kind, distance in (("sewing_start", start),
+                                   ("sewing_end", start + travel)):
+                # loop: the two ends of one run
+                try:
+                    _edge, _pos, point = sewing_geometry.run_place(run, distance)
+                except ValueError:
+                    continue
+                own = pattern.pick_id(kind, side)
+                self.pick_of_id[own] = (pattern, kind, side.global_uuid)
+                points_renderer.add_point(pattern, point, self.index_to_rgb(own))
 
     def resolve(self, index):
         """What the last id pass drew at one id: (pattern, kind, element).

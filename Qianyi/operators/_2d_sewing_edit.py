@@ -1,23 +1,23 @@
-"""Move a sewing's half: one end of it, or the half itself.
+"""Move one drawn run of a sewing: one end of it, or the run itself.
 
-Point at a half: its two ends are drawn as points over it, and the one the
-pointer is on is the one a press takes. Press on an end and drag, and that end
-follows the pointer while the half grows or shrinks; press anywhere on the half
-between its ends and it slides along the outline, both ends together, keeping its
-length. What the press takes is what the pass drew under the pointer, so a press
-beside an end is a press on the half. An end dragged past the other one lays the
-half the long way round the outline instead of flipping it over: the run keeps
-the direction it had, and its length wraps at the place the two ends meet, so a
-half can span almost the whole outline. A dragged end snaps to what a seam is
-made against: the outline's vertices, the ends of other halves, and - on a seam
-whose sides are one to one - the place that makes this side exactly as long as
-the other one. A sliding half snaps each of its two ends on its own, each one
-measured where that end is.
+Point at a side: the ends of each of its drawn runs are drawn as points over
+them, and the run the pointer is on is the one a press takes. Press on an end and
+drag, and that end follows the pointer while the run grows or shrinks; press
+anywhere on the run between its ends and it slides along the outline, both ends
+together, keeping its length. What the press takes is what the pass drew under
+the pointer, so a press beside an end is a press on the run. An end dragged past
+the other one lays the run the long way round the outline instead of flipping it
+over: the run keeps the direction it had, and its length wraps at the place the
+two ends meet, so a run can span almost the whole outline. A dragged end snaps to
+what a seam is made against: the outline's vertices, the ends of other runs, and
+- on a seam whose sides are one to one - the place that makes this side exactly
+as long as the other one. A sliding run snaps each of its two ends on its own,
+each one measured where that end is.
 
 Nothing is accumulated: every move asks the drag's own starting shape and the
-pointer where the half would be now, so dragging back and forth is exact and the
-half never drifts. One drag is one undo step, and the seam graph is linked again
-when it is released, because moving a half moves the cuts its seam asked for.
+pointer where the run would be now, so dragging back and forth is exact and the
+run never drifts. One drag is one undo step, and the seam graph is linked again
+when it is released, because moving a run moves the cuts its seam asked for.
 """
 
 import numpy as np
@@ -126,25 +126,41 @@ class NODE_OT_sewing_edit(Operator2DBase, StateOperator):
         self.other = other_side(side.sewing, side)
         # The shape the drag is measured from, and what the press took hold of.
         try:
-            # What the half runs on: the pattern's outline, or the internal line
-            # it was made on.
-            self.run, self.start, self.travel = sewing.side_run(side)
+            # Every drawn run of this side, with the chain each one runs on: the
+            # pattern's outline, or the internal line it was made on.
+            self.runs = sewing.side_runs(side)
         except ValueError as refused:
-            console.info("edit a sewing: this half cannot be measured:", refused)
+            console.info("edit a sewing: this side cannot be measured:", refused)
             self.register_state(RefuseState())
             return
         pointer = place_under(context, project, self.press_location)
-        if (pointer is None
-                or sewing.run_key(pointer[1]) != sewing.run_key(self.run)):
-            console.info("edit a sewing: the pointer is not on the chain of this half")
+        if pointer is None:
+            console.info("edit a sewing: the pointer is not on the chain of this side")
             self.register_state(RefuseState())
             return
+        # Which of the side's runs the press landed on: the one whose own stretch
+        # of the pointer's chain covers the place under it.
+        span_index = sewing.span_under_place(self.runs, sewing.run_key(pointer[1]),
+                                             pointer[2])
+        if span_index is None:
+            console.info("edit a sewing: the pointer is not on the chain of this side")
+            self.register_state(RefuseState())
+            return
+        self.span_index = span_index
+        # The run the press took is read back through `span()` when the drag is
+        # written - a run is a place in its side's list, not an object of its own
+        # - so what is kept of it here is only the record the write compares
+        # against. Keeping the wrapper itself in `self.span` would shadow that
+        # read, which is what made a finished drag raise "SewingSpan object is
+        # not callable".
+        taken, self.run, self.start, self.travel = self.runs[span_index]
         self.candidates = sewing.run_candidates(project, self.run,
                                                 exclude_side_uuid=self.side_uuid)
-        # What the half is now, so a move the linking run refuses can be taken
-        # back without touching the seam's own data.
-        self.before = (side.line1_uuid, float(side.pos1), side.line2_uuid,
-                       float(side.pos2), bool(side.reverse))
+        # What the run is now, so a move the linking run refuses can be taken back
+        # without touching the seam's own data.
+        self.before = (taken.line1_uuid, float(taken.pos1),
+                       taken.line2_uuid, float(taken.pos2),
+                       bool(taken.reverse))
         self.press_place = pointer[2]
         self.pointer_region = tuple(self.press_location)
         self.press_view = region2view_coord(context, self.press_location)
@@ -167,7 +183,7 @@ class NODE_OT_sewing_edit(Operator2DBase, StateOperator):
     # ------------------------------------------------------------- the drag
 
     def pointer_moved(self, state: IState, context: Context):
-        """One move: take the pointer's place on the chain the half runs on."""
+        """One move: take the pointer's place on the chain the run runs on."""
         self.pointer_view = region2view_coord(context, tuple(state.point_position))
         self.pointer_region = tuple(state.point_position)
         if float(np.linalg.norm(np.asarray(self.pointer_view)
@@ -177,7 +193,7 @@ class NODE_OT_sewing_edit(Operator2DBase, StateOperator):
         pointer = place_under(context, self.project, tuple(state.point_position))
         if (pointer is None
                 or sewing.run_key(pointer[1]) != sewing.run_key(self.run)):
-            # Off this half's chain: the half keeps the shape it last had.
+            # Off this run's chain: the run keeps the shape it last had.
             return
         self.pointer_place = pointer[2]
         self.updated = True
@@ -260,10 +276,12 @@ class NODE_OT_sewing_edit(Operator2DBase, StateOperator):
         return place
 
     def equal_length_place(self, context: Context, fixed, end_view):
-        """The place that makes this half as long as the one it is sewn to.
+        """The place that makes this run as long as the one it is sewn to.
 
-        It is measured from the end that is not moving, in the direction the half
+        It is measured from the end that is not moving, in the direction the run
         is drawn, and it only answers when the end being placed is close to it.
+        The length to match is the other side's own: a side drawn as several runs
+        has no single length to match, so nothing is offered there.
         """
         if self.other is None or self.other.pattern is None:
             return None
@@ -308,25 +326,30 @@ class NODE_OT_sewing_edit(Operator2DBase, StateOperator):
             return
         side = self.side()
         if side is None:
-            console.info("edit a sewing: the half this drag was started on is gone")
+            console.info("edit a sewing: the side this drag was started on is gone")
+            self.return_state = ReturnState.CANCELLED
+            return
+        span = self.span()
+        if span is None:
+            console.info("edit a sewing: the run this drag was started on is gone")
             self.return_state = ReturnState.CANCELLED
             return
         first_edge, first_pos, _point = sewing.run_place(self.run, places[0])
         second_edge, second_pos, _point = sewing.run_place(self.run, places[0] + places[1])
-        side.update_data(first_edge, first_pos, second_edge, second_pos,
-                         places[1] < 0.0, pattern=self.pattern)
+        span.update_data(first_edge, first_pos, second_edge, second_pos,
+                         bool(places[1] < 0.0))
         seam = side.sewing
-        # Moving a half moves the cuts its seam asked for: the seam graph is
+        # Moving a run moves the cuts its seam asked for: the seam graph is
         # linked again (and the guard looks at it, so a seam this edit made
         # impossible is flagged instead of breaking the mesh later).
         try:
             self.project.sewings_changed([self.pattern])
         except Exception as refused:  # noqa: BLE001 - the linker's reason is the report
             # The edit asked for a seam graph the linker will not have - two runs
-            # crossing each other, say. The half goes back to what it was and the
+            # crossing each other, say. The run goes back to what it was and the
             # graph is linked again, so a refused drag leaves the project as it
             # found it instead of half edited.
-            self.restore(side)
+            self.restore(span)
             try:
                 self.project.sewings_changed([self.pattern])
             except Exception as again:  # noqa: BLE001
@@ -341,22 +364,35 @@ class NODE_OT_sewing_edit(Operator2DBase, StateOperator):
             for pattern in (seam.pattern1, seam.pattern2):  # loop: the two patterns
                 if pattern is not None:
                     pattern.need_sewing_update = True
-        console.info(f"edit a sewing: the half is {abs(places[1]):.2f} mm long now, "
+        console.info(f"edit a sewing: the run is {abs(places[1]):.2f} mm long now, "
                      f"{'the other way round' if places[1] < 0.0 else 'the same way round'}")
 
     def side(self):
-        """The half this drag took, read back by identity."""
+        """The side this drag took, read back by identity."""
         found = global_data.get_obj_by_uuid(self.side_uuid, check_uuid=False)
         return found if isinstance(found, SewingOneSide) else None
 
-    def restore(self, side) -> None:
-        """Put a half back to the record this drag started from."""
+    def span(self):
+        """The drawn run this drag took, read back from its side and its place.
+
+        A run has no identity of its own - it is a place in its side's list - so
+        it is read back by the index it had when the press was taken. An edit that
+        removed a run from the side leaves the index answering another one, and
+        the record the drag started from is what says whether that happened.
+        """
+        side = self.side()
+        if side is None or not 0 <= self.span_index < len(side.spans):
+            return None
+        return side.spans[self.span_index]
+
+    def restore(self, span) -> None:
+        """Put a drawn run back to the record this drag started from."""
         line1_uuid, pos1, line2_uuid, pos2, reverse = self.before
-        side.line1_uuid = line1_uuid
-        side.pos1 = pos1
-        side.line2_uuid = line2_uuid
-        side.pos2 = pos2
-        side.reverse = reverse
+        span.line1_uuid = line1_uuid
+        span.pos1 = pos1
+        span.line2_uuid = line2_uuid
+        span.pos2 = pos2
+        span.reverse = reverse
 
     def handle_failure(self, context: Context, state: IState):
         self.return_state = ReturnState.CANCELLED

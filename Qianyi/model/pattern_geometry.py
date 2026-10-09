@@ -438,14 +438,17 @@ def _sewing_ends_on(pattern, entries) -> list:
     ends = []
     for sewing_index, sewing in enumerate(pattern.project.sewings):
         for side_index, side in enumerate(sewing.sides):
-            for which, uuid_value, pos in ((1, side.line1_uuid, side.pos1),
-                                           (2, side.line2_uuid, side.pos2)):
-                points = run.get(uuid_value)
-                if points is None:
-                    continue
-                arc, point = _sewing_end_at(points, pos)
-                ends.append({"sewing": sewing_index, "side": side_index, "which": which,
-                             "uuid": uuid_value, "arc": arc, "point": point})
+            # loop: one drawn run of that side per step
+            for span_index, span in enumerate(side.spans):
+                for which, uuid_value, pos in ((1, span.line1_uuid, span.pos1),
+                                               (2, span.line2_uuid, span.pos2)):
+                    points = run.get(uuid_value)
+                    if points is None:
+                        continue
+                    arc, point = _sewing_end_at(points, pos)
+                    ends.append({"sewing": sewing_index, "side": side_index,
+                                 "span": span_index, "which": which,
+                                 "uuid": uuid_value, "arc": arc, "point": point})
     return ends
 
 
@@ -500,10 +503,14 @@ def _remap_sewing_ends_on(pattern, ends, pieces, trimmed=False) -> int:
         lengths = cumulative_length(points)
         pos = float(lengths[index] / lengths[-1]) if lengths[-1] > 0 else 0.0
         side = pattern.project.sewings[end["sewing"]].sides[end["side"]]
+        if not 0 <= end["span"] < len(side.spans):
+            # The run was dropped from the seam since the ends were collected.
+            continue
+        span = side.spans[end["span"]]
         if end["which"] == 1:
-            side.line1_uuid, side.pos1 = chosen[0], pos
+            span.line1_uuid, span.pos1 = chosen[0], pos
         else:
-            side.line2_uuid, side.pos2 = chosen[0], pos
+            span.line2_uuid, span.pos2 = chosen[0], pos
         moved += 1
     return moved
 

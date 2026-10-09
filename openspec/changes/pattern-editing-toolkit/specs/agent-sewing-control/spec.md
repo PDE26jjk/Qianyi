@@ -4,10 +4,11 @@
 
 Reading SHALL report every seam with both sides - each side a set of one or more
 spans in drawing order, and each span a pattern, an edge index, an edge label, a
-position range and a direction flag - plus the colour, the stitch count and, for
-a seam whose sides could not be matched, the unmatched remainder. A seam SHALL
-be recolourable and removable by its index. Reading the seams of one pattern SHALL
-report the same entries with that pattern's spans marked.
+position range and a direction flag - plus the colour and the stitch count. The
+read SHALL NOT compare the two sides' lengths: a seam whose sides are different
+lengths is stitched by proportion, and nothing about the difference is reported.
+A seam SHALL be recolourable and removable by its index. Reading the seams of one
+pattern SHALL report the same entries with that pattern's spans marked.
 
 #### Scenario: The full list
 
@@ -27,7 +28,12 @@ report the same entries with that pattern's spans marked.
 #### Scenario: A many-to-many seam reads back with its spans
 
 - **WHEN** a seam created from several spans on each side is read
-- **THEN** each side reports its spans in order, and the entry reports the stitch count and the unmatched remainder
+- **THEN** each side reports its spans in order, and the entry reports the stitch count
+
+#### Scenario: A gathered seam reads back like any other
+
+- **WHEN** a seam whose sides are different lengths is read
+- **THEN** the entry reads back with its spans and its stitch count, and carries nothing about the difference between the sides
 
 #### Scenario: Spans that are not adjacent read back as drawn
 

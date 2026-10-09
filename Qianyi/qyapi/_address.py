@@ -184,8 +184,25 @@ def edge_ref(pattern, index):
             "label": edge.name or None, "kind": edge.kind}
 
 
+def span_entry(side, pattern_name, span):
+    """One drawn run of a sewing side, as plain data."""
+    try:
+        line1, line2 = span.line1, span.line2
+        label = None if line1 is None else (line1.name or None)
+        index = None if line1 is None else line1.get_index()
+        end_label = None if line2 is None else (line2.name or None)
+        end_index = None if line2 is None else line2.get_index()
+    except Exception:
+        label, index, end_label, end_index = None, None, None, None
+    return {"pattern": pattern_name,
+            "edge_index": index, "edge_label": label,
+            "end_edge_index": end_index, "end_edge_label": end_label,
+            "pos1": float(span.pos1), "pos2": float(span.pos2),
+            "reverse": bool(span.reverse)}
+
+
 def side_entry(sewing, side_number):
-    """One side of a sewing, as plain data.
+    """One side of a sewing, as plain data: its pattern and its drawn runs.
 
     The pattern is the side's own record - the member the seam was made on - and
     not the owner of the edge it runs along: an edge serves its whole instance
@@ -196,13 +213,10 @@ def side_entry(sewing, side_number):
     try:
         pattern = side.pattern
         pattern_name = None if pattern is None else pattern.name
-        label = side.line1.name or None
-        index = side.line1.get_index()
     except Exception:
-        pattern_name, label, index = None, None, None
-    return {"side": side_number, "pattern": pattern_name, "edge_index": index,
-            "edge_label": label, "pos1": float(side.pos1), "pos2": float(side.pos2),
-            "reverse": bool(side.reverse)}
+        pattern_name = None
+    return {"side": side_number, "pattern": pattern_name,
+            "spans": [span_entry(side, pattern_name, span) for span in side.spans]}
 
 
 def sewing_entry(project, sewing, index, section_error=None):

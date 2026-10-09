@@ -28,7 +28,7 @@ import bpy
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ADDON_PATH = os.path.join(REPO, "Qianyi")
-QYIDP_BUILD = r"R:\code\cuda\qmyidp\build\Release"
+QYIDP_BUILD = os.environ.get("QYDP_PYD_DIR", r"R:\code\cuda\qmyidp\build\Release")
 FAILURES = []
 
 
@@ -259,3 +259,4 @@ if __name__ == "__main__":
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(status)
+
